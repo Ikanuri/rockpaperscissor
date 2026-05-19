@@ -76,8 +76,10 @@ export function countdownText(n: string): string {
   return n;
 }
 
-export function revealText(session: GameSession): string {
-  return `${EMOJI[session.hostChoice!]} vs ${EMOJI[session.opponentChoice!]}`;
+export function revealText(session: GameSession, perspective: 'host' | 'opponent'): string {
+  return perspective === 'host'
+    ? EMOJI[session.hostChoice!]
+    : EMOJI[session.opponentChoice!];
 }
 
 export function resultText(
@@ -156,11 +158,10 @@ export async function runCountdownAndReveal(
     await sleep(1000);
   }
 
-  // Reveal both choices simultaneously
-  const reveal = revealText(session);
+  // Reveal each player's own choice simultaneously
   await Promise.all([
-    editInlineMessage(token, h, reveal),
-    editInlineMessage(token, o, reveal),
+    editInlineMessage(token, h, revealText(session, 'host')),
+    editInlineMessage(token, o, revealText(session, 'opponent')),
   ]);
   await sleep(3000);
 
