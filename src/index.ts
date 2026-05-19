@@ -6,11 +6,6 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method !== 'POST') return new Response('OK');
 
-    const secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
-    if (env.WEBHOOK_SECRET && secret !== env.WEBHOOK_SECRET) {
-      return new Response('Unauthorized', { status: 401 });
-    }
-
     try {
       const update = await request.json<TelegramUpdate>();
 

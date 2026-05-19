@@ -36,7 +36,6 @@ export interface UserStats {
 export interface Env {
   GAME_SESSIONS: KVNamespace;
   BOT_TOKEN: string;
-  WEBHOOK_SECRET: string;
   BOT_USERNAME: string;
 }
 
