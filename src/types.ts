@@ -88,6 +88,14 @@ export interface InlineKeyboardMarkup {
   inline_keyboard: InlineKeyboardButton[][];
 }
 
+export interface RematchMeta {
+  hostUserId: number;
+  hostName: string;
+  opponentUserId: number;
+  opponentName: string;
+  mode: GameMode;
+}
+
 export interface InlineQueryResultArticle {
   type: 'article';
   id: string;
