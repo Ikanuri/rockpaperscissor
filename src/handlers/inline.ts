@@ -41,12 +41,6 @@ function choiceResults(forJoin: boolean, env: Env): InlineResult[] {
       title: EMOJI[choice],
       input_message_content: { message_text: initText },
       reply_markup: PLACEHOLDER_KEYBOARD,
-      thumbnail_url: `https://em-content.zobj.net/source/twitter/376/${
-        choice === 'rock' ? 'raised-fist_270a' :
-        choice === 'paper' ? 'raised-hand_270b' : 'victory-hand_270c-fe0f'
-      }.png`,
-      thumbnail_width: 72,
-      thumbnail_height: 72,
     };
   });
 }

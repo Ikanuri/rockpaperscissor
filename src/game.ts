@@ -76,7 +76,7 @@ function gameHeader(session: GameSession): string {
 
 export function waitingText(session: GameSession, botUsername: string): string {
   const modeTag = session.mode === 'best_of_3' ? ' 🏆 Best of 3' : '';
-  return `🟢 ${session.hostName} is ready!${modeTag}\ntype @${botUsername} ${session.gameId} to join`;
+  return `🟢 ${session.hostName} is ready!${modeTag}\nType \`@${botUsername} ${session.gameId}\` to join`;
 }
 
 export function expiringText(session: GameSession, botUsername: string): string {
@@ -174,7 +174,7 @@ export async function runCountdownAndReveal(
     editInlineMessage(token, h, revealText(session, 'host')),
     editInlineMessage(token, o, revealText(session, 'opponent')),
   ]);
-  await sleep(3000);
+  await sleep(5000);
 
   const roundOutcome = determineWinner(session.hostChoice!, session.opponentChoice!);
 
