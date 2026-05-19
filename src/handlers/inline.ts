@@ -1,7 +1,7 @@
 import type { InlineQuery, ChosenInlineResult, Env, GameSession, Choice, InlineResult } from '../types';
 import { answerInlineQuery, editInlineMessage } from '../telegram';
 import {
-  LABEL,
+  EMOJI,
   formatUser,
   generateId,
   waitingText,
@@ -38,8 +38,8 @@ function choiceResults(forJoin: boolean, env: Env): InlineResult[] {
     return {
       type: 'article' as const,
       id: choice,
-      title: LABEL[choice],
-      description: forJoin ? `Join with ${LABEL[choice]}` : `Challenge with ${LABEL[choice]}`,
+      title: EMOJI[choice],
+      description: forJoin ? `Join with ${EMOJI[choice]}` : `Challenge with ${EMOJI[choice]}`,
       input_message_content: { message_text: initText },
       reply_markup: PLACEHOLDER_KEYBOARD,
       thumbnail_url: `https://em-content.zobj.net/source/twitter/376/${
