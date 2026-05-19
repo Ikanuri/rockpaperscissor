@@ -4,13 +4,18 @@ compatibility_date = "2024-09-19"
 
 [vars]
 # Set to your bot's username WITHOUT the @ symbol
-# Example: BOT_USERNAME = "myrpsbot"
 BOT_USERNAME = "JankensBot"
+# Your Telegram user ID — enables /setthumb, /delthumb, /config via DM
+BOT_OWNER_ID = ""
 # Lottie sticker file_ids — leave empty to use article fallback
-# See README for how to get these from any animated sticker pack
 STICKER_ROCK = ""
 STICKER_PAPER = ""
 STICKER_SCISSORS = ""
+# Custom emoji IDs for premium animated emoji in messages (optional)
+# Get IDs: forward a custom emoji sticker to @RawDataBot, copy custom_emoji_id
+CUSTOM_EMOJI_ROCK = ""
+CUSTOM_EMOJI_PAPER = ""
+CUSTOM_EMOJI_SCISSORS = ""
 
 [[kv_namespaces]]
 binding = "GAME_SESSIONS"

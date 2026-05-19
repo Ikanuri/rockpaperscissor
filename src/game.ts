@@ -1,4 +1,4 @@
-import type { Choice, GameMode, GameSession, InlineKeyboardMarkup, TelegramUser, UserStats } from './types';
+import type { Choice, Env, GameMode, GameSession, InlineKeyboardMarkup, TelegramUser, UserStats } from './types';
 import { editInlineMessage } from './telegram';
 
 export const EMOJI: Record<Choice, string> = {
@@ -12,6 +12,10 @@ export const LABEL: Record<Choice, string> = {
   paper: '✋ Paper',
   scissors: '✌️ Scissors',
 };
+
+export function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 export function formatUser(user: TelegramUser): string {
   return user.username ? `@${user.username}` : user.first_name;
@@ -39,12 +43,35 @@ export function determineWinner(a: Choice, b: Choice): 'a' | 'b' | 'draw' {
   return 'b';
 }
 
+// Returns a <tg-emoji> tag when a custom emoji ID is configured, otherwise plain emoji.
+export function fmtEmoji(choice: Choice, custom: Record<Choice, string>): string {
+  const id = custom[choice];
+  if (id) return `<tg-emoji emoji-id="${id}">${EMOJI[choice]}</tg-emoji>`;
+  return EMOJI[choice];
+}
+
+function customEmojiMap(env: Env): Record<Choice, string> {
+  return {
+    rock: env.CUSTOM_EMOJI_ROCK ?? '',
+    paper: env.CUSTOM_EMOJI_PAPER ?? '',
+    scissors: env.CUSTOM_EMOJI_SCISSORS ?? '',
+  };
+}
+
 export function pickKeyboard(gameId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [[
       { text: '✊', callback_data: `pick:${gameId}:rock` },
       { text: '✋', callback_data: `pick:${gameId}:paper` },
       { text: '✌️', callback_data: `pick:${gameId}:scissors` },
+    ]],
+  };
+}
+
+export function cancelKeyboard(gameId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [[
+      { text: '❌ Cancel', callback_data: `cancel:${gameId}` },
     ]],
   };
 }
@@ -69,37 +96,41 @@ export function rematchPickKeyboard(gameId: string): InlineKeyboardMarkup {
 
 function gameHeader(session: GameSession): string {
   if (session.mode === 'best_of_3') {
-    return `🏆 *Best of 3* • ${session.hostScore}-${session.opponentScore} • Round ${session.currentRound}/3`;
+    return `🏆 <b>Best of 3</b> • ${session.hostScore}-${session.opponentScore} • Round ${session.currentRound}/3`;
   }
   return '';
 }
 
 export function waitingText(session: GameSession, botUsername: string): string {
   const modeTag = session.mode === 'best_of_3' ? ' 🏆 Best of 3' : '';
-  return `🟢 ${session.hostName} is ready!${modeTag}\nType \`@${botUsername} ${session.gameId}\` to join`;
+  return `🟢 ${escHtml(session.hostName)} is ready!${modeTag}\nType <code>@${botUsername} ${session.gameId}</code> to join`;
 }
 
 export function expiringText(session: GameSession, botUsername: string): string {
-  return `${waitingText(session, botUsername)}\n\n⚠️ _Expires soon!_`;
+  return `${waitingText(session, botUsername)}\n\n⚠️ <i>Expires soon!</i>`;
 }
 
 export function countdownText(n: string): string {
   return n;
 }
 
-export function revealText(session: GameSession, perspective: 'host' | 'opponent'): string {
-  return perspective === 'host'
-    ? EMOJI[session.hostChoice!]
-    : EMOJI[session.opponentChoice!];
+export function revealText(
+  session: GameSession,
+  perspective: 'host' | 'opponent',
+  custom: Record<Choice, string>
+): string {
+  const choice = perspective === 'host' ? session.hostChoice! : session.opponentChoice!;
+  return fmtEmoji(choice, custom);
 }
 
 export function resultText(
   matchOutcome: 'a' | 'b' | 'draw',
   perspective: 'host' | 'opponent',
-  session: GameSession
+  session: GameSession,
+  custom: Record<Choice, string>
 ): string {
-  const hE = EMOJI[session.hostChoice!];
-  const oE = EMOJI[session.opponentChoice!];
+  const hE = fmtEmoji(session.hostChoice!, custom);
+  const oE = fmtEmoji(session.opponentChoice!, custom);
   const isHost = perspective === 'host';
 
   let verdict: string;
@@ -116,7 +147,7 @@ export function resultText(
 
 export function nextRoundText(session: GameSession): string {
   const header = gameHeader(session);
-  return `${header ? header + '\n' : ''}${session.hostName} vs ${session.opponentName}\n\nRound ${session.currentRound} — pick your weapon!`;
+  return `${header ? header + '\n' : ''}${escHtml(session.hostName)} vs ${escHtml(session.opponentName!)}\n\nRound ${session.currentRound} — pick your weapon!`;
 }
 
 async function updateStats(
@@ -137,7 +168,8 @@ async function finishGame(
   token: string,
   kv: KVNamespace,
   session: GameSession,
-  matchOutcome: 'a' | 'b' | 'draw'
+  matchOutcome: 'a' | 'b' | 'draw',
+  custom: Record<Choice, string>
 ): Promise<void> {
   const done = { ...session, status: 'done' as const };
   await kv.put(`game:${session.gameId}`, JSON.stringify(done), { expirationTtl: 120 });
@@ -147,16 +179,18 @@ async function finishGame(
 
   const keyboard = rematchKeyboard(session.gameId);
   await Promise.all([
-    editInlineMessage(token, session.hostInlineMessageId, resultText(matchOutcome, 'host', done), keyboard),
-    editInlineMessage(token, session.opponentInlineMessageId!, resultText(matchOutcome, 'opponent', done), keyboard),
+    editInlineMessage(token, session.hostInlineMessageId, resultText(matchOutcome, 'host', done, custom), keyboard),
+    editInlineMessage(token, session.opponentInlineMessageId!, resultText(matchOutcome, 'opponent', done, custom), keyboard),
   ]);
 }
 
 export async function runCountdownAndReveal(
   token: string,
   kv: KVNamespace,
-  session: GameSession
+  session: GameSession,
+  env: Env
 ): Promise<void> {
+  const custom = customEmojiMap(env);
   const h = session.hostInlineMessageId;
   const o = session.opponentInlineMessageId!;
 
@@ -171,15 +205,15 @@ export async function runCountdownAndReveal(
 
   // Reveal each player's own choice simultaneously
   await Promise.all([
-    editInlineMessage(token, h, revealText(session, 'host')),
-    editInlineMessage(token, o, revealText(session, 'opponent')),
+    editInlineMessage(token, h, revealText(session, 'host', custom)),
+    editInlineMessage(token, o, revealText(session, 'opponent', custom)),
   ]);
   await sleep(5000);
 
   const roundOutcome = determineWinner(session.hostChoice!, session.opponentChoice!);
 
   if (session.mode === 'single') {
-    await finishGame(token, kv, session, roundOutcome);
+    await finishGame(token, kv, session, roundOutcome, custom);
     return;
   }
 
@@ -197,7 +231,7 @@ export async function runCountdownAndReveal(
     const matchOutcome: 'a' | 'b' | 'draw' =
       updated.hostScore > updated.opponentScore ? 'a' :
       updated.hostScore < updated.opponentScore ? 'b' : 'draw';
-    await finishGame(token, kv, updated, matchOutcome);
+    await finishGame(token, kv, updated, matchOutcome, custom);
     return;
   }
 

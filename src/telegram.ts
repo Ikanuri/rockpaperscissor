@@ -51,7 +51,19 @@ export function editInlineMessage(
   return call(token, 'editMessageText', {
     inline_message_id: inlineMessageId,
     text,
-    parse_mode: 'Markdown',
+    parse_mode: 'HTML',
     ...(replyMarkup && { reply_markup: replyMarkup }),
+  });
+}
+
+export function sendMessage(
+  token: string,
+  chatId: number,
+  text: string
+): Promise<void> {
+  return call(token, 'sendMessage', {
+    chat_id: chatId,
+    text,
+    parse_mode: 'HTML',
   });
 }

@@ -20,6 +20,8 @@ export async function handleCallbackQuery(
 
   if (action === 'pick' && parts.length === 3) {
     await handlePick(query, env, ctx, parts[1], parts[2] as Choice);
+  } else if (action === 'cancel' && parts.length === 2) {
+    await handleCancel(query, env, parts[1]);
   } else if (action === 'rematch' && parts.length === 2) {
     await handleRematch(query, env, parts[1]);
   } else if (action === 'rpick' && parts.length === 3) {
@@ -69,7 +71,7 @@ async function handlePick(
   await answerCallbackQuery(token, query.id, '🔒 Choice locked!');
 
   if (updated.hostChoice && updated.opponentChoice) {
-    ctx.waitUntil(runCountdownAndReveal(token, env.GAME_SESSIONS, updated));
+    ctx.waitUntil(runCountdownAndReveal(token, env.GAME_SESSIONS, updated, env));
   } else {
     const waitMsg = nextRoundText(updated) + '\n\n✅ One player is ready...';
     const keyboard = pickKeyboard(gameId);
@@ -78,6 +80,35 @@ async function handlePick(
       editInlineMessage(token, session.opponentInlineMessageId!, waitMsg, keyboard),
     ]);
   }
+}
+
+async function handleCancel(
+  query: CallbackQuery,
+  env: Env,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const session = await env.GAME_SESSIONS.get<GameSession>(`game:${gameId}`, 'json');
+
+  if (!session || session.status !== 'waiting') {
+    await answerCallbackQuery(token, query.id, '❌ Game not found or already started.', true);
+    return;
+  }
+
+  if (query.from.id !== session.hostUserId) {
+    await answerCallbackQuery(token, query.id, '❌ Only the host can cancel.', true);
+    return;
+  }
+
+  await env.GAME_SESSIONS.delete(`game:${gameId}`);
+
+  // Decrement rate limit counter
+  const rateKey = `ratelimit:${session.hostUserId}`;
+  const cur = parseInt(await env.GAME_SESSIONS.get(rateKey) ?? '1');
+  if (cur > 0) await env.GAME_SESSIONS.put(rateKey, String(cur - 1), { expirationTtl: 600 });
+
+  await editInlineMessage(token, session.hostInlineMessageId, '❌ Game cancelled.');
+  await answerCallbackQuery(token, query.id);
 }
 
 async function handleRematch(
@@ -104,10 +135,8 @@ async function handleRematch(
     return;
   }
 
-  // Generate a stable rematch game ID derived from the previous one
   const rematchId = `R${prevGameId}`;
 
-  // Ensure meta exists (first click creates it)
   const metaKey = `rematch:${rematchId}:meta`;
   let meta = await env.GAME_SESSIONS.get<RematchMeta>(metaKey, 'json');
   if (!meta) {
@@ -121,7 +150,6 @@ async function handleRematch(
     await env.GAME_SESSIONS.put(metaKey, JSON.stringify(meta), { expirationTtl: 300 });
   }
 
-  // Show weapon picker on this player's message
   const keyboard = rematchPickKeyboard(rematchId);
   await editInlineMessage(token, query.inline_message_id, '🔄 Rematch — pick your weapon!', keyboard);
   await answerCallbackQuery(token, query.id);
@@ -157,7 +185,6 @@ async function handleRpick(
   const myKey = isHost ? `rematch:${rematchId}:host` : `rematch:${rematchId}:opp`;
   const theirKey = isHost ? `rematch:${rematchId}:opp` : `rematch:${rematchId}:host`;
 
-  // Idempotency: already picked
   const existing = await env.GAME_SESSIONS.get(myKey);
   if (existing) {
     await answerCallbackQuery(token, query.id, '✅ Already locked in! Waiting for opponent.', true);
@@ -170,14 +197,12 @@ async function handleRpick(
 
   const theirRaw = await env.GAME_SESSIONS.get(theirKey);
   if (!theirRaw) {
-    // Waiting for the other player
     await editInlineMessage(token, query.inline_message_id, '✅ Locked in! Waiting for opponent...');
     return;
   }
 
   const theirData: { choice: Choice; inlineMessageId: string } = JSON.parse(theirRaw);
 
-  // Both players have picked — build new game session and start countdown
   const newGameId = generateId();
   const hostData = isHost
     ? { choice, inlineMessageId: query.inline_message_id }
@@ -207,12 +232,11 @@ async function handleRpick(
 
   await env.GAME_SESSIONS.put(`game:${newGameId}`, JSON.stringify(session), { expirationTtl: 120 });
 
-  // Clean up rematch keys
   await Promise.all([
     env.GAME_SESSIONS.delete(metaKey),
     env.GAME_SESSIONS.delete(`rematch:${rematchId}:host`),
     env.GAME_SESSIONS.delete(`rematch:${rematchId}:opp`),
   ]);
 
-  ctx.waitUntil(runCountdownAndReveal(token, env.GAME_SESSIONS, session));
+  ctx.waitUntil(runCountdownAndReveal(token, env.GAME_SESSIONS, session, env));
 }

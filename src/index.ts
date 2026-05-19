@@ -1,6 +1,7 @@
 import type { Env, TelegramUpdate } from './types';
 import { handleInlineQuery, handleChosenInlineResult } from './handlers/inline';
 import { handleCallbackQuery } from './handlers/callback';
+import { handleMessage } from './handlers/message';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -15,6 +16,8 @@ export default {
         await handleChosenInlineResult(update.chosen_inline_result, env, ctx);
       } else if (update.callback_query) {
         await handleCallbackQuery(update.callback_query, env, ctx);
+      } else if (update.message) {
+        await handleMessage(update.message, env);
       }
     } catch (err) {
       console.error('Webhook error:', err);

@@ -37,9 +37,13 @@ export interface Env {
   GAME_SESSIONS: KVNamespace;
   BOT_TOKEN: string;
   BOT_USERNAME: string;
+  BOT_OWNER_ID: string;
   STICKER_ROCK: string;
   STICKER_PAPER: string;
   STICKER_SCISSORS: string;
+  CUSTOM_EMOJI_ROCK: string;
+  CUSTOM_EMOJI_PAPER: string;
+  CUSTOM_EMOJI_SCISSORS: string;
 }
 
 export interface TelegramUser {
@@ -49,11 +53,19 @@ export interface TelegramUser {
   is_bot: boolean;
 }
 
+export interface TelegramMessage {
+  message_id: number;
+  from?: TelegramUser;
+  chat: { id: number; type: string };
+  text?: string;
+}
+
 export interface TelegramUpdate {
   update_id: number;
   inline_query?: InlineQuery;
   chosen_inline_result?: ChosenInlineResult;
   callback_query?: CallbackQuery;
+  message?: TelegramMessage;
 }
 
 export interface InlineQuery {

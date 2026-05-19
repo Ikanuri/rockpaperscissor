@@ -2,6 +2,7 @@ import type { InlineQuery, ChosenInlineResult, Env, GameSession, Choice, InlineR
 import { answerInlineQuery, editInlineMessage } from '../telegram';
 import {
   EMOJI,
+  cancelKeyboard,
   formatUser,
   generateId,
   waitingText,
@@ -16,7 +17,20 @@ const PLACEHOLDER_KEYBOARD = {
   inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]],
 };
 
-function choiceResults(forJoin: boolean, env: Env): InlineResult[] {
+async function getThumbUrls(env: Env): Promise<Record<Choice, string | null>> {
+  const [rock, paper, scissors] = await Promise.all([
+    env.GAME_SESSIONS.get('config:thumb:rock'),
+    env.GAME_SESSIONS.get('config:thumb:paper'),
+    env.GAME_SESSIONS.get('config:thumb:scissors'),
+  ]);
+  return { rock, paper, scissors };
+}
+
+function choiceResults(
+  forJoin: boolean,
+  env: Env,
+  thumbs: Record<Choice, string | null>
+): InlineResult[] {
   const initText = forJoin ? '⚔️ Challenge accepted!' : '🎮 Setting up game...';
   const stickerIds: Record<Choice, string> = {
     rock: env.STICKER_ROCK,
@@ -35,12 +49,14 @@ function choiceResults(forJoin: boolean, env: Env): InlineResult[] {
         reply_markup: PLACEHOLDER_KEYBOARD,
       };
     }
+    const thumb = thumbs[choice];
     return {
       type: 'article' as const,
       id: choice,
       title: EMOJI[choice],
       input_message_content: { message_text: initText },
       reply_markup: PLACEHOLDER_KEYBOARD,
+      ...(thumb && { thumbnail_url: thumb, thumbnail_width: 72, thumbnail_height: 72 }),
     };
   });
 }
@@ -63,12 +79,18 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       description: 'Tap to share your stats',
       input_message_content: {
         message_text:
-          `📊 *My RPS Stats*\n━━━━━━━━━━━━━━\n🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}`,
-        parse_mode: 'Markdown',
+          `📊 <b>My RPS Stats</b>\n━━━━━━━━━━━━━━\n🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}`,
+        parse_mode: 'HTML',
       },
     }]);
     return;
   }
+
+  // Pre-fetch article thumbnails (skipped entirely in lottie mode)
+  const useLottie = !!(env.STICKER_ROCK && env.STICKER_PAPER && env.STICKER_SCISSORS);
+  const thumbs = useLottie
+    ? ({ rock: null, paper: null, scissors: null } as Record<Choice, string | null>)
+    : await getThumbUrls(env);
 
   // Join game
   if (GAME_ID_RE.test(q)) {
@@ -103,10 +125,10 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
 
     // Expiry warning: game older than 9 minutes
     if (Date.now() - session.createdAt > 9 * 60 * 1000) {
-      await editInlineMessage(token, session.hostInlineMessageId, expiringText(session, env.BOT_USERNAME));
+      await editInlineMessage(token, session.hostInlineMessageId, expiringText(session, env.BOT_USERNAME), cancelKeyboard(session.gameId));
     }
 
-    await answerInlineQuery(token, query.id, choiceResults(true, env));
+    await answerInlineQuery(token, query.id, choiceResults(true, env, thumbs));
     return;
   }
 
@@ -123,7 +145,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   }
 
   // New game (single round or best of 3)
-  await answerInlineQuery(token, query.id, choiceResults(false, env));
+  await answerInlineQuery(token, query.id, choiceResults(false, env, thumbs));
 }
 
 export async function handleChosenInlineResult(
@@ -160,7 +182,7 @@ export async function handleChosenInlineResult(
     const cur = parseInt(await env.GAME_SESSIONS.get(rateKey) ?? '1');
     if (cur > 0) await env.GAME_SESSIONS.put(rateKey, String(cur - 1), { expirationTtl: 600 });
 
-    ctx.waitUntil(runCountdownAndReveal(token, env.GAME_SESSIONS, updated));
+    ctx.waitUntil(runCountdownAndReveal(token, env.GAME_SESSIONS, updated, env));
     return;
   }
 
@@ -194,5 +216,5 @@ export async function handleChosenInlineResult(
   const count = parseInt(await env.GAME_SESSIONS.get(rateKey) ?? '0');
   await env.GAME_SESSIONS.put(rateKey, String(count + 1), { expirationTtl: 600 });
 
-  await editInlineMessage(token, result.inline_message_id, waitingText(session, env.BOT_USERNAME));
+  await editInlineMessage(token, result.inline_message_id, waitingText(session, env.BOT_USERNAME), cancelKeyboard(gameId));
 }
