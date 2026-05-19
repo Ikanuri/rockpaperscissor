@@ -25,6 +25,8 @@ export async function handleCallbackQuery(
     await handleRematch(query, env, parts[1]);
   } else if (action === 'rpick' && parts.length === 4) {
     await handleRematchPick(query, env, ctx, parts[1], parts[2], parts[3] as Choice);
+  } else {
+    await answerCallbackQuery(env.BOT_TOKEN, query.id);
   }
 }
 
