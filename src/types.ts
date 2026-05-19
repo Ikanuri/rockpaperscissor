@@ -37,6 +37,9 @@ export interface Env {
   GAME_SESSIONS: KVNamespace;
   BOT_TOKEN: string;
   BOT_USERNAME: string;
+  STICKER_ROCK: string;
+  STICKER_PAPER: string;
+  STICKER_SCISSORS: string;
 }
 
 export interface TelegramUser {
@@ -99,3 +102,16 @@ export interface InlineQueryResultArticle {
   thumbnail_width?: number;
   thumbnail_height?: number;
 }
+
+export interface InlineQueryResultCachedSticker {
+  type: 'sticker';
+  id: string;
+  sticker_file_id: string;
+  reply_markup?: InlineKeyboardMarkup;
+  input_message_content?: {
+    message_text: string;
+    parse_mode?: string;
+  };
+}
+
+export type InlineResult = InlineQueryResultArticle | InlineQueryResultCachedSticker;

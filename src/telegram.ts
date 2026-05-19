@@ -1,4 +1,4 @@
-import type { InlineKeyboardMarkup, InlineQueryResultArticle } from './types';
+import type { InlineKeyboardMarkup, InlineResult } from './types';
 
 const API = 'https://api.telegram.org/bot';
 
@@ -20,7 +20,7 @@ async function call(
 export function answerInlineQuery(
   token: string,
   queryId: string,
-  results: InlineQueryResultArticle[]
+  results: InlineResult[]
 ): Promise<void> {
   return call(token, 'answerInlineQuery', {
     inline_query_id: queryId,

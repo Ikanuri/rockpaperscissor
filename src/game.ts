@@ -59,27 +59,25 @@ export function rematchKeyboard(gameId: string): InlineKeyboardMarkup {
 
 function gameHeader(session: GameSession): string {
   if (session.mode === 'best_of_3') {
-    return `🏆 *Best of 3* • ${session.hostScore}-${session.opponentScore} • Round ${session.currentRound}/3\n━━━━━━━━━━━━━━`;
+    return `🏆 *Best of 3* • ${session.hostScore}-${session.opponentScore} • Round ${session.currentRound}/3`;
   }
-  return `🎮 *Rock-Paper-Scissors*\n━━━━━━━━━━━━━━`;
+  return '';
 }
 
 export function waitingText(session: GameSession, botUsername: string): string {
-  return `${gameHeader(session)}\n🟢 ${session.hostName} is ready!\n\nOpponent: type \`@${botUsername} ${session.gameId}\` to join`;
+  return `🟢 ${session.hostName} is ready!\ntype @${botUsername} ${session.gameId} to join`;
 }
 
 export function expiringText(session: GameSession, botUsername: string): string {
-  return `${waitingText(session, botUsername)}\n\n⚠️ _This game expires in ~1 minute!_`;
+  return `${waitingText(session, botUsername)}\n\n⚠️ _Expires soon!_`;
 }
 
-export function countdownText(session: GameSession, n: string): string {
-  return `${gameHeader(session)}\n${session.hostName} vs ${session.opponentName}\n\n*${n}*`;
+export function countdownText(n: string): string {
+  return n;
 }
 
 export function revealText(session: GameSession): string {
-  const hE = EMOJI[session.hostChoice!];
-  const oE = EMOJI[session.opponentChoice!];
-  return `${gameHeader(session)}\n${session.hostName}: *${hE}*\n${session.opponentName}: *${oE}*`;
+  return `${EMOJI[session.hostChoice!]} vs ${EMOJI[session.opponentChoice!]}`;
 }
 
 export function resultText(
@@ -93,18 +91,19 @@ export function resultText(
 
   let verdict: string;
   if (matchOutcome === 'draw') {
-    verdict = "🤝 *It's a draw!*";
+    verdict = "🤝 It's a draw!";
   } else if ((matchOutcome === 'a') === isHost) {
-    verdict = '🏆 *You win!*';
+    verdict = '🏆 You win!';
   } else {
-    verdict = '😔 *Better luck next time!*';
+    verdict = '😔 Better luck next time!';
   }
 
-  return `${gameHeader(session)}\n${verdict}\n\n${session.hostName}: *${hE}* vs ${session.opponentName}: *${oE}*`;
+  return `${verdict}\n${hE} vs ${oE}`;
 }
 
 export function nextRoundText(session: GameSession): string {
-  return `${gameHeader(session)}\n${session.hostName} vs ${session.opponentName}\n\nRound ${session.currentRound} — pick your weapon!`;
+  const header = gameHeader(session);
+  return `${header ? header + '\n' : ''}${session.hostName} vs ${session.opponentName}\n\nRound ${session.currentRound} — pick your weapon!`;
 }
 
 async function updateStats(
@@ -149,12 +148,10 @@ export async function runCountdownAndReveal(
   const o = session.opponentInlineMessageId!;
 
   // Countdown 3 → 2 → 1
-  for (const n of ['3\\.\\.\\.', '2\\.\\.\\.', '1\\.\\.\\.']) {
-    // Use dots without Markdown escaping (legacy Markdown doesn't need it)
-    const label = n.replace(/\\\./g, '.');
+  for (const n of ['3️⃣', '2️⃣', '1️⃣']) {
     await Promise.all([
-      editInlineMessage(token, h, countdownText(session, label)),
-      editInlineMessage(token, o, countdownText(session, label)),
+      editInlineMessage(token, h, countdownText(n)),
+      editInlineMessage(token, o, countdownText(n)),
     ]);
     await sleep(1000);
   }

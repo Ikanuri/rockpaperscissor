@@ -6,6 +6,11 @@ compatibility_date = "2024-09-19"
 # Set to your bot's username WITHOUT the @ symbol
 # Example: BOT_USERNAME = "myrpsbot"
 BOT_USERNAME = "JankensBot"
+# Lottie sticker file_ids — leave empty to use article fallback
+# See README for how to get these from any animated sticker pack
+STICKER_ROCK = ""
+STICKER_PAPER = ""
+STICKER_SCISSORS = ""
 
 [[kv_namespaces]]
 binding = "GAME_SESSIONS"

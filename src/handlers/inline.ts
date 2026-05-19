@@ -1,4 +1,4 @@
-import type { InlineQuery, ChosenInlineResult, Env, GameSession, Choice, InlineQueryResultArticle } from '../types';
+import type { InlineQuery, ChosenInlineResult, Env, GameSession, Choice, InlineResult } from '../types';
 import { answerInlineQuery, editInlineMessage } from '../telegram';
 import {
   LABEL,
@@ -10,29 +10,46 @@ import {
 } from '../game';
 
 const GAME_ID_RE = /^[A-Z2-9]{4}$/;
+const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 
-function choiceResults(forJoin: boolean, gameIdOrMode?: string): InlineQueryResultArticle[] {
-  const choices: Choice[] = ['rock', 'paper', 'scissors'];
-  return choices.map(choice => ({
-    type: 'article' as const,
-    id: choice,
-    title: LABEL[choice],
-    description: forJoin
-      ? `Join game with ${LABEL[choice]}`
-      : `Challenge someone with ${LABEL[choice]}`,
-    input_message_content: {
-      message_text: forJoin ? '⚔️ Challenge accepted!' : '🎮 Setting up game...',
-    },
-    reply_markup: {
-      inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]],
-    },
-    thumbnail_url: `https://em-content.zobj.net/source/twitter/376/${
-      choice === 'rock' ? 'raised-fist_270a' :
-      choice === 'paper' ? 'raised-hand_270b' : 'victory-hand_270c-fe0f'
-    }.png`,
-    thumbnail_width: 72,
-    thumbnail_height: 72,
-  }));
+const PLACEHOLDER_KEYBOARD = {
+  inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]],
+};
+
+function choiceResults(forJoin: boolean, env: Env): InlineResult[] {
+  const initText = forJoin ? '⚔️ Challenge accepted!' : '🎮 Setting up game...';
+  const stickerIds: Record<Choice, string> = {
+    rock: env.STICKER_ROCK,
+    paper: env.STICKER_PAPER,
+    scissors: env.STICKER_SCISSORS,
+  };
+  const useLottie = !!(env.STICKER_ROCK && env.STICKER_PAPER && env.STICKER_SCISSORS);
+
+  return CHOICES.map(choice => {
+    if (useLottie) {
+      return {
+        type: 'sticker' as const,
+        id: choice,
+        sticker_file_id: stickerIds[choice],
+        input_message_content: { message_text: initText },
+        reply_markup: PLACEHOLDER_KEYBOARD,
+      };
+    }
+    return {
+      type: 'article' as const,
+      id: choice,
+      title: LABEL[choice],
+      description: forJoin ? `Join with ${LABEL[choice]}` : `Challenge with ${LABEL[choice]}`,
+      input_message_content: { message_text: initText },
+      reply_markup: PLACEHOLDER_KEYBOARD,
+      thumbnail_url: `https://em-content.zobj.net/source/twitter/376/${
+        choice === 'rock' ? 'raised-fist_270a' :
+        choice === 'paper' ? 'raised-hand_270b' : 'victory-hand_270c-fe0f'
+      }.png`,
+      thumbnail_width: 72,
+      thumbnail_height: 72,
+    };
+  });
 }
 
 export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<void> {
@@ -96,7 +113,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       await editInlineMessage(token, session.hostInlineMessageId, expiringText(session, env.BOT_USERNAME));
     }
 
-    await answerInlineQuery(token, query.id, choiceResults(true, q));
+    await answerInlineQuery(token, query.id, choiceResults(true, env));
     return;
   }
 
@@ -113,7 +130,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   }
 
   // New game (single round or best of 3)
-  await answerInlineQuery(token, query.id, choiceResults(false));
+  await answerInlineQuery(token, query.id, choiceResults(false, env));
 }
 
 export async function handleChosenInlineResult(
