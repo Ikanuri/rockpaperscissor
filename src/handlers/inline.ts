@@ -39,7 +39,6 @@ function choiceResults(forJoin: boolean, env: Env): InlineResult[] {
       type: 'article' as const,
       id: choice,
       title: EMOJI[choice],
-      description: forJoin ? `Join with ${EMOJI[choice]}` : `Challenge with ${EMOJI[choice]}`,
       input_message_content: { message_text: initText },
       reply_markup: PLACEHOLDER_KEYBOARD,
       thumbnail_url: `https://em-content.zobj.net/source/twitter/376/${
