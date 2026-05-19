@@ -5,14 +5,14 @@ compatibility_date = "2024-09-19"
 [vars]
 # Set to your bot's username WITHOUT the @ symbol
 # Example: BOT_USERNAME = "myrpsbot"
-BOT_USERNAME = ""
+BOT_USERNAME = "JankensBot"
 
 [[kv_namespaces]]
 binding = "GAME_SESSIONS"
 # Run: npx wrangler kv namespace create GAME_SESSIONS
 # Then paste the output id below
-id = "REPLACE_WITH_KV_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_ID"
+id = "c8e5c7ebf6264fe9b450f6794d234d8e"
+preview_id = "c8e5c7ebf6264fe9b450f6794d234d8e"
 
 # Secrets — set via CLI (never put real values here):
 #   npx wrangler secret put BOT_TOKEN
