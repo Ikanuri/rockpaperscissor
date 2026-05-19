@@ -57,6 +57,16 @@ export function rematchKeyboard(gameId: string): InlineKeyboardMarkup {
   };
 }
 
+export function rematchPickKeyboard(gameId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [[
+      { text: '✊', callback_data: `rpick:${gameId}:rock` },
+      { text: '✋', callback_data: `rpick:${gameId}:paper` },
+      { text: '✌️', callback_data: `rpick:${gameId}:scissors` },
+    ]],
+  };
+}
+
 function gameHeader(session: GameSession): string {
   if (session.mode === 'best_of_3') {
     return `🏆 *Best of 3* • ${session.hostScore}-${session.opponentScore} • Round ${session.currentRound}/3`;
@@ -65,7 +75,8 @@ function gameHeader(session: GameSession): string {
 }
 
 export function waitingText(session: GameSession, botUsername: string): string {
-  return `🟢 ${session.hostName} is ready!\ntype @${botUsername} ${session.gameId} to join`;
+  const modeTag = session.mode === 'best_of_3' ? ' 🏆 Best of 3' : '';
+  return `🟢 ${session.hostName} is ready!${modeTag}\ntype @${botUsername} ${session.gameId} to join`;
 }
 
 export function expiringText(session: GameSession, botUsername: string): string {
