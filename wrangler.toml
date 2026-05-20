@@ -31,12 +31,41 @@ preview_id = "c8e5c7ebf6264fe9b450f6794d234d8e"
 #   npx wrangler secret put BOT_TOKEN
 #   npx wrangler secret put WEBHOOK_SECRET
 #
-# Optional — Stripe integration (beta):
-#   npx wrangler secret put STRIPE_SECRET_KEY
-#   npx wrangler secret put STRIPE_WEBHOOK_SECRET
-#
-# Webhook registration (update allowed_updates if using Stars payments):
+# Webhook registration:
 #   curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
 #     -d "url=https://rps-bot.<account>.workers.dev" \
 #     -d "secret_token=<WEBHOOK_SECRET>" \
-#     -d 'allowed_updates=["inline_query","chosen_inline_result","callback_query","message","pre_checkout_query"]'
+#     -d 'allowed_updates=["inline_query","chosen_inline_result","callback_query","message"]'
+
+# ─── Beta Environment ────────────────────────────────────────────────────────
+# Deploy: npx wrangler deploy --env beta
+# Secrets: npx wrangler secret put BOT_TOKEN --env beta
+#          npx wrangler secret put WEBHOOK_SECRET --env beta
+#          npx wrangler secret put STRIPE_SECRET_KEY --env beta      (optional)
+#          npx wrangler secret put STRIPE_WEBHOOK_SECRET --env beta  (optional)
+# Webhook: curl "https://api.telegram.org/bot<BETA_TOKEN>/setWebhook" \
+#            -d "url=https://rps-bot-beta.<account>.workers.dev" \
+#            -d "secret_token=<WEBHOOK_SECRET>" \
+#            -d 'allowed_updates=["inline_query","chosen_inline_result","callback_query","message","pre_checkout_query"]'
+
+[env.beta]
+name = "rps-bot-beta"
+
+[env.beta.vars]
+BOT_USERNAME = "JankensBetaBot"
+BOT_OWNER_ID = ""
+STICKER_ROCK = ""
+STICKER_PAPER = ""
+STICKER_SCISSORS = ""
+CUSTOM_EMOJI_ROCK = ""
+CUSTOM_EMOJI_PAPER = ""
+CUSTOM_EMOJI_SCISSORS = ""
+# All beta features enabled
+FEATURE_FLAGS = "donator,gif_thumb,leaderboard,refresh_button,beta_config"
+
+[[env.beta.kv_namespaces]]
+binding = "GAME_SESSIONS"
+# Run: npx wrangler kv namespace create GAME_SESSIONS --env beta
+# Then paste the output id below
+id = "REPLACE_WITH_BETA_KV_ID"
+preview_id = "REPLACE_WITH_BETA_KV_ID"
