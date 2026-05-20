@@ -1,11 +1,9 @@
 import type {
   Choice,
   ChosenInlineResult,
-  GameConfig,
   GameSession,
   InlineQuery,
   InlineResult,
-  LeaderboardEntry,
   Env,
 } from '../types';
 import { answerInlineQuery, editInlineMessage } from '../telegram';
@@ -16,8 +14,6 @@ import {
   waitingText,
   runCountdownAndReveal,
 } from '../game';
-import { loadConfig } from '../config';
-import { isBetaUser } from '../feature';
 
 const GAME_ID_RE = /^[A-Z2-9]{4}$/;
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
@@ -26,12 +22,18 @@ const PLACEHOLDER_KEYBOARD = {
   inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]],
 };
 
-function choiceResults(forJoin: boolean, config: GameConfig): InlineResult[] {
+const LABELS: Record<Choice, string> = {
+  rock: '✊ Rock',
+  paper: '✋ Paper',
+  scissors: '✌️ Scissors',
+};
+
+function choiceResults(forJoin: boolean, env: Env): InlineResult[] {
   const initText = forJoin ? '⚔️ Challenge accepted!' : '🎮 Setting up game...';
+  const envAny = env as unknown as Record<string, string>;
 
   return CHOICES.map(choice => {
-    // Sticker popup (env STICKER_* or user config)
-    const stickerId = config.sticker[choice];
+    const stickerId = envAny[`STICKER_${choice.toUpperCase()}`];
     if (stickerId) {
       return {
         type: 'sticker' as const,
@@ -41,49 +43,12 @@ function choiceResults(forJoin: boolean, config: GameConfig): InlineResult[] {
         reply_markup: PLACEHOLDER_KEYBOARD,
       };
     }
-
-    const thumb = config.thumb[choice];
-
-    if (!thumb) {
-      return {
-        type: 'article' as const,
-        id: choice,
-        title: config.article[choice],
-        input_message_content: { message_text: initText },
-        reply_markup: PLACEHOLDER_KEYBOARD,
-      };
-    }
-
-    if (thumb.type === 'gif') {
-      return {
-        type: 'gif' as const,
-        id: choice,
-        gif_file_id: thumb.value,
-        input_message_content: { message_text: initText },
-        reply_markup: PLACEHOLDER_KEYBOARD,
-      };
-    }
-
-    if (thumb.type === 'sticker') {
-      return {
-        type: 'sticker' as const,
-        id: choice,
-        sticker_file_id: thumb.value,
-        input_message_content: { message_text: initText },
-        reply_markup: PLACEHOLDER_KEYBOARD,
-      };
-    }
-
-    // url
     return {
       type: 'article' as const,
       id: choice,
-      title: config.article[choice],
+      title: LABELS[choice],
       input_message_content: { message_text: initText },
       reply_markup: PLACEHOLDER_KEYBOARD,
-      thumbnail_url: thumb.value,
-      thumbnail_width: 72,
-      thumbnail_height: 72,
     };
   });
 }
@@ -103,29 +68,11 @@ function statsResult(stats: { wins: number; losses: number; draws: number; total
   };
 }
 
-function leaderboardResult(lb: LeaderboardEntry[]): InlineResult {
-  const lines = lb.length > 0
-    ? lb.map((e, i) => `${i + 1}. ${e.name} — ${e.wins}W / ${e.total} games`).join('\n')
-    : 'No games played yet!';
-
-  return {
-    type: 'article',
-    id: 'leaderboard',
-    title: `🏆 Top ${lb.length} Players`,
-    description: lb[0] ? `#1: ${lb[0].name} (${lb[0].wins} wins)` : 'No data yet',
-    input_message_content: {
-      message_text: `🏆 <b>RPS Leaderboard</b>\n━━━━━━━━━━━━━━\n${lines}`,
-      parse_mode: 'HTML',
-    },
-  };
-}
-
 export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<void> {
   const q = query.query.trim().toUpperCase();
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
 
-  // Stats
   if (q === 'STATS') {
     const stats = await kv.get<{ wins: number; losses: number; draws: number; total: number }>(
       `stats:${query.from.id}`,
@@ -135,20 +82,6 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
-  // Leaderboard (beta)
-  if (q === 'TOP') {
-    const beta = await isBetaUser(kv, query.from.id, env.BOT_OWNER_ID ?? '');
-    if (beta) {
-      const lb = await kv.get<LeaderboardEntry[]>('leaderboard', 'json') ?? [];
-      await answerInlineQuery(token, query.id, [leaderboardResult(lb)]);
-      return;
-    }
-  }
-
-  // Load config for this querier (determines popup appearance)
-  const config = await loadConfig(kv, query.from.id, env);
-
-  // Join game
   if (GAME_ID_RE.test(q)) {
     const session = await kv.get<GameSession>(`game:${q}`, 'json');
 
@@ -179,7 +112,6 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       return;
     }
 
-    // Refresh expiry indicator if game is getting old
     if (Date.now() - session.createdAt > 9 * 60 * 1000) {
       await editInlineMessage(
         token,
@@ -189,11 +121,10 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       );
     }
 
-    await answerInlineQuery(token, query.id, choiceResults(true, config));
+    await answerInlineQuery(token, query.id, choiceResults(true, env));
     return;
   }
 
-  // Rate limit: max 3 active games per user
   const rateKey = `ratelimit:${query.from.id}`;
   const active = parseInt(await kv.get(rateKey) ?? '0');
   if (active >= 3) {
@@ -205,8 +136,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
-  // New game (single or BO3)
-  await answerInlineQuery(token, query.id, choiceResults(false, config));
+  await answerInlineQuery(token, query.id, choiceResults(false, env));
 }
 
 export async function handleChosenInlineResult(
@@ -223,7 +153,6 @@ export async function handleChosenInlineResult(
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
 
-  // Opponent joining an existing game
   if (GAME_ID_RE.test(q)) {
     const session = await kv.get<GameSession>(`game:${q}`, 'json');
     if (!session || session.status !== 'waiting' || session.hostUserId === result.from.id) return;
@@ -247,7 +176,6 @@ export async function handleChosenInlineResult(
     return;
   }
 
-  // Host creating a new game
   const mode = q === 'BO3' ? 'best_of_3' : 'single';
   const gameId = generateId();
 

@@ -8,7 +8,6 @@ import {
   runCountdownAndReveal,
   waitingText,
 } from '../game';
-import { handleDonateCallback } from './payment';
 
 export async function handleCallbackQuery(
   query: CallbackQuery,
@@ -30,8 +29,6 @@ export async function handleCallbackQuery(
     await handleRpick(query, env, ctx, parts[1], parts[2] as Choice);
   } else if (action === 'refresh' && parts.length === 2) {
     await handleRefresh(query, env, parts[1]);
-  } else if (action === 'donate') {
-    await handleDonateCallback(query, env);
   } else {
     await answerCallbackQuery(env.BOT_TOKEN, query.id);
   }
@@ -128,7 +125,7 @@ async function handleRematch(
   }
 
   const rematchId = `R${prevGameId}`;
-  // Meta was pre-populated by finishGame — no need to read the (possibly expired) game session
+  // Meta pre-populated by finishGame — works even after the game session TTL expires
   const meta = await env.GAME_SESSIONS.get<RematchMeta>(`rematch:${rematchId}:meta`, 'json');
   if (!meta) {
     await answerCallbackQuery(token, query.id, '❌ Rematch expired. Start a new game.', true);
@@ -181,7 +178,7 @@ async function handleRpick(
     return;
   }
 
-  // Store only the choice; inline message IDs come from the pre-populated meta
+  // Store only the choice — inline message IDs come from the pre-populated meta
   await env.GAME_SESSIONS.put(myKey, JSON.stringify({ choice }), { expirationTtl: 300 });
   await answerCallbackQuery(token, query.id, '🔒 Choice locked!');
 
@@ -204,7 +201,6 @@ async function handleRpick(
     opponentUserId: meta.opponentUserId,
     opponentName: meta.opponentName,
     opponentChoice: oppChoice,
-    // Inline message IDs from meta (pre-populated in finishGame)
     hostInlineMessageId: meta.hostInlineMessageId,
     opponentInlineMessageId: meta.opponentInlineMessageId,
     status: 'playing',
