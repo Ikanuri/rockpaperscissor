@@ -9,7 +9,8 @@ function sleep(ms: number): Promise<void> {
 async function call(
   token: string,
   method: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  maxRetryWait = 10_000
 ): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(`${API}${token}/${method}`, {
@@ -19,7 +20,8 @@ async function call(
     });
     if (res.status === 429) {
       const data = await res.json<{ parameters?: { retry_after?: number } }>();
-      const wait = Math.min((data.parameters?.retry_after ?? 5) * 1000, 10_000);
+      const wait = Math.min((data.parameters?.retry_after ?? 5) * 1000, maxRetryWait);
+      if (wait <= 0) return;
       await sleep(wait);
       continue;
     }
@@ -57,14 +59,15 @@ export function editInlineMessage(
   token: string,
   inlineMessageId: string,
   text: string,
-  replyMarkup?: InlineKeyboardMarkup
+  replyMarkup?: InlineKeyboardMarkup,
+  maxRetryWait?: number
 ): Promise<void> {
   return call(token, 'editMessageText', {
     inline_message_id: inlineMessageId,
     text,
     parse_mode: 'HTML',
     ...(replyMarkup && { reply_markup: replyMarkup }),
-  });
+  }, maxRetryWait);
 }
 
 export function sendMessage(
