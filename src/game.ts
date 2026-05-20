@@ -1,5 +1,17 @@
-import type { Choice, Env, GameMode, GameSession, InlineKeyboardMarkup, TelegramUser, UserStats } from './types';
+import type {
+  Choice,
+  Env,
+  GameConfig,
+  GameMode,
+  GameSession,
+  InlineKeyboardMarkup,
+  LeaderboardEntry,
+  RematchMeta,
+  TelegramUser,
+  UserStats,
+} from './types';
 import { editInlineMessage } from './telegram';
+import { loadConfig } from './config';
 
 export const EMOJI: Record<Choice, string> = {
   rock: '✊',
@@ -26,7 +38,6 @@ export function sleep(ms: number): Promise<void> {
 }
 
 export function generateId(): string {
-  // No O/I/0/1 to avoid confusion when typing the code
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const bytes = new Uint8Array(4);
   crypto.getRandomValues(bytes);
@@ -43,19 +54,12 @@ export function determineWinner(a: Choice, b: Choice): 'a' | 'b' | 'draw' {
   return 'b';
 }
 
-// Returns a <tg-emoji> tag when a custom emoji ID is configured, otherwise plain emoji.
-export function fmtEmoji(choice: Choice, custom: Record<Choice, string>): string {
-  const id = custom[choice];
-  if (id) return `<tg-emoji emoji-id="${id}">${EMOJI[choice]}</tg-emoji>`;
-  return EMOJI[choice];
-}
-
-function customEmojiMap(env: Env): Record<Choice, string> {
-  return {
-    rock: env.CUSTOM_EMOJI_ROCK ?? '',
-    paper: env.CUSTOM_EMOJI_PAPER ?? '',
-    scissors: env.CUSTOM_EMOJI_SCISSORS ?? '',
-  };
+// Renders a config value: numeric string ≥10 chars → <tg-emoji>, otherwise plain text.
+export function fmtEmoji(configValue: string, fallback: string): string {
+  if (/^\d{10,}$/.test(configValue)) {
+    return `<tg-emoji emoji-id="${configValue}">${fallback}</tg-emoji>`;
+  }
+  return configValue;
 }
 
 export function pickKeyboard(gameId: string): InlineKeyboardMarkup {
@@ -101,36 +105,39 @@ function gameHeader(session: GameSession): string {
   return '';
 }
 
-export function waitingText(session: GameSession, botUsername: string): string {
+export function waitingText(
+  session: GameSession,
+  botUsername: string,
+  now = Date.now(),
+  badge = ''
+): string {
+  const remaining = Math.max(1, Math.ceil((session.createdAt + 600_000 - now) / 60_000));
   const modeTag = session.mode === 'best_of_3' ? ' 🏆 Best of 3' : '';
-  return `🟢 ${escHtml(session.hostName)} is ready!${modeTag}\nType <code>@${botUsername} ${session.gameId}</code> to join`;
-}
-
-export function expiringText(session: GameSession, botUsername: string): string {
-  return `${waitingText(session, botUsername)}\n\n⚠️ <i>Expires soon!</i>`;
-}
-
-export function countdownText(n: string): string {
-  return n;
+  const badgeStr = badge ? ` ${badge}` : '';
+  return (
+    `🟢 ${escHtml(session.hostName)}${badgeStr} is ready!${modeTag}\n` +
+    `Type <code>@${botUsername} ${session.gameId}</code> to join\n` +
+    `⏰ ${remaining} min remaining`
+  );
 }
 
 export function revealText(
   session: GameSession,
   perspective: 'host' | 'opponent',
-  custom: Record<Choice, string>
+  config: GameConfig
 ): string {
   const choice = perspective === 'host' ? session.hostChoice! : session.opponentChoice!;
-  return fmtEmoji(choice, custom);
+  return fmtEmoji(config.reveal[choice], EMOJI[choice]);
 }
 
 export function resultText(
   matchOutcome: 'a' | 'b' | 'draw',
   perspective: 'host' | 'opponent',
   session: GameSession,
-  custom: Record<Choice, string>
+  config: GameConfig
 ): string {
-  const hE = fmtEmoji(session.hostChoice!, custom);
-  const oE = fmtEmoji(session.opponentChoice!, custom);
+  const hE = fmtEmoji(config.reveal[session.hostChoice!], EMOJI[session.hostChoice!]);
+  const oE = fmtEmoji(config.reveal[session.opponentChoice!], EMOJI[session.opponentChoice!]);
   const isHost = perspective === 'host';
 
   let verdict: string;
@@ -147,13 +154,32 @@ export function resultText(
 
 export function nextRoundText(session: GameSession): string {
   const header = gameHeader(session);
-  return `${header ? header + '\n' : ''}${escHtml(session.hostName)} vs ${escHtml(session.opponentName!)}\n\nRound ${session.currentRound} — pick your weapon!`;
+  return (
+    `${header ? header + '\n' : ''}` +
+    `${escHtml(session.hostName)} vs ${escHtml(session.opponentName!)}\n\n` +
+    `Round ${session.currentRound} — pick your weapon!`
+  );
+}
+
+async function updateLeaderboard(
+  kv: KVNamespace,
+  userId: number,
+  name: string,
+  stats: UserStats
+): Promise<void> {
+  const lb = await kv.get<LeaderboardEntry[]>('leaderboard', 'json') ?? [];
+  const idx = lb.findIndex(e => e.userId === userId);
+  const entry: LeaderboardEntry = { userId, name, wins: stats.wins, total: stats.total };
+  if (idx >= 0) lb[idx] = entry; else lb.push(entry);
+  lb.sort((a, b) => b.wins - a.wins || b.total - a.total);
+  await kv.put('leaderboard', JSON.stringify(lb.slice(0, 20)));
 }
 
 async function updateStats(
   kv: KVNamespace,
   userId: number,
-  outcome: 'win' | 'loss' | 'draw'
+  outcome: 'win' | 'loss' | 'draw',
+  name?: string
 ): Promise<void> {
   const key = `stats:${userId}`;
   const s = await kv.get<UserStats>(key, 'json') ?? { wins: 0, losses: 0, draws: 0, total: 0 };
@@ -162,6 +188,7 @@ async function updateStats(
   else s.draws++;
   s.total++;
   await kv.put(key, JSON.stringify(s));
+  if (name) await updateLeaderboard(kv, userId, name, s);
 }
 
 async function finishGame(
@@ -169,18 +196,35 @@ async function finishGame(
   kv: KVNamespace,
   session: GameSession,
   matchOutcome: 'a' | 'b' | 'draw',
-  custom: Record<Choice, string>
+  config: GameConfig
 ): Promise<void> {
   const done = { ...session, status: 'done' as const };
-  await kv.put(`game:${session.gameId}`, JSON.stringify(done), { expirationTtl: 120 });
 
-  await updateStats(kv, session.hostUserId, matchOutcome === 'a' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss');
-  await updateStats(kv, session.opponentUserId!, matchOutcome === 'b' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss');
+  // Pre-populate rematch meta so rematch works even after game TTL expires
+  const rematchMeta: RematchMeta = {
+    hostUserId: session.hostUserId,
+    hostName: session.hostName,
+    opponentUserId: session.opponentUserId!,
+    opponentName: session.opponentName!,
+    mode: session.mode,
+    hostInlineMessageId: session.hostInlineMessageId,
+    opponentInlineMessageId: session.opponentInlineMessageId!,
+  };
+
+  await Promise.all([
+    kv.put(`game:${session.gameId}`, JSON.stringify(done), { expirationTtl: 600 }),
+    kv.put(`rematch:R${session.gameId}:meta`, JSON.stringify(rematchMeta), { expirationTtl: 600 }),
+  ]);
+
+  await Promise.all([
+    updateStats(kv, session.hostUserId, matchOutcome === 'a' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss', session.hostName),
+    updateStats(kv, session.opponentUserId!, matchOutcome === 'b' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss', session.opponentName!),
+  ]);
 
   const keyboard = rematchKeyboard(session.gameId);
   await Promise.all([
-    editInlineMessage(token, session.hostInlineMessageId, resultText(matchOutcome, 'host', done, custom), keyboard),
-    editInlineMessage(token, session.opponentInlineMessageId!, resultText(matchOutcome, 'opponent', done, custom), keyboard),
+    editInlineMessage(token, session.hostInlineMessageId, resultText(matchOutcome, 'host', done, config), keyboard),
+    editInlineMessage(token, session.opponentInlineMessageId!, resultText(matchOutcome, 'opponent', done, config), keyboard),
   ]);
 }
 
@@ -190,34 +234,32 @@ export async function runCountdownAndReveal(
   session: GameSession,
   env: Env
 ): Promise<void> {
-  const custom = customEmojiMap(env);
+  const config = await loadConfig(kv, session.hostUserId, env);
   const h = session.hostInlineMessageId;
   const o = session.opponentInlineMessageId!;
 
-  // Countdown 3 → 2 → 1
-  for (const n of ['3️⃣', '2️⃣', '1️⃣']) {
+  for (const n of ['3', '2', '1'] as const) {
+    const emoji = config.countdown[n as '1' | '2' | '3'];
     await Promise.all([
-      editInlineMessage(token, h, countdownText(n)),
-      editInlineMessage(token, o, countdownText(n)),
+      editInlineMessage(token, h, emoji),
+      editInlineMessage(token, o, emoji),
     ]);
     await sleep(1000);
   }
 
-  // Reveal each player's own choice simultaneously
   await Promise.all([
-    editInlineMessage(token, h, revealText(session, 'host', custom)),
-    editInlineMessage(token, o, revealText(session, 'opponent', custom)),
+    editInlineMessage(token, h, revealText(session, 'host', config)),
+    editInlineMessage(token, o, revealText(session, 'opponent', config)),
   ]);
   await sleep(5000);
 
   const roundOutcome = determineWinner(session.hostChoice!, session.opponentChoice!);
 
   if (session.mode === 'single') {
-    await finishGame(token, kv, session, roundOutcome, custom);
+    await finishGame(token, kv, session, roundOutcome, config);
     return;
   }
 
-  // Best of 3: update scores and check if match is over
   const updated = {
     ...session,
     rounds: [...session.rounds, { hostChoice: session.hostChoice!, opponentChoice: session.opponentChoice! }],
@@ -231,11 +273,10 @@ export async function runCountdownAndReveal(
     const matchOutcome: 'a' | 'b' | 'draw' =
       updated.hostScore > updated.opponentScore ? 'a' :
       updated.hostScore < updated.opponentScore ? 'b' : 'draw';
-    await finishGame(token, kv, updated, matchOutcome, custom);
+    await finishGame(token, kv, updated, matchOutcome, config);
     return;
   }
 
-  // Start next round
   const nextRound: GameSession = {
     ...updated,
     currentRound: updated.currentRound + 1,

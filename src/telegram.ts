@@ -2,18 +2,29 @@ import type { InlineKeyboardMarkup, InlineResult } from './types';
 
 const API = 'https://api.telegram.org/bot';
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 async function call(
   token: string,
   method: string,
   body: Record<string, unknown>
 ): Promise<void> {
-  const res = await fetch(`${API}${token}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    console.error(`[tg:${method}]`, await res.text());
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(`${API}${token}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429) {
+      const data = await res.json<{ parameters?: { retry_after?: number } }>();
+      const wait = Math.min((data.parameters?.retry_after ?? 5) * 1000, 10_000);
+      await sleep(wait);
+      continue;
+    }
+    if (!res.ok) console.error(`[tg:${method}]`, await res.text());
+    return;
   }
 }
 
@@ -59,11 +70,46 @@ export function editInlineMessage(
 export function sendMessage(
   token: string,
   chatId: number,
-  text: string
+  text: string,
+  replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
   return call(token, 'sendMessage', {
     chat_id: chatId,
     text,
     parse_mode: 'HTML',
+    ...(replyMarkup && { reply_markup: replyMarkup }),
+  });
+}
+
+export function answerPreCheckoutQuery(
+  token: string,
+  preCheckoutQueryId: string,
+  ok: boolean,
+  errorMessage?: string
+): Promise<void> {
+  return call(token, 'answerPreCheckoutQuery', {
+    pre_checkout_query_id: preCheckoutQueryId,
+    ok,
+    ...(errorMessage && { error_message: errorMessage }),
+  });
+}
+
+export function sendInvoice(
+  token: string,
+  chatId: number,
+  title: string,
+  description: string,
+  payload: string,
+  currency: string,
+  prices: Array<{ label: string; amount: number }>
+): Promise<void> {
+  return call(token, 'sendInvoice', {
+    chat_id: chatId,
+    title,
+    description,
+    payload,
+    provider_token: '',
+    currency,
+    prices,
   });
 }

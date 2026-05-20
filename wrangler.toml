@@ -5,17 +5,20 @@ compatibility_date = "2024-09-19"
 [vars]
 # Set to your bot's username WITHOUT the @ symbol
 BOT_USERNAME = "JankensBot"
-# Your Telegram user ID — enables /setthumb, /delthumb, /config via DM
+# Your Telegram user ID — enables owner DM commands
 BOT_OWNER_ID = ""
-# Lottie sticker file_ids — leave empty to use article fallback
+# Lottie sticker file_ids — leave empty to use article fallback (overridable via /setglobal sticker)
 STICKER_ROCK = ""
 STICKER_PAPER = ""
 STICKER_SCISSORS = ""
-# Custom emoji IDs for premium animated emoji in messages (optional)
+# Custom emoji IDs for animated emoji in reveal/result messages (overridable via /setglobal emoji reveal)
 # Get IDs: forward a custom emoji sticker to @RawDataBot, copy custom_emoji_id
 CUSTOM_EMOJI_ROCK = ""
 CUSTOM_EMOJI_PAPER = ""
 CUSTOM_EMOJI_SCISSORS = ""
+# Comma-separated feature flags (leave empty for stable production)
+# Example for beta: "donator,gif_thumb,leaderboard"
+FEATURE_FLAGS = ""
 
 [[kv_namespaces]]
 binding = "GAME_SESSIONS"
@@ -26,3 +29,14 @@ preview_id = "c8e5c7ebf6264fe9b450f6794d234d8e"
 
 # Secrets — set via CLI (never put real values here):
 #   npx wrangler secret put BOT_TOKEN
+#   npx wrangler secret put WEBHOOK_SECRET
+#
+# Optional — Stripe integration (beta):
+#   npx wrangler secret put STRIPE_SECRET_KEY
+#   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+#
+# Webhook registration (update allowed_updates if using Stars payments):
+#   curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+#     -d "url=https://rps-bot.<account>.workers.dev" \
+#     -d "secret_token=<WEBHOOK_SECRET>" \
+#     -d 'allowed_updates=["inline_query","chosen_inline_result","callback_query","message","pre_checkout_query"]'

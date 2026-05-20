@@ -2,11 +2,13 @@ import type { CallbackQuery, Choice, Env, GameSession, RematchMeta } from '../ty
 import { answerCallbackQuery, editInlineMessage } from '../telegram';
 import {
   generateId,
+  nextRoundText,
   pickKeyboard,
   rematchPickKeyboard,
-  nextRoundText,
   runCountdownAndReveal,
+  waitingText,
 } from '../game';
+import { handleDonateCallback } from './payment';
 
 export async function handleCallbackQuery(
   query: CallbackQuery,
@@ -26,6 +28,10 @@ export async function handleCallbackQuery(
     await handleRematch(query, env, parts[1]);
   } else if (action === 'rpick' && parts.length === 3) {
     await handleRpick(query, env, ctx, parts[1], parts[2] as Choice);
+  } else if (action === 'refresh' && parts.length === 2) {
+    await handleRefresh(query, env, parts[1]);
+  } else if (action === 'donate') {
+    await handleDonateCallback(query, env);
   } else {
     await answerCallbackQuery(env.BOT_TOKEN, query.id);
   }
@@ -102,7 +108,6 @@ async function handleCancel(
 
   await env.GAME_SESSIONS.delete(`game:${gameId}`);
 
-  // Decrement rate limit counter
   const rateKey = `ratelimit:${session.hostUserId}`;
   const cur = parseInt(await env.GAME_SESSIONS.get(rateKey) ?? '1');
   if (cur > 0) await env.GAME_SESSIONS.put(rateKey, String(cur - 1), { expirationTtl: 600 });
@@ -122,32 +127,17 @@ async function handleRematch(
     return;
   }
 
-  const prevSession = await env.GAME_SESSIONS.get<GameSession>(`game:${prevGameId}`, 'json');
-  if (!prevSession || prevSession.status !== 'done') {
-    await answerCallbackQuery(token, query.id, '❌ Game not found.', true);
+  const rematchId = `R${prevGameId}`;
+  // Meta was pre-populated by finishGame — no need to read the (possibly expired) game session
+  const meta = await env.GAME_SESSIONS.get<RematchMeta>(`rematch:${rematchId}:meta`, 'json');
+  if (!meta) {
+    await answerCallbackQuery(token, query.id, '❌ Rematch expired. Start a new game.', true);
     return;
   }
 
-  const isHost = query.from.id === prevSession.hostUserId;
-  const isOpponent = query.from.id === prevSession.opponentUserId;
-  if (!isHost && !isOpponent) {
+  if (query.from.id !== meta.hostUserId && query.from.id !== meta.opponentUserId) {
     await answerCallbackQuery(token, query.id, '❌ This is not your game!', true);
     return;
-  }
-
-  const rematchId = `R${prevGameId}`;
-
-  const metaKey = `rematch:${rematchId}:meta`;
-  let meta = await env.GAME_SESSIONS.get<RematchMeta>(metaKey, 'json');
-  if (!meta) {
-    meta = {
-      hostUserId: prevSession.hostUserId,
-      hostName: prevSession.hostName,
-      opponentUserId: prevSession.opponentUserId!,
-      opponentName: prevSession.opponentName!,
-      mode: prevSession.mode,
-    };
-    await env.GAME_SESSIONS.put(metaKey, JSON.stringify(meta), { expirationTtl: 300 });
   }
 
   const keyboard = rematchPickKeyboard(rematchId);
@@ -191,8 +181,8 @@ async function handleRpick(
     return;
   }
 
-  const myData = JSON.stringify({ choice, inlineMessageId: query.inline_message_id });
-  await env.GAME_SESSIONS.put(myKey, myData, { expirationTtl: 300 });
+  // Store only the choice; inline message IDs come from the pre-populated meta
+  await env.GAME_SESSIONS.put(myKey, JSON.stringify({ choice }), { expirationTtl: 300 });
   await answerCallbackQuery(token, query.id, '🔒 Choice locked!');
 
   const theirRaw = await env.GAME_SESSIONS.get(theirKey);
@@ -201,26 +191,22 @@ async function handleRpick(
     return;
   }
 
-  const theirData: { choice: Choice; inlineMessageId: string } = JSON.parse(theirRaw);
+  const theirData: { choice: Choice } = JSON.parse(theirRaw);
+  const hostChoice = isHost ? choice : theirData.choice;
+  const oppChoice = isHost ? theirData.choice : choice;
 
   const newGameId = generateId();
-  const hostData = isHost
-    ? { choice, inlineMessageId: query.inline_message_id }
-    : theirData;
-  const oppData = isHost
-    ? theirData
-    : { choice, inlineMessageId: query.inline_message_id };
-
   const session: GameSession = {
     gameId: newGameId,
     hostUserId: meta.hostUserId,
     hostName: meta.hostName,
-    hostChoice: hostData.choice,
+    hostChoice,
     opponentUserId: meta.opponentUserId,
     opponentName: meta.opponentName,
-    opponentChoice: oppData.choice,
-    hostInlineMessageId: hostData.inlineMessageId,
-    opponentInlineMessageId: oppData.inlineMessageId,
+    opponentChoice: oppChoice,
+    // Inline message IDs from meta (pre-populated in finishGame)
+    hostInlineMessageId: meta.hostInlineMessageId,
+    opponentInlineMessageId: meta.opponentInlineMessageId,
     status: 'playing',
     mode: meta.mode,
     currentRound: 1,
@@ -239,4 +225,50 @@ async function handleRpick(
   ]);
 
   ctx.waitUntil(runCountdownAndReveal(token, env.GAME_SESSIONS, session, env));
+}
+
+async function handleRefresh(
+  query: CallbackQuery,
+  env: Env,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  if (!query.inline_message_id) {
+    await answerCallbackQuery(token, query.id);
+    return;
+  }
+
+  const session = await env.GAME_SESSIONS.get<GameSession>(`game:${gameId}`, 'json');
+  if (!session) {
+    await answerCallbackQuery(token, query.id, '❌ Game not found.', true);
+    return;
+  }
+
+  if (session.status === 'waiting') {
+    await editInlineMessage(
+      token,
+      query.inline_message_id,
+      waitingText(session, env.BOT_USERNAME, Date.now()),
+      {
+        inline_keyboard: [
+          [{ text: '❌ Cancel', callback_data: `cancel:${gameId}` }],
+          [{ text: '🔄 Refresh', callback_data: `refresh:${gameId}` }],
+        ],
+      }
+    );
+  } else if (session.status === 'playing') {
+    const isParticipant =
+      query.from.id === session.hostUserId ||
+      query.from.id === session.opponentUserId;
+    if (isParticipant) {
+      await editInlineMessage(
+        token,
+        query.inline_message_id,
+        nextRoundText(session) + '\n\nPick your weapon!',
+        pickKeyboard(gameId)
+      );
+    }
+  }
+
+  await answerCallbackQuery(token, query.id, '🔄 Refreshed!');
 }
