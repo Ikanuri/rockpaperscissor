@@ -228,6 +228,10 @@ async function finishGame(
   ]);
 }
 
+// Max retry wait for time-sensitive countdown/reveal edits.
+// Low cap keeps both messages in sync even when one hits a 429.
+const REALTIME_RETRY_MS = 500;
+
 export async function runCountdownAndReveal(
   token: string,
   kv: KVNamespace,
@@ -238,18 +242,27 @@ export async function runCountdownAndReveal(
   const h = session.hostInlineMessageId;
   const o = session.opponentInlineMessageId!;
 
-  for (const n of ['3', '2', '1'] as const) {
-    const emoji = config.countdown[n as '1' | '2' | '3'];
+  const t0 = Date.now();
+  const ticks = (['3', '2', '1'] as const).map(n => config.countdown[n]);
+
+  for (let i = 0; i < ticks.length; i++) {
+    // Wait until exactly i*1000ms after start, compensating for API latency of previous tick
+    const wait = t0 + i * 1000 - Date.now();
+    if (wait > 0) await sleep(wait);
+
     await Promise.all([
-      editInlineMessage(token, h, emoji),
-      editInlineMessage(token, o, emoji),
+      editInlineMessage(token, h, ticks[i], undefined, REALTIME_RETRY_MS),
+      editInlineMessage(token, o, ticks[i], undefined, REALTIME_RETRY_MS),
     ]);
-    await sleep(1000);
   }
 
+  // Reveal exactly 1s after the last tick fires
+  const waitReveal = t0 + 3 * 1000 - Date.now();
+  if (waitReveal > 0) await sleep(waitReveal);
+
   await Promise.all([
-    editInlineMessage(token, h, revealText(session, 'host', config)),
-    editInlineMessage(token, o, revealText(session, 'opponent', config)),
+    editInlineMessage(token, h, revealText(session, 'host', config), undefined, REALTIME_RETRY_MS),
+    editInlineMessage(token, o, revealText(session, 'opponent', config), undefined, REALTIME_RETRY_MS),
   ]);
   await sleep(5000);
 
