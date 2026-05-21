@@ -1,7 +1,6 @@
 export type Choice = 'rock' | 'paper' | 'scissors';
 export type GameMode = 'single' | 'best_of_3';
 export type GameStatus = 'waiting' | 'playing' | 'done';
-export type DonatorTier = 'free' | 'basic' | 'premium';
 
 export interface RoundRecord {
   hostChoice: Choice;
@@ -25,6 +24,7 @@ export interface GameSession {
   opponentScore: number;
   rounds: RoundRecord[];
   createdAt: number;
+  chainId?: string;
 }
 
 export interface UserStats {
@@ -32,32 +32,23 @@ export interface UserStats {
   losses: number;
   draws: number;
   total: number;
+  choices?: { rock: number; paper: number; scissors: number };
 }
 
-export interface DonatorRecord {
-  tier: DonatorTier;
-  expiry: number;
-  method: 'stars' | 'stripe' | 'manual';
+export interface ChainEntry {
+  hostUserId: number;
+  hostName: string;
+  opponentUserId: number;
+  opponentName: string;
+  hostChoice: Choice;
+  opponentChoice: Choice;
+  winner: 'host' | 'opponent' | 'draw';
 }
 
-export interface LeaderboardEntry {
-  userId: number;
-  name: string;
-  wins: number;
-  total: number;
-}
-
-export interface ThumbConfig {
-  type: 'url' | 'gif' | 'sticker';
-  value: string;
-}
-
-export interface GameConfig {
-  countdown: Record<'1' | '2' | '3', string>;
-  reveal: Record<Choice, string>;
-  article: Record<Choice, string>;
-  sticker: Record<Choice, string | null>;
-  thumb: Record<Choice, ThumbConfig | null>;
+export interface ChainMeta {
+  hostUserId: number;
+  opponentUserId: number;
+  mode: GameMode;
 }
 
 export interface Env {
@@ -71,9 +62,6 @@ export interface Env {
   CUSTOM_EMOJI_ROCK: string;
   CUSTOM_EMOJI_PAPER: string;
   CUSTOM_EMOJI_SCISSORS: string;
-  STRIPE_SECRET_KEY?: string;
-  STRIPE_WEBHOOK_SECRET?: string;
-  FEATURE_FLAGS?: string;
   WEBHOOK_SECRET?: string;
 }
 
@@ -89,7 +77,6 @@ export interface TelegramMessage {
   from?: TelegramUser;
   chat: { id: number; type: string };
   text?: string;
-  successful_payment?: SuccessfulPayment;
 }
 
 export interface TelegramUpdate {
@@ -98,7 +85,6 @@ export interface TelegramUpdate {
   chosen_inline_result?: ChosenInlineResult;
   callback_query?: CallbackQuery;
   message?: TelegramMessage;
-  pre_checkout_query?: PreCheckoutQuery;
 }
 
 export interface InlineQuery {
@@ -125,40 +111,15 @@ export interface CallbackQuery {
   chat_instance: string;
 }
 
-export interface PreCheckoutQuery {
-  id: string;
-  from: TelegramUser;
-  currency: string;
-  total_amount: number;
-  invoice_payload: string;
-}
-
-export interface SuccessfulPayment {
-  currency: string;
-  total_amount: number;
-  invoice_payload: string;
-  telegram_payment_charge_id: string;
-  provider_payment_charge_id?: string;
-}
-
 export interface InlineKeyboardButton {
   text: string;
   callback_data?: string;
   url?: string;
+  switch_inline_query_current_chat?: string;
 }
 
 export interface InlineKeyboardMarkup {
   inline_keyboard: InlineKeyboardButton[][];
-}
-
-export interface RematchMeta {
-  hostUserId: number;
-  hostName: string;
-  opponentUserId: number;
-  opponentName: string;
-  mode: GameMode;
-  hostInlineMessageId: string;
-  opponentInlineMessageId: string;
 }
 
 export interface InlineQueryResultArticle {
@@ -187,19 +148,4 @@ export interface InlineQueryResultCachedSticker {
   };
 }
 
-export interface InlineQueryResultCachedGif {
-  type: 'gif';
-  id: string;
-  gif_file_id: string;
-  title?: string;
-  input_message_content: {
-    message_text: string;
-    parse_mode?: string;
-  };
-  reply_markup?: InlineKeyboardMarkup;
-}
-
-export type InlineResult =
-  | InlineQueryResultArticle
-  | InlineQueryResultCachedSticker
-  | InlineQueryResultCachedGif;
+export type InlineResult = InlineQueryResultArticle | InlineQueryResultCachedSticker;
