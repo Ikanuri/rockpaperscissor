@@ -176,6 +176,18 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
+  if (q === 'SYNCSTATS') {
+    await answerInlineQuery(token, query.id, [{
+      type: 'article',
+      id: 'syncstats',
+      title: '🔄 Sync weekly stats',
+      description: 'Copy your all-time stats to this week',
+      input_message_content: { message_text: '🔄 Syncing stats...' },
+      reply_markup: PLACEHOLDER_KEYBOARD,
+    }]);
+    return;
+  }
+
   if (q === 'STATS') {
     const weekKey = getWeekKey();
     const [lifetime, weekly] = await Promise.all([
@@ -341,6 +353,26 @@ export async function handleChosenInlineResult(
       cancelled > 0
         ? `🧹 ${cancelled} game${cancelled > 1 ? 's' : ''} cancelled.`
         : `🧹 No active hosted games found.`
+    );
+    return;
+  }
+
+  if (q === 'SYNCSTATS') {
+    const lifetime = await kv.get<{ wins: number; losses: number; draws: number; total: number }>(
+      `stats:${result.from.id}`, 'json'
+    );
+    if (!lifetime) {
+      await editInlineMessage(token, result.inline_message_id, '📊 No stats found. Play some games first!');
+      return;
+    }
+    const weekKey = getWeekKey();
+    await kv.put(
+      `stats:${result.from.id}:week:${weekKey}`,
+      JSON.stringify({ wins: lifetime.wins, losses: lifetime.losses, draws: lifetime.draws, total: lifetime.total }),
+      { expirationTtl: 7 * 24 * 3600 }
+    );
+    await editInlineMessage(token, result.inline_message_id,
+      `✅ Weekly stats synced!\n🏆 ${lifetime.wins}W · 😔 ${lifetime.losses}L · 🤝 ${lifetime.draws}D`
     );
     return;
   }
