@@ -1,5 +1,5 @@
-import type { Choice, Env, TelegramMessage } from '../types';
-import { sendMessage } from '../telegram';
+import type { Choice, Env, GameSession, TelegramMessage } from '../types';
+import { editInlineMessage, sendMessage } from '../telegram';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 
@@ -8,17 +8,47 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
 
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
+  const parts = msg.text.trim().split(/\s+/);
+  const cmd = parts[0].toLowerCase();
+  const isOwner = String(msg.from.id) === env.BOT_OWNER_ID;
 
-  if (String(msg.from.id) !== env.BOT_OWNER_ID) {
+  // ── Available to all users ──────────────────────────────────────────
+  if (cmd === '/clearhost') {
+    const listKey = `hostgames:${msg.from.id}`;
+    const gameIds = await kv.get<string[]>(listKey, 'json') ?? [];
+    let cancelled = 0;
+    for (const gameId of gameIds) {
+      const session = await kv.get<GameSession>(`game:${gameId}`, 'json');
+      if (session && session.status === 'waiting' && session.hostUserId === msg.from.id) {
+        await Promise.all([
+          kv.delete(`game:${gameId}`),
+          editInlineMessage(token, session.hostInlineMessageId, '❌ Game cancelled.'),
+        ]);
+        cancelled++;
+      }
+    }
+    await Promise.all([
+      kv.delete(listKey),
+      kv.put(`ratelimit:${msg.from.id}`, '0', { expirationTtl: 600 }),
+    ]);
     await sendMessage(token, msg.chat.id,
-      `👋 Use <code>@${env.BOT_USERNAME}</code> inline to play Rock Paper Scissors!\n\n` +
-      `Type <code>@${env.BOT_USERNAME} STATS</code> to check your stats.`
+      cancelled > 0
+        ? `✅ ${cancelled} game${cancelled > 1 ? 's' : ''} cancelled.`
+        : '✅ No active hosted games found.'
     );
     return;
   }
 
-  const parts = msg.text.trim().split(/\s+/);
-  const cmd = parts[0].toLowerCase();
+  // ── Owner-only commands ──────────────────────────────────────────────
+  if (!isOwner) {
+    await sendMessage(token, msg.chat.id,
+      `👋 Use <code>@${env.BOT_USERNAME}</code> inline to play!\n\n` +
+      `<b>Commands:</b>\n` +
+      `/clearhost — Cancel all games you're currently hosting\n\n` +
+      `Inline: <code>@${env.BOT_USERNAME} STATS</code> to check your stats.`
+    );
+    return;
+  }
 
   if (cmd === '/setthumb' && parts.length >= 3) {
     const choice = parts[1].toLowerCase() as Choice;
@@ -46,7 +76,9 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       `<b>Owner Commands:</b>\n` +
       `/setthumb [rock|paper|scissors] &lt;url&gt;\n` +
       `/delthumb [rock|paper|scissors]\n` +
-      `/config`
+      `/config\n\n` +
+      `<b>All Users:</b>\n` +
+      `/clearhost`
     );
   }
 }

@@ -14,6 +14,7 @@ import {
   generateId,
   getWeekKey,
   runRevealAndResult,
+  trackHostedGame,
   waitingKeyboard,
   waitingText,
 } from '../game';
@@ -124,7 +125,8 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       ),
     ]);
     const s = lifetime ?? { wins: 0, losses: 0, draws: 0, total: 0 };
-    const w = weekly ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+    // Fall back to lifetime when no weekly record exists (e.g. bot just launched, or new week not started)
+    const w = weekly ?? s;
     await answerInlineQuery(token, query.id, [statsResult(s, w)]);
     return;
   }
@@ -291,6 +293,7 @@ export async function handleChosenInlineResult(
       await Promise.all([
         kv.put(`game:${newGameId}`, JSON.stringify(session), { expirationTtl: 300 }),
         kv.put(`chain:${chainCode}:active`, newGameId, { expirationTtl: 300 }),
+        trackHostedGame(kv, result.from.id, newGameId),
       ]);
       const rateKey = `ratelimit:${result.from.id}`;
       const count = parseInt(await kv.get(rateKey) ?? '0');
@@ -356,7 +359,10 @@ export async function handleChosenInlineResult(
       lockedToUsername,
     };
 
-    await kv.put(`game:${gameId}`, JSON.stringify(session), { expirationTtl: 600 });
+    await Promise.all([
+      kv.put(`game:${gameId}`, JSON.stringify(session), { expirationTtl: 600 }),
+      trackHostedGame(kv, result.from.id, gameId),
+    ]);
 
     const rateKey = `ratelimit:${result.from.id}`;
     const count = parseInt(await kv.get(rateKey) ?? '0');
@@ -428,7 +434,10 @@ export async function handleChosenInlineResult(
     createdAt: Date.now(),
   };
 
-  await kv.put(`game:${gameId}`, JSON.stringify(session), { expirationTtl: 600 });
+  await Promise.all([
+    kv.put(`game:${gameId}`, JSON.stringify(session), { expirationTtl: 600 }),
+    trackHostedGame(kv, result.from.id, gameId),
+  ]);
 
   const rateKey = `ratelimit:${result.from.id}`;
   const count = parseInt(await kv.get(rateKey) ?? '0');
