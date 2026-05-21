@@ -12,8 +12,8 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 Dua bug annoying diperbaiki sekaligus:
 
-- **Hitung mundur tidak realtime** — 3️⃣2️⃣1️⃣ sebelumnya kadang terasa lambat atau jeda-nya tidak rata. Sekarang dijamin persis 1 detik per angka.
-- **Reveal tidak berbarengan** — Kadang salah satu pemain lihat hasil lebih lambat dari yang lain (bisa sampai beberapa detik selisih). Sekarang keduanya update hampir bersamaan.
+- **Hitung mundur tidak realtime** — 3️⃣2️⃣1️⃣ sebelumnya kadang terasa lambat atau jeda-nya tidak rata. Interval antar angka sekarang jauh lebih konsisten.
+- **Reveal tidak berbarengan** — Kadang salah satu pemain lihat hasil lebih lambat dari yang lain (bisa sampai beberapa detik selisih). Sekarang selisihnya jauh lebih kecil.
 
 ---
 
