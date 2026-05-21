@@ -5,6 +5,35 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [1.4.0] — 2026-05-21
+
+### Added
+- Result messages: both bubbles show `🏆 {winner} wins! / {hostName} {hE} · {opName} {oE}` — spectator-readable without context
+- Match history: `<blockquote expandable>` appended to result after 2+ games in a chain; per-player win/draw/loss row with aggregate score; stored in `chain:<code>:history` (TTL 3600s), written on every `finishGame` regardless of `chainId` so game 1 is on record before the first rematch
+- Rematch chain: `rematchKeyboard` emits `switch_inline_query_current_chat: R<gameId>` (chain code); each rematch creates a new bubble; `chain:<code>:meta` (TTL 300s, reset on each finish) gates access to original two players; `chain:<code>:active` tracks waiting rematch game
+- Weekly stats: `stats:<userId>:week:<YYYY-WNN>` (TTL 7d); per-opponent: `stats:<userId>:vs:<opponentId>`; `UserStats.choices` tracks per-choice counts; `STATS` result shows weekly breakdown and favourite choice
+- `🎮 Join` button on waiting message: `switch_inline_query_current_chat` pre-fills game code (chain code for chain rematch waiting games, gameId otherwise)
+- Inline popup: `🎲 Random` result at top; choice order shuffled per query via Fisher-Yates
+- Private challenge: `@JankensBot @username` or `@JankensBot @username bo3` stores `lockedToUsername` on session; enforced in both `handleInlineQuery` and `handleChosenInlineResult`
+- `GameSession.lockedToUsername?: string`; `ChainEntry`, `ChainMeta` interfaces; `getWeekKey()` utility
+
+### Changed
+- `runCountdownAndReveal` → `runRevealAndResult`: countdown removed; each player sees their own choice emoji for 5s then result; reduces API edits per game from ~6 to ~2, improving sync reliability at scale
+- `waitingText`: removed `Type @bot CODE to join` line; added `🔒 For @username only` when `lockedToUsername` set; `botUsername` param retained but unused
+- `waitingKeyboard(gameId, joinQuery?)`: optional `joinQuery` routes Join button through chain path for chain rematch waiting games
+- `handleCallbackQuery`: `refresh:` and old `rematch:`/`rpick:` actions removed from dispatch
+
+### Removed
+- `🔄 Refresh` button and `handleRefresh` — obsolete with per-rematch new bubbles
+- `rematchPickKeyboard`, `handleRematch`, `handleRpick` callback handlers — replaced by chain `switch_inline_query` flow
+
+### Fixed
+- `chain:<code>:active` not cleaned up when opponent joined via regular `GAME_ID_RE` path (Join button used gameId, not chain code) — caused next rematch to find stale done-game and fail; fixed by routing chain rematch Join button through chain code
+- Game 1 result not written to chain history (no `chainId` on first game) — first rematch had only 1 entry, below `historyBlock`'s 2-entry threshold; now all games write history
+- Chain meta read twice in `finishGame` (two separate `kv.get` calls for same key); replaced with single read + parallel write
+
+---
+
 ## [1.3.1] — 2026-05-20
 
 ### Fixed

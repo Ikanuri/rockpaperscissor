@@ -4,6 +4,82 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v1.4.0 — 21 Mei 2026
+
+### ✨ Fitur Baru
+
+**🏆 Nama pemain di hasil**
+
+Hasil game sekarang menyebut nama pemenang — penonton bisa langsung tahu siapa menang tanpa harus scroll ke atas:
+
+```
+🏆 Andi wins!
+Andi ✊ · Budi ✌️
+```
+
+---
+
+**🔄 Rematch buat bubble baru**
+
+Klik Rematch → popup pilihan senjata terbuka, dan bubble baru terkirim ke chat. Bubble lama tetap ada sebagai arsip. Rematch bisa dilakukan berkali-kali selama kedua pemain klik dalam 5 menit setelah game selesai.
+
+---
+
+**📊 Riwayat pertandingan**
+
+Mulai rematch kedua, hasil menampilkan riwayat sesi yang bisa di-expand:
+
+```
+🏆 Andi wins!
+Andi ✊ · Budi ✌️
+
+📊 3 games · 2–1
+Andi: ✅ ❌ ✅
+Budi: ❌ ✅ ❌
+```
+
+---
+
+**🎮 Tombol Join**
+
+Pesan tunggu sekarang punya tombol **Join** — tap untuk langsung buka popup tanpa ketik kode manual.
+
+---
+
+**🔒 Tantang pemain tertentu**
+
+Buat game khusus untuk satu orang: ketik `@JankensBot @username`. Hanya username itu yang bisa masuk. Juga bisa BO3: `@JankensBot @username BO3`.
+
+---
+
+**🎲 Urutan acak + pilihan random**
+
+Urutan ✊✋✌️ di popup dikocok tiap kali buka. Ada juga opsi **🎲 Random** di paling atas untuk yang mau biarkan nasib yang memutuskan.
+
+---
+
+**📅 Statistik mingguan**
+
+`@JankensBot STATS` sekarang menampilkan statistik minggu ini dan pilihan senjata favoritmu, selain statistik sepanjang masa.
+
+---
+
+### 🔧 Perubahan
+
+- **Countdown 3-2-1 dihapus** — setelah kedua pemain memilih, masing-masing langsung lihat emoji pilihan mereka sendiri selama 5 detik, lalu hasil muncul. Perubahan ini mengurangi jumlah API call per game sehingga sinkronisasi dua pesan lebih baik.
+- **Tombol 🔄 Refresh dihapus** — tidak relevan lagi karena rematch sudah pakai bubble baru.
+- Teks kode game di pesan tunggu dihapus — sudah digantikan tombol Join.
+
+---
+
+### 🐛 Bug Fix
+
+- **Riwayat tidak muncul** — game pertama tidak tersimpan ke riwayat sehingga history baru tampil setelah rematch ketiga. Sekarang muncul mulai rematch pertama.
+- **Rematch lebih dari 2 kali gagal** — lawan yang join lewat tombol Join tidak membersihkan pointer internal, sehingga rematch berikutnya menemukan data lama. Sudah diperbaiki.
+- **Rematch bisa diikuti orang lain** — chain rematch sekarang hanya bisa dipakai oleh dua pemain original.
+
+---
+
 ## v1.3.1 — 20 Mei 2026
 
 ### 🐛 Bug Fix
