@@ -1,5 +1,6 @@
-import type { Choice, Env, GameSession, TelegramMessage } from '../types';
+import type { Choice, Env, GameSession, TelegramMessage, UserStats } from '../types';
 import { editInlineMessage, sendMessage } from '../telegram';
+import { getWeekKey } from '../game';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 
@@ -13,6 +14,24 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   const isOwner = String(msg.from.id) === env.BOT_OWNER_ID;
 
   // ── Available to all users ──────────────────────────────────────────
+  if (cmd === '/syncstats') {
+    const weekKey = getWeekKey();
+    const lifetime = await kv.get<UserStats>(`stats:${msg.from.id}`, 'json');
+    if (!lifetime) {
+      await sendMessage(token, msg.chat.id, '📊 No stats found. Play some games first!');
+      return;
+    }
+    await kv.put(
+      `stats:${msg.from.id}:week:${weekKey}`,
+      JSON.stringify({ wins: lifetime.wins, losses: lifetime.losses, draws: lifetime.draws, total: lifetime.total }),
+      { expirationTtl: 7 * 24 * 3600 }
+    );
+    await sendMessage(token, msg.chat.id,
+      `✅ Weekly stats synced!\n🏆 ${lifetime.wins}W · 😔 ${lifetime.losses}L · 🤝 ${lifetime.draws}D`
+    );
+    return;
+  }
+
   if (cmd === '/clearhost') {
     const listKey = `hostgames:${msg.from.id}`;
     const gameIds = await kv.get<string[]>(listKey, 'json') ?? [];
@@ -44,8 +63,11 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     await sendMessage(token, msg.chat.id,
       `👋 Use <code>@${env.BOT_USERNAME}</code> inline to play!\n\n` +
       `<b>Commands:</b>\n` +
+      `/syncstats — Sync this week's stats with your all-time stats\n` +
       `/clearhost — Cancel all games you're currently hosting\n\n` +
-      `Inline: <code>@${env.BOT_USERNAME} STATS</code> to check your stats.`
+      `<b>Inline shortcuts:</b>\n` +
+      `<code>@${env.BOT_USERNAME} STATS</code> — your stats\n` +
+      `<code>@${env.BOT_USERNAME} clearhost</code> — cancel hosted games`
     );
     return;
   }
