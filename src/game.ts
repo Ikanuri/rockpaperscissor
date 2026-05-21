@@ -268,37 +268,35 @@ async function finishGame(
     ),
   ]);
 
-  // Chain history
-  let history: ChainEntry[] | undefined;
+  // Always track chain history so rematch #1 already has game 1 on record
   const chainCode = session.chainId ?? `R${session.gameId}`;
+  const histKey = `chain:${chainCode}:history`;
+  const prev = await kv.get<ChainEntry[]>(histKey, 'json') ?? [];
+  const entry: ChainEntry = {
+    hostUserId: session.hostUserId,
+    hostName: session.hostName,
+    opponentUserId: session.opponentUserId!,
+    opponentName: session.opponentName!,
+    hostChoice: session.hostChoice!,
+    opponentChoice: session.opponentChoice!,
+    winner: matchOutcome === 'draw' ? 'draw' : matchOutcome === 'a' ? 'host' : 'opponent',
+  };
+  const history = [...prev, entry];
 
-  if (session.chainId) {
-    const histKey = `chain:${session.chainId}:history`;
-    const prev = await kv.get<ChainEntry[]>(histKey, 'json') ?? [];
-    const entry: ChainEntry = {
-      hostUserId: session.hostUserId,
-      hostName: session.hostName,
-      opponentUserId: session.opponentUserId!,
-      opponentName: session.opponentName!,
-      hostChoice: session.hostChoice!,
-      opponentChoice: session.opponentChoice!,
-      winner: matchOutcome === 'draw' ? 'draw' : matchOutcome === 'a' ? 'host' : 'opponent',
-    };
-    history = [...prev, entry];
-    await kv.put(histKey, JSON.stringify(history), { expirationTtl: 3600 });
-  }
-
-  // Store chain meta so the rematch button works (TTL 5 min)
+  // Preserve original player IDs in chain meta across rematches
+  const existingMeta = session.chainId
+    ? await kv.get<ChainMeta>(`chain:${chainCode}:meta`, 'json')
+    : null;
   const chainMeta: ChainMeta = {
-    hostUserId: session.chainId
-      ? (await kv.get<ChainMeta>(`chain:${chainCode}:meta`, 'json'))?.hostUserId ?? session.hostUserId
-      : session.hostUserId,
-    opponentUserId: session.chainId
-      ? (await kv.get<ChainMeta>(`chain:${chainCode}:meta`, 'json'))?.opponentUserId ?? session.opponentUserId!
-      : session.opponentUserId!,
+    hostUserId: existingMeta?.hostUserId ?? session.hostUserId,
+    opponentUserId: existingMeta?.opponentUserId ?? session.opponentUserId!,
     mode: session.mode,
   };
-  await kv.put(`chain:${chainCode}:meta`, JSON.stringify(chainMeta), { expirationTtl: 300 });
+
+  await Promise.all([
+    kv.put(histKey, JSON.stringify(history), { expirationTtl: 3600 }),
+    kv.put(`chain:${chainCode}:meta`, JSON.stringify(chainMeta), { expirationTtl: 300 }),
+  ]);
 
   const keyboard = rematchKeyboard(chainCode);
   const text = resultText(matchOutcome, done, env, history);
