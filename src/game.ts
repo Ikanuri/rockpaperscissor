@@ -69,10 +69,10 @@ export function pickKeyboard(gameId: string): InlineKeyboardMarkup {
   };
 }
 
-export function waitingKeyboard(gameId: string): InlineKeyboardMarkup {
+export function waitingKeyboard(gameId: string, joinQuery?: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
-      [{ text: '🎮 Join', switch_inline_query_current_chat: gameId }],
+      [{ text: '🎮 Join', switch_inline_query_current_chat: joinQuery ?? gameId }],
       [
         { text: '🔄', callback_data: `refresh:${gameId}` },
         { text: '❌ Cancel', callback_data: `cancel:${gameId}` },
@@ -98,14 +98,14 @@ function gameHeader(session: GameSession): string {
 
 export function waitingText(
   session: GameSession,
-  botUsername: string,
+  _botUsername: string,
   now = Date.now()
 ): string {
   const remaining = Math.max(1, Math.ceil((session.createdAt + 600_000 - now) / 60_000));
   const modeTag = session.mode === 'best_of_3' ? ' 🏆 Best of 3' : '';
+  const lockLine = session.lockedToUsername ? `\n🔒 For @${session.lockedToUsername} only` : '';
   return (
-    `🟢 ${escHtml(session.hostName)} is ready!${modeTag}\n` +
-    `Type <code>@${botUsername} ${session.gameId}</code> to join\n` +
+    `🟢 ${escHtml(session.hostName)} is ready!${modeTag}${lockLine}\n` +
     `⏰ ${remaining} min remaining`
   );
 }
