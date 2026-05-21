@@ -1,5 +1,5 @@
-import type { Choice, Env, TelegramMessage } from '../types';
-import { sendMessage } from '../telegram';
+import type { Choice, Env, GameSession, TelegramMessage } from '../types';
+import { editInlineMessage, sendMessage } from '../telegram';
 import { hasFeature } from '../feature';
 import {
   loadConfig,
@@ -45,6 +45,33 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   const parts = msg.text.trim().split(/\s+/);
   const cmd = parts[0].toLowerCase();
 
+  // ── Available to all users ───────────────────────────────────────────
+  if (cmd === '/clearhost') {
+    const listKey = `hostgames:${msg.from.id}`;
+    const gameIds = await kv.get<string[]>(listKey, 'json') ?? [];
+    let cancelled = 0;
+    for (const gameId of gameIds) {
+      const session = await kv.get<GameSession>(`game:${gameId}`, 'json');
+      if (session && session.status === 'waiting' && session.hostUserId === msg.from.id) {
+        await Promise.all([
+          kv.delete(`game:${gameId}`),
+          editInlineMessage(token, session.hostInlineMessageId, '❌ Game cancelled.'),
+        ]);
+        cancelled++;
+      }
+    }
+    await Promise.all([
+      kv.delete(listKey),
+      kv.put(`ratelimit:${msg.from.id}`, '0', { expirationTtl: 600 }),
+    ]);
+    await reply(token, msg.chat.id,
+      cancelled > 0
+        ? `✅ ${cancelled} game${cancelled > 1 ? 's' : ''} cancelled.`
+        : '✅ No active hosted games found.'
+    );
+    return;
+  }
+
   // ── Donate ──────────────────────────────────────────────────────────
   if (cmd === '/donate') {
     if (!canDonate) {
@@ -58,7 +85,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   // ── Per-user config commands ─────────────────────────────────────────
   if (cmd === '/setemoji') {
     if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
-    // /setemoji reveal [rock|paper|scissors] <emoji_or_id>
     if (parts[1]?.toLowerCase() === 'reveal' && parts.length >= 4) {
       const choice = parts[2].toLowerCase() as Choice;
       if (!CHOICES.includes(choice)) {
@@ -79,7 +105,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
 
   if (cmd === '/setsticker') {
     if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
-    // /setsticker [rock|paper|scissors] <file_id>
     if (parts.length >= 3) {
       const choice = parts[1].toLowerCase() as Choice;
       if (!CHOICES.includes(choice)) {
@@ -96,7 +121,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
 
   if (cmd === '/setthumb') {
     if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
-    // /setthumb [rock|paper|scissors] [url|gif|sticker] <value>
     if (parts.length >= 4) {
       const choice = parts[1].toLowerCase() as Choice;
       const type = parts[2].toLowerCase() as 'url' | 'gif' | 'sticker';
@@ -121,8 +145,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
         await reply(token, msg.chat.id, '❌ Usage: /delthumb [rock|paper|scissors]');
         return;
       }
-      await setUserConfig(kv, msg.from.id, { thumb: { [choice]: undefined as unknown as never } });
-      // Remove the thumb key by patching with null and then cleaning up
       const raw = await getUserConfigRaw(kv, msg.from.id);
       if (raw?.thumb) {
         delete (raw.thumb as Record<string, unknown>)[choice];
@@ -176,9 +198,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   }
 
   if (cmd === '/setglobal') {
-    // /setglobal emoji reveal [rock|paper|scissors] <val>
-    // /setglobal sticker [rock|paper|scissors] <file_id>
-    // /setglobal thumb [rock|paper|scissors] [url|gif|sticker] <value>
     const sub = parts[1]?.toLowerCase();
     if (sub === 'emoji' && parts[2]?.toLowerCase() === 'reveal' && parts.length >= 5) {
       const choice = parts[3].toLowerCase() as Choice;
@@ -258,7 +277,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   }
 
   if (cmd === '/setprice' && parts.length >= 4) {
-    // /setprice [basic|premium] [stars|stripe] <amount>
     const tier = parts[1].toLowerCase();
     const method = parts[2].toLowerCase();
     const amount = parseInt(parts[3]);
@@ -306,7 +324,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     return;
   }
 
-  // Fallback: owner help
   await reply(token, msg.chat.id,
     `<b>Owner Commands:</b>\n` +
     `/setglobal emoji|sticker|thumb ...\n` +
@@ -314,18 +331,22 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     `/betaadd &lt;id&gt; · /betaremove &lt;id&gt; · /betalist\n` +
     `/setprice [basic|premium] [stars|stripe] &lt;amount&gt; · /prices\n` +
     `/adddonator &lt;id&gt; [basic|premium] · /removedonator &lt;id&gt;\n\n` +
-    `<b>User Commands (also available to all with beta_config flag):</b>\n` +
+    `<b>User Commands (with beta_config flag):</b>\n` +
     `/setemoji reveal [rock|paper|scissors] &lt;emoji&gt;\n` +
     `/setsticker [rock|paper|scissors] &lt;file_id&gt;\n` +
     `/setthumb [rock|paper|scissors] [url|gif|sticker] &lt;value&gt;\n` +
     `/delthumb [rock|paper|scissors] · /myconfig · /reset\n` +
-    `/donate`
+    `/donate\n\n` +
+    `<b>All Users:</b>\n` +
+    `/clearhost`
   );
 }
 
 function welcomeText(env: Env): string {
   return (
     `👋 Use <code>@${env.BOT_USERNAME}</code> inline to play Rock Paper Scissors!\n\n` +
-    `Type <code>@${env.BOT_USERNAME} STATS</code> to check your stats.`
+    `<b>Commands:</b>\n` +
+    `/clearhost — Cancel all games you're currently hosting\n\n` +
+    `Inline: <code>@${env.BOT_USERNAME} STATS</code> to check your stats.`
   );
 }

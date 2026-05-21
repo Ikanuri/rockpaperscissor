@@ -408,3 +408,12 @@ export async function runRevealAndResult(
 
 export { updateStats };
 export type { GameMode };
+
+export async function trackHostedGame(kv: KVNamespace, userId: number, gameId: string): Promise<void> {
+  const key = `hostgames:${userId}`;
+  const list = await kv.get<string[]>(key, 'json') ?? [];
+  if (!list.includes(gameId)) {
+    list.push(gameId);
+    await kv.put(key, JSON.stringify(list), { expirationTtl: 660 });
+  }
+}
