@@ -25,6 +25,7 @@ export interface GameSession {
   rounds: RoundRecord[];
   createdAt: number;
   chainId?: string;
+  lockedToUsername?: string;
 }
 
 export interface UserStats {
