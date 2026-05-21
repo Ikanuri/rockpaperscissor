@@ -164,6 +164,18 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
+  if (q === 'CLEARHOST') {
+    await answerInlineQuery(token, query.id, [{
+      type: 'article',
+      id: 'clearhost',
+      title: '🧹 Cancel all my hosted games',
+      description: "Removes all waiting games you're currently hosting",
+      input_message_content: { message_text: '🧹 Cancelling hosted games...' },
+      reply_markup: PLACEHOLDER_KEYBOARD,
+    }]);
+    return;
+  }
+
   if (q === 'STATS') {
     const weekKey = getWeekKey();
     const [lifetime, weekly] = await Promise.all([
@@ -306,6 +318,33 @@ export async function handleChosenInlineResult(
   const q = result.query.trim().toUpperCase();
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
+
+  if (q === 'CLEARHOST') {
+    const listKey = `hostgames:${result.from.id}`;
+    const gameIds = await kv.get<string[]>(listKey, 'json') ?? [];
+    let cancelled = 0;
+    for (const gameId of gameIds) {
+      const session = await kv.get<GameSession>(`game:${gameId}`, 'json');
+      if (session && session.status === 'waiting' && session.hostUserId === result.from.id) {
+        await Promise.all([
+          kv.delete(`game:${gameId}`),
+          editInlineMessage(token, session.hostInlineMessageId, '❌ Game cancelled.'),
+        ]);
+        cancelled++;
+      }
+    }
+    await Promise.all([
+      kv.delete(listKey),
+      kv.put(`ratelimit:${result.from.id}`, '0', { expirationTtl: 600 }),
+    ]);
+    await editInlineMessage(token, result.inline_message_id,
+      cancelled > 0
+        ? `🧹 ${cancelled} game${cancelled > 1 ? 's' : ''} cancelled.`
+        : `🧹 No active hosted games found.`
+    );
+    return;
+  }
+
   const choice = resolveChoice(result.result_id);
 
   // Chain rematch

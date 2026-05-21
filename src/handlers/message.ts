@@ -1,4 +1,4 @@
-import type { Choice, Env, GameSession, TelegramMessage } from '../types';
+import type { Choice, Env, GameSession, TelegramMessage, UserStats } from '../types';
 import { editInlineMessage, sendMessage } from '../telegram';
 import { hasFeature } from '../feature';
 import {
@@ -12,7 +12,7 @@ import {
 } from '../config';
 import { activateTier, loadDonatorTier, TIER_PERKS, tierBadge } from '../donator';
 import { handleDonate, handleSuccessfulPayment } from './payment';
-import { escHtml } from '../game';
+import { escHtml, getWeekKey } from '../game';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
@@ -46,6 +46,23 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   const cmd = parts[0].toLowerCase();
 
   // ── Available to all users ───────────────────────────────────────────
+  if (cmd === '/syncstats') {
+    const weekKey = getWeekKey();
+    const lifetime = await kv.get<UserStats>(`stats:${msg.from.id}`, 'json');
+    if (!lifetime) {
+      await sendMessage(token, msg.chat.id, '📊 No stats found. Play some games first!');
+      return;
+    }
+    await kv.put(
+      `stats:${msg.from.id}:week:${weekKey}`,
+      JSON.stringify({ wins: lifetime.wins, losses: lifetime.losses, draws: lifetime.draws, total: lifetime.total }),
+      { expirationTtl: 7 * 24 * 3600 }
+    );
+    await sendMessage(token, msg.chat.id,
+      `✅ Weekly stats synced!\n🏆 ${lifetime.wins}W · 😔 ${lifetime.losses}L · 🤝 ${lifetime.draws}D`
+    );
+    return;
+  }
   if (cmd === '/clearhost') {
     const listKey = `hostgames:${msg.from.id}`;
     const gameIds = await kv.get<string[]>(listKey, 'json') ?? [];
