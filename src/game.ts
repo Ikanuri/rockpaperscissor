@@ -323,11 +323,11 @@ export async function runRevealAndResult(
 
   const hE = revealEmoji(session.hostChoice!, env);
   const oE = revealEmoji(session.opponentChoice!, env);
-  const reveal = `${escHtml(session.hostName)} ${hE} · ${escHtml(session.opponentName!)} ${oE}`;
 
+  // Each player sees their own choice emoji for 5s before result
   await Promise.all([
-    editInlineMessage(token, h, reveal, undefined, REALTIME_RETRY_MS),
-    editInlineMessage(token, o, reveal, undefined, REALTIME_RETRY_MS),
+    editInlineMessage(token, h, hE, undefined, REALTIME_RETRY_MS),
+    editInlineMessage(token, o, oE, undefined, REALTIME_RETRY_MS),
   ]);
   await sleep(5000);
 
