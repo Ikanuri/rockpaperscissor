@@ -1,4 +1,5 @@
 import type {
+  ChainMeta,
   Choice,
   ChosenInlineResult,
   GameSession,
@@ -8,14 +9,17 @@ import type {
 } from '../types';
 import { answerInlineQuery, editInlineMessage } from '../telegram';
 import {
-  cancelKeyboard,
+  EMOJI,
   formatUser,
   generateId,
+  getWeekKey,
+  runRevealAndResult,
+  waitingKeyboard,
   waitingText,
-  runCountdownAndReveal,
 } from '../game';
 
 const GAME_ID_RE = /^[A-Z2-9]{4}$/;
+const CHAIN_CODE_RE = /^R[A-Z2-9]{4}$/;
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 
 const PLACEHOLDER_KEYBOARD = {
@@ -28,11 +32,20 @@ const LABELS: Record<Choice, string> = {
   scissors: '✌️ Scissors',
 };
 
-function choiceResults(forJoin: boolean, env: Env): InlineResult[] {
-  const initText = forJoin ? '⚔️ Challenge accepted!' : '🎮 Setting up game...';
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function choiceResults(env: Env): InlineResult[] {
+  const initText = '🎮 Setting up game...';
   const envAny = env as unknown as Record<string, string>;
 
-  return CHOICES.map(choice => {
+  const choices = shuffle(CHOICES).map(choice => {
     const stickerId = envAny[`STICKER_${choice.toUpperCase()}`];
     if (stickerId) {
       return {
@@ -51,18 +64,80 @@ function choiceResults(forJoin: boolean, env: Env): InlineResult[] {
       reply_markup: PLACEHOLDER_KEYBOARD,
     };
   });
+
+  const randomResult: InlineResult = {
+    type: 'article',
+    id: 'random',
+    title: '🎲 Random',
+    description: 'Let fate decide',
+    input_message_content: { message_text: initText },
+    reply_markup: PLACEHOLDER_KEYBOARD,
+  };
+
+  return [randomResult, ...choices];
 }
 
-function statsResult(stats: { wins: number; losses: number; draws: number; total: number }): InlineResult {
+function joinResults(env: Env): InlineResult[] {
+  const initText = '⚔️ Challenge accepted!';
+  const envAny = env as unknown as Record<string, string>;
+
+  const choices = shuffle(CHOICES).map(choice => {
+    const stickerId = envAny[`STICKER_${choice.toUpperCase()}`];
+    if (stickerId) {
+      return {
+        type: 'sticker' as const,
+        id: choice,
+        sticker_file_id: stickerId,
+        input_message_content: { message_text: initText },
+        reply_markup: PLACEHOLDER_KEYBOARD,
+      };
+    }
+    return {
+      type: 'article' as const,
+      id: choice,
+      title: LABELS[choice],
+      input_message_content: { message_text: initText },
+      reply_markup: PLACEHOLDER_KEYBOARD,
+    };
+  });
+
+  const randomResult: InlineResult = {
+    type: 'article',
+    id: 'random',
+    title: '🎲 Random',
+    description: 'Let fate decide',
+    input_message_content: { message_text: initText },
+    reply_markup: PLACEHOLDER_KEYBOARD,
+  };
+
+  return [randomResult, ...choices];
+}
+
+function resolveChoice(resultId: string): Choice {
+  if (CHOICES.includes(resultId as Choice)) return resultId as Choice;
+  return CHOICES[Math.floor(Math.random() * 3)];
+}
+
+function statsResult(
+  stats: { wins: number; losses: number; draws: number; total: number; choices?: Record<string, number> },
+  weekly: { wins: number; losses: number; draws: number; total: number }
+): InlineResult {
+  const choiceEntries = Object.entries(stats.choices ?? {}).sort(([, a], [, b]) => b - a);
+  const favLine = choiceEntries.length
+    ? `\n🎯 Fav: ${EMOJI[choiceEntries[0][0] as Choice]} (${choiceEntries[0][1]}x)`
+    : '';
+
   return {
     type: 'article',
     id: 'stats',
     title: `📊 ${stats.wins}W / ${stats.losses}L / ${stats.draws}D — ${stats.total} games`,
-    description: 'Tap to share your stats',
+    description: `This week: ${weekly.wins}W ${weekly.losses}L ${weekly.draws}D`,
     input_message_content: {
       message_text:
         `📊 <b>My RPS Stats</b>\n━━━━━━━━━━━━━━\n` +
-        `🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}`,
+        `🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}${favLine}\n\n` +
+        `📅 <b>This week</b>\n` +
+        `🏆 ${weekly.wins}W · 😔 ${weekly.losses}L · 🤝 ${weekly.draws}D`,
       parse_mode: 'HTML',
     },
   };
@@ -74,11 +149,40 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   const kv = env.GAME_SESSIONS;
 
   if (q === 'STATS') {
-    const stats = await kv.get<{ wins: number; losses: number; draws: number; total: number }>(
-      `stats:${query.from.id}`,
-      'json'
-    ) ?? { wins: 0, losses: 0, draws: 0, total: 0 };
-    await answerInlineQuery(token, query.id, [statsResult(stats)]);
+    const weekKey = getWeekKey();
+    const [lifetime, weekly] = await Promise.all([
+      kv.get<{ wins: number; losses: number; draws: number; total: number; choices?: Record<string, number> }>(
+        `stats:${query.from.id}`, 'json'
+      ),
+      kv.get<{ wins: number; losses: number; draws: number; total: number }>(
+        `stats:${query.from.id}:week:${weekKey}`, 'json'
+      ),
+    ]);
+    const s = lifetime ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+    const w = weekly ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+    await answerInlineQuery(token, query.id, [statsResult(s, w)]);
+    return;
+  }
+
+  if (CHAIN_CODE_RE.test(q)) {
+    const meta = await kv.get<ChainMeta>(`chain:${q}:meta`, 'json');
+    if (!meta) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'err', title: '❌ Rematch expired',
+        description: 'Start a new game instead.',
+        input_message_content: { message_text: '❌ Rematch expired. Start a new game.' },
+      }]);
+      return;
+    }
+    if (query.from.id !== meta.hostUserId && query.from.id !== meta.opponentUserId) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'err', title: '❌ Not your game',
+        description: 'This rematch is for the original players only.',
+        input_message_content: { message_text: '❌ Not your game.' },
+      }]);
+      return;
+    }
+    await answerInlineQuery(token, query.id, choiceResults(env));
     return;
   }
 
@@ -117,11 +221,11 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
         token,
         session.hostInlineMessageId,
         waitingText(session, env.BOT_USERNAME, Date.now()),
-        cancelKeyboard(session.gameId)
+        waitingKeyboard(session.gameId)
       );
     }
 
-    await answerInlineQuery(token, query.id, choiceResults(true, env));
+    await answerInlineQuery(token, query.id, joinResults(env));
     return;
   }
 
@@ -136,7 +240,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
-  await answerInlineQuery(token, query.id, choiceResults(false, env));
+  await answerInlineQuery(token, query.id, choiceResults(env));
 }
 
 export async function handleChosenInlineResult(
@@ -146,13 +250,90 @@ export async function handleChosenInlineResult(
 ): Promise<void> {
   if (!result.inline_message_id) return;
 
-  const choice = result.result_id as Choice;
-  if (!CHOICES.includes(choice)) return;
-
   const q = result.query.trim().toUpperCase();
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
+  const choice = resolveChoice(result.result_id);
 
+  // Chain rematch flow
+  if (CHAIN_CODE_RE.test(q)) {
+    const chainCode = q;
+    const meta = await kv.get<ChainMeta>(`chain:${chainCode}:meta`, 'json');
+    if (!meta) {
+      await editInlineMessage(token, result.inline_message_id, '❌ Rematch expired. Start a new game.');
+      return;
+    }
+    if (result.from.id !== meta.hostUserId && result.from.id !== meta.opponentUserId) {
+      await editInlineMessage(token, result.inline_message_id, '❌ Not your game.');
+      return;
+    }
+
+    const activeGameId = await kv.get(`chain:${chainCode}:active`);
+
+    if (!activeGameId) {
+      // First to click — create rematch waiting game
+      const newGameId = generateId();
+      const session: GameSession = {
+        gameId: newGameId,
+        hostUserId: result.from.id,
+        hostName: formatUser(result.from),
+        hostChoice: choice,
+        opponentUserId: null,
+        opponentName: null,
+        opponentChoice: null,
+        hostInlineMessageId: result.inline_message_id,
+        opponentInlineMessageId: null,
+        status: 'waiting',
+        mode: meta.mode,
+        currentRound: 1,
+        hostScore: 0,
+        opponentScore: 0,
+        rounds: [],
+        createdAt: Date.now(),
+        chainId: chainCode,
+      };
+      await Promise.all([
+        kv.put(`game:${newGameId}`, JSON.stringify(session), { expirationTtl: 300 }),
+        kv.put(`chain:${chainCode}:active`, newGameId, { expirationTtl: 300 }),
+      ]);
+      const rateKey = `ratelimit:${result.from.id}`;
+      const count = parseInt(await kv.get(rateKey) ?? '0');
+      await kv.put(rateKey, String(count + 1), { expirationTtl: 600 });
+      await editInlineMessage(
+        token,
+        result.inline_message_id,
+        waitingText(session, env.BOT_USERNAME),
+        waitingKeyboard(newGameId)
+      );
+    } else {
+      // Second to click — join and start
+      const session = await kv.get<GameSession>(`game:${activeGameId}`, 'json');
+      if (!session || session.status !== 'waiting') {
+        await editInlineMessage(token, result.inline_message_id, '❌ Rematch already started or expired.');
+        return;
+      }
+      if (session.hostUserId === result.from.id) {
+        await editInlineMessage(token, result.inline_message_id, '⏳ Already waiting — share the code with your opponent!');
+        return;
+      }
+      const updated: GameSession = {
+        ...session,
+        opponentUserId: result.from.id,
+        opponentName: formatUser(result.from),
+        opponentChoice: choice,
+        opponentInlineMessageId: result.inline_message_id,
+        status: 'playing',
+      };
+      await Promise.all([
+        kv.put(`game:${activeGameId}`, JSON.stringify(updated), { expirationTtl: 120 }),
+        kv.delete(`chain:${chainCode}:active`),
+      ]);
+      ctx.waitUntil(runRevealAndResult(token, kv, updated, env));
+    }
+    return;
+  }
+
+  // Regular game join
   if (GAME_ID_RE.test(q)) {
     const session = await kv.get<GameSession>(`game:${q}`, 'json');
     if (!session || session.status !== 'waiting' || session.hostUserId === result.from.id) return;
@@ -172,10 +353,11 @@ export async function handleChosenInlineResult(
     const cur = parseInt(await kv.get(rateKey) ?? '1');
     if (cur > 0) await kv.put(rateKey, String(cur - 1), { expirationTtl: 600 });
 
-    ctx.waitUntil(runCountdownAndReveal(token, kv, updated, env));
+    ctx.waitUntil(runRevealAndResult(token, kv, updated, env));
     return;
   }
 
+  // New game
   const mode = q === 'BO3' ? 'best_of_3' : 'single';
   const gameId = generateId();
 
@@ -208,6 +390,6 @@ export async function handleChosenInlineResult(
     token,
     result.inline_message_id,
     waitingText(session, env.BOT_USERNAME),
-    cancelKeyboard(gameId)
+    waitingKeyboard(gameId)
   );
 }

@@ -24,6 +24,7 @@ export interface GameSession {
   opponentScore: number;
   rounds: RoundRecord[];
   createdAt: number;
+  chainId?: string;
 }
 
 export interface UserStats {
@@ -31,16 +32,23 @@ export interface UserStats {
   losses: number;
   draws: number;
   total: number;
+  choices?: { rock: number; paper: number; scissors: number };
 }
 
-export interface RematchMeta {
+export interface ChainEntry {
   hostUserId: number;
   hostName: string;
   opponentUserId: number;
   opponentName: string;
+  hostChoice: Choice;
+  opponentChoice: Choice;
+  winner: 'host' | 'opponent' | 'draw';
+}
+
+export interface ChainMeta {
+  hostUserId: number;
+  opponentUserId: number;
   mode: GameMode;
-  hostInlineMessageId: string;
-  opponentInlineMessageId: string;
 }
 
 export interface Env {
@@ -107,6 +115,7 @@ export interface InlineKeyboardButton {
   text: string;
   callback_data?: string;
   url?: string;
+  switch_inline_query_current_chat?: string;
 }
 
 export interface InlineKeyboardMarkup {

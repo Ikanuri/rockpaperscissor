@@ -1,10 +1,11 @@
 import type {
+  ChainEntry,
+  ChainMeta,
   Choice,
   Env,
   GameMode,
   GameSession,
   InlineKeyboardMarkup,
-  RematchMeta,
   TelegramUser,
   UserStats,
 } from './types';
@@ -68,28 +69,22 @@ export function pickKeyboard(gameId: string): InlineKeyboardMarkup {
   };
 }
 
-export function cancelKeyboard(gameId: string): InlineKeyboardMarkup {
+export function waitingKeyboard(gameId: string): InlineKeyboardMarkup {
   return {
-    inline_keyboard: [[
-      { text: '❌ Cancel', callback_data: `cancel:${gameId}` },
-    ]],
+    inline_keyboard: [
+      [{ text: '🎮 Join', switch_inline_query_current_chat: gameId }],
+      [
+        { text: '🔄', callback_data: `refresh:${gameId}` },
+        { text: '❌ Cancel', callback_data: `cancel:${gameId}` },
+      ],
+    ],
   };
 }
 
-export function rematchKeyboard(gameId: string): InlineKeyboardMarkup {
+export function rematchKeyboard(chainCode: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [[
-      { text: '🔄 Rematch', callback_data: `rematch:${gameId}` },
-    ]],
-  };
-}
-
-export function rematchPickKeyboard(gameId: string): InlineKeyboardMarkup {
-  return {
-    inline_keyboard: [[
-      { text: '✊', callback_data: `rpick:${gameId}:rock` },
-      { text: '✋', callback_data: `rpick:${gameId}:paper` },
-      { text: '✌️', callback_data: `rpick:${gameId}:scissors` },
+      { text: '🔄 Rematch', switch_inline_query_current_chat: chainCode },
     ]],
   };
 }
@@ -129,40 +124,124 @@ function revealEmoji(choice: Choice, env: Env): string {
   return fmtEmoji(envAny[`CUSTOM_EMOJI_${choice.toUpperCase()}`], EMOJI[choice]);
 }
 
+export function getWeekKey(now = Date.now()): string {
+  const d = new Date(now);
+  const day = d.getUTCDay() || 7;
+  const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day + 1));
+  const yearStart = new Date(Date.UTC(monday.getUTCFullYear(), 0, 1));
+  const weekNum = Math.ceil(((monday.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+  return `${monday.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+function shortName(name: string): string {
+  return name.length > 12 ? name.slice(0, 12) + '…' : name;
+}
+
+function historyBlock(history: ChainEntry[]): string {
+  if (history.length < 2) return '';
+
+  const refId = history[0].hostUserId;
+  const refName = escHtml(shortName(history[0].hostName));
+  const altName = escHtml(shortName(history[0].opponentName));
+
+  let refWins = 0, altWins = 0, draws = 0;
+  const refRow: string[] = [];
+  const altRow: string[] = [];
+
+  for (const e of history) {
+    const refIsHost = e.hostUserId === refId;
+    if (e.winner === 'draw') {
+      draws++;
+      refRow.push('🌀');
+      altRow.push('🌀');
+    } else {
+      const refWon = (e.winner === 'host') === refIsHost;
+      if (refWon) {
+        refWins++;
+        refRow.push('✅');
+        altRow.push('❌');
+      } else {
+        altWins++;
+        refRow.push('❌');
+        altRow.push('✅');
+      }
+    }
+  }
+
+  const n = history.length;
+  const score = `${refWins}–${altWins}${draws > 0 ? ` (${draws}🤝)` : ''}`;
+
+  return (
+    `\n<blockquote expandable>` +
+    `📊 ${n} game${n > 1 ? 's' : ''} · ${score}\n` +
+    `${refName}: ${refRow.join('')}\n` +
+    `${altName}: ${altRow.join('')}` +
+    `</blockquote>`
+  );
+}
+
 function resultText(
   matchOutcome: 'a' | 'b' | 'draw',
-  perspective: 'host' | 'opponent',
   session: GameSession,
-  env: Env
+  env: Env,
+  history?: ChainEntry[]
 ): string {
   const hE = revealEmoji(session.hostChoice!, env);
   const oE = revealEmoji(session.opponentChoice!, env);
-  const isHost = perspective === 'host';
+  const hName = escHtml(session.hostName);
+  const oName = escHtml(session.opponentName!);
 
   let verdict: string;
   if (matchOutcome === 'draw') {
-    verdict = "🤝 It's a draw!";
-  } else if ((matchOutcome === 'a') === isHost) {
-    verdict = '🏆 You win!';
+    verdict = '🤝 Draw!';
+  } else if (matchOutcome === 'a') {
+    verdict = `🏆 ${hName} wins!`;
   } else {
-    verdict = '😔 Better luck next time!';
+    verdict = `🏆 ${oName} wins!`;
   }
 
-  return `${verdict}\n${hE} vs ${oE}`;
+  const histBlock = history ? historyBlock(history) : '';
+  return `${verdict}\n${hName} ${hE} · ${oName} ${oE}${histBlock}`;
 }
 
 async function updateStats(
   kv: KVNamespace,
   userId: number,
-  outcome: 'win' | 'loss' | 'draw'
+  outcome: 'win' | 'loss' | 'draw',
+  choice: Choice,
+  opponentId: number
 ): Promise<void> {
-  const key = `stats:${userId}`;
-  const s = await kv.get<UserStats>(key, 'json') ?? { wins: 0, losses: 0, draws: 0, total: 0 };
-  if (outcome === 'win') s.wins++;
-  else if (outcome === 'loss') s.losses++;
-  else s.draws++;
-  s.total++;
-  await kv.put(key, JSON.stringify(s));
+  const weekKey = getWeekKey();
+
+  const [lifetime, weekly, vsOpp] = await Promise.all([
+    kv.get<UserStats>(`stats:${userId}`, 'json'),
+    kv.get<UserStats>(`stats:${userId}:week:${weekKey}`, 'json'),
+    kv.get<UserStats>(`stats:${userId}:vs:${opponentId}`, 'json'),
+  ]);
+
+  const s = lifetime ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+  const w = weekly ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+  const v = vsOpp ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+
+  const bump = (stat: UserStats) => {
+    if (outcome === 'win') stat.wins++;
+    else if (outcome === 'loss') stat.losses++;
+    else stat.draws++;
+    stat.total++;
+  };
+
+  bump(s);
+  bump(w);
+  bump(v);
+
+  s.choices = s.choices ?? { rock: 0, paper: 0, scissors: 0 };
+  s.choices[choice]++;
+
+  await Promise.all([
+    kv.put(`stats:${userId}`, JSON.stringify(s)),
+    kv.put(`stats:${userId}:week:${weekKey}`, JSON.stringify(w), { expirationTtl: 7 * 24 * 3600 }),
+    kv.put(`stats:${userId}:vs:${opponentId}`, JSON.stringify(v)),
+  ]);
 }
 
 async function finishGame(
@@ -174,39 +253,66 @@ async function finishGame(
 ): Promise<void> {
   const done = { ...session, status: 'done' as const };
 
-  // Pre-populate rematch meta so rematch works even after game TTL expires
-  const rematchMeta: RematchMeta = {
-    hostUserId: session.hostUserId,
-    hostName: session.hostName,
-    opponentUserId: session.opponentUserId!,
-    opponentName: session.opponentName!,
+  await kv.put(`game:${session.gameId}`, JSON.stringify(done), { expirationTtl: 600 });
+
+  await Promise.all([
+    updateStats(
+      kv, session.hostUserId,
+      matchOutcome === 'a' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
+      session.hostChoice!, session.opponentUserId!
+    ),
+    updateStats(
+      kv, session.opponentUserId!,
+      matchOutcome === 'b' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
+      session.opponentChoice!, session.hostUserId
+    ),
+  ]);
+
+  // Chain history
+  let history: ChainEntry[] | undefined;
+  const chainCode = session.chainId ?? `R${session.gameId}`;
+
+  if (session.chainId) {
+    const histKey = `chain:${session.chainId}:history`;
+    const prev = await kv.get<ChainEntry[]>(histKey, 'json') ?? [];
+    const entry: ChainEntry = {
+      hostUserId: session.hostUserId,
+      hostName: session.hostName,
+      opponentUserId: session.opponentUserId!,
+      opponentName: session.opponentName!,
+      hostChoice: session.hostChoice!,
+      opponentChoice: session.opponentChoice!,
+      winner: matchOutcome === 'draw' ? 'draw' : matchOutcome === 'a' ? 'host' : 'opponent',
+    };
+    history = [...prev, entry];
+    await kv.put(histKey, JSON.stringify(history), { expirationTtl: 3600 });
+  }
+
+  // Store chain meta so the rematch button works (TTL 5 min)
+  const chainMeta: ChainMeta = {
+    hostUserId: session.chainId
+      ? (await kv.get<ChainMeta>(`chain:${chainCode}:meta`, 'json'))?.hostUserId ?? session.hostUserId
+      : session.hostUserId,
+    opponentUserId: session.chainId
+      ? (await kv.get<ChainMeta>(`chain:${chainCode}:meta`, 'json'))?.opponentUserId ?? session.opponentUserId!
+      : session.opponentUserId!,
     mode: session.mode,
-    hostInlineMessageId: session.hostInlineMessageId,
-    opponentInlineMessageId: session.opponentInlineMessageId!,
   };
+  await kv.put(`chain:${chainCode}:meta`, JSON.stringify(chainMeta), { expirationTtl: 300 });
+
+  const keyboard = rematchKeyboard(chainCode);
+  const text = resultText(matchOutcome, done, env, history);
 
   await Promise.all([
-    kv.put(`game:${session.gameId}`, JSON.stringify(done), { expirationTtl: 600 }),
-    kv.put(`rematch:R${session.gameId}:meta`, JSON.stringify(rematchMeta), { expirationTtl: 600 }),
-  ]);
-
-  await Promise.all([
-    updateStats(kv, session.hostUserId, matchOutcome === 'a' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss'),
-    updateStats(kv, session.opponentUserId!, matchOutcome === 'b' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss'),
-  ]);
-
-  const keyboard = rematchKeyboard(session.gameId);
-  await Promise.all([
-    editInlineMessage(token, session.hostInlineMessageId, resultText(matchOutcome, 'host', done, env), keyboard),
-    editInlineMessage(token, session.opponentInlineMessageId!, resultText(matchOutcome, 'opponent', done, env), keyboard),
+    editInlineMessage(token, session.hostInlineMessageId, text, keyboard),
+    editInlineMessage(token, session.opponentInlineMessageId!, text, keyboard),
   ]);
 }
 
-// Max retry wait for time-sensitive countdown/reveal edits.
-// Low cap keeps both messages in sync even when one hits a 429.
+// Low cap keeps both messages in sync even if one hits a 429
 const REALTIME_RETRY_MS = 500;
 
-export async function runCountdownAndReveal(
+export async function runRevealAndResult(
   token: string,
   kv: KVNamespace,
   session: GameSession,
@@ -215,29 +321,15 @@ export async function runCountdownAndReveal(
   const h = session.hostInlineMessageId;
   const o = session.opponentInlineMessageId!;
 
-  const t0 = Date.now();
-  const ticks = ['3️⃣', '2️⃣', '1️⃣'];
-
-  for (let i = 0; i < ticks.length; i++) {
-    // Wait until exactly i*1000ms after start, compensating for API latency of previous tick
-    const wait = t0 + i * 1000 - Date.now();
-    if (wait > 0) await sleep(wait);
-
-    await Promise.all([
-      editInlineMessage(token, h, ticks[i], undefined, REALTIME_RETRY_MS),
-      editInlineMessage(token, o, ticks[i], undefined, REALTIME_RETRY_MS),
-    ]);
-  }
-
-  // Reveal exactly 1s after the last tick fires
-  const waitReveal = t0 + 3 * 1000 - Date.now();
-  if (waitReveal > 0) await sleep(waitReveal);
+  const hE = revealEmoji(session.hostChoice!, env);
+  const oE = revealEmoji(session.opponentChoice!, env);
+  const reveal = `${escHtml(session.hostName)} ${hE} · ${escHtml(session.opponentName!)} ${oE}`;
 
   await Promise.all([
-    editInlineMessage(token, h, revealEmoji(session.hostChoice!, env), undefined, REALTIME_RETRY_MS),
-    editInlineMessage(token, o, revealEmoji(session.opponentChoice!, env), undefined, REALTIME_RETRY_MS),
+    editInlineMessage(token, h, reveal, undefined, REALTIME_RETRY_MS),
+    editInlineMessage(token, o, reveal, undefined, REALTIME_RETRY_MS),
   ]);
-  await sleep(5000);
+  await sleep(2000);
 
   const roundOutcome = determineWinner(session.hostChoice!, session.opponentChoice!);
 
