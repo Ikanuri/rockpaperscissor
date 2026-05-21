@@ -52,8 +52,8 @@ preview_id = "c8e5c7ebf6264fe9b450f6794d234d8e"
 name = "rps-bot-beta"
 
 [env.beta.vars]
-BOT_USERNAME = "JankensBetaBot"
-BOT_OWNER_ID = ""
+BOT_USERNAME = "gubakebetabot"
+BOT_OWNER_ID = "582589514"
 STICKER_ROCK = ""
 STICKER_PAPER = ""
 STICKER_SCISSORS = ""
@@ -67,5 +67,5 @@ FEATURE_FLAGS = "donator,gif_thumb,leaderboard,refresh_button,beta_config"
 binding = "GAME_SESSIONS"
 # Run: npx wrangler kv namespace create GAME_SESSIONS --env beta
 # Then paste the output id below
-id = "REPLACE_WITH_BETA_KV_ID"
-preview_id = "REPLACE_WITH_BETA_KV_ID"
+id = "0475907e01f74cb5bc215856bd1753a6"
+preview_id = "0475907e01f74cb5bc215856bd1753a6"
