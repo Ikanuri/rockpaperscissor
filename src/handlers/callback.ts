@@ -5,6 +5,8 @@ import {
   pickKeyboard,
   runRevealAndResult,
 } from '../game';
+import { hasFeature } from '../feature';
+import { handleDonateCallback } from './payment';
 
 export async function handleCallbackQuery(
   query: CallbackQuery,
@@ -20,6 +22,8 @@ export async function handleCallbackQuery(
     await handlePick(query, env, ctx, parts[1], parts[2] as Choice);
   } else if (action === 'cancel' && parts.length === 2) {
     await handleCancel(query, env, parts[1]);
+  } else if (action === 'donate' && hasFeature(env, 'donator')) {
+    await handleDonateCallback(query, env);
   } else {
     await answerCallbackQuery(env.BOT_TOKEN, query.id);
   }

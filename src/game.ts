@@ -3,13 +3,17 @@ import type {
   ChainMeta,
   Choice,
   Env,
+  GameConfig,
   GameMode,
   GameSession,
   InlineKeyboardMarkup,
+  LeaderboardEntry,
   TelegramUser,
   UserStats,
 } from './types';
 import { editInlineMessage } from './telegram';
+import { loadConfig } from './config';
+import { hasFeature } from './feature';
 
 export const EMOJI: Record<Choice, string> = {
   rock: '✊',
@@ -116,7 +120,8 @@ export function nextRoundText(session: GameSession): string {
   );
 }
 
-function revealEmoji(choice: Choice, env: Env): string {
+function revealEmoji(choice: Choice, env: Env, config?: GameConfig | null): string {
+  if (config) return fmtEmoji(config.reveal[choice], EMOJI[choice]);
   const envAny = env as unknown as Record<string, string>;
   return fmtEmoji(envAny[`CUSTOM_EMOJI_${choice.toUpperCase()}`], EMOJI[choice]);
 }
@@ -181,10 +186,11 @@ function resultText(
   matchOutcome: 'a' | 'b' | 'draw',
   session: GameSession,
   env: Env,
-  history?: ChainEntry[]
+  history?: ChainEntry[],
+  config?: GameConfig | null
 ): string {
-  const hE = revealEmoji(session.hostChoice!, env);
-  const oE = revealEmoji(session.opponentChoice!, env);
+  const hE = revealEmoji(session.hostChoice!, env, config);
+  const oE = revealEmoji(session.opponentChoice!, env, config);
   const hName = escHtml(session.hostName);
   const oName = escHtml(session.opponentName!);
 
@@ -241,12 +247,34 @@ async function updateStats(
   ]);
 }
 
+async function updateLeaderboard(
+  kv: KVNamespace,
+  host: { userId: number; name: string },
+  op: { userId: number; name: string },
+  outcome: 'a' | 'b' | 'draw'
+): Promise<void> {
+  const board = (await kv.get<LeaderboardEntry[]>('leaderboard', 'json')) ?? [];
+  for (const [user, won] of [[host, outcome === 'a'], [op, outcome === 'b']] as Array<[{ userId: number; name: string }, boolean]>) {
+    const idx = board.findIndex(e => e.userId === user.userId);
+    if (idx >= 0) {
+      board[idx].name = user.name;
+      board[idx].total++;
+      if (won) board[idx].wins++;
+    } else {
+      board.push({ userId: user.userId, name: user.name, wins: won ? 1 : 0, total: 1 });
+    }
+  }
+  board.sort((a, b) => b.wins - a.wins || b.total - a.total);
+  await kv.put('leaderboard', JSON.stringify(board.slice(0, 20)));
+}
+
 async function finishGame(
   token: string,
   kv: KVNamespace,
   session: GameSession,
   matchOutcome: 'a' | 'b' | 'draw',
-  env: Env
+  env: Env,
+  config?: GameConfig | null
 ): Promise<void> {
   const done = { ...session, status: 'done' as const };
 
@@ -263,6 +291,12 @@ async function finishGame(
       matchOutcome === 'b' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
       session.opponentChoice!, session.hostUserId
     ),
+    ...(hasFeature(env, 'leaderboard') ? [updateLeaderboard(
+      kv,
+      { userId: session.hostUserId, name: session.hostName },
+      { userId: session.opponentUserId!, name: session.opponentName! },
+      matchOutcome
+    )] : []),
   ]);
 
   // Always track chain history so rematch #1 already has game 1 on record
@@ -296,7 +330,7 @@ async function finishGame(
   ]);
 
   const keyboard = rematchKeyboard(chainCode);
-  const text = resultText(matchOutcome, done, env, history);
+  const text = resultText(matchOutcome, done, env, history, config);
 
   await Promise.all([
     editInlineMessage(token, session.hostInlineMessageId, text, keyboard),
@@ -316,8 +350,12 @@ export async function runRevealAndResult(
   const h = session.hostInlineMessageId;
   const o = session.opponentInlineMessageId!;
 
-  const hE = revealEmoji(session.hostChoice!, env);
-  const oE = revealEmoji(session.opponentChoice!, env);
+  const config = hasFeature(env, 'beta_config')
+    ? await loadConfig(kv, session.hostUserId, env)
+    : null;
+
+  const hE = revealEmoji(session.hostChoice!, env, config);
+  const oE = revealEmoji(session.opponentChoice!, env, config);
 
   // Each player sees their own choice emoji for 5s before result
   await Promise.all([
@@ -329,7 +367,7 @@ export async function runRevealAndResult(
   const roundOutcome = determineWinner(session.hostChoice!, session.opponentChoice!);
 
   if (session.mode === 'single') {
-    await finishGame(token, kv, session, roundOutcome, env);
+    await finishGame(token, kv, session, roundOutcome, env, config);
     return;
   }
 
@@ -346,7 +384,7 @@ export async function runRevealAndResult(
     const matchOutcome: 'a' | 'b' | 'draw' =
       updated.hostScore > updated.opponentScore ? 'a' :
       updated.hostScore < updated.opponentScore ? 'b' : 'draw';
-    await finishGame(token, kv, updated, matchOutcome, env);
+    await finishGame(token, kv, updated, matchOutcome, env, config);
     return;
   }
 

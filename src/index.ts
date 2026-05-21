@@ -2,9 +2,17 @@ import type { Env, TelegramUpdate } from './types';
 import { handleInlineQuery, handleChosenInlineResult } from './handlers/inline';
 import { handleCallbackQuery } from './handlers/callback';
 import { handleMessage } from './handlers/message';
+import { handlePreCheckout, handleStripeWebhook } from './handlers/payment';
+import { hasFeature } from './feature';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (request.method === 'POST' && url.pathname === '/stripe-webhook') {
+      return handleStripeWebhook(request, env);
+    }
+
     if (request.method !== 'POST') return new Response('OK');
 
     try {
@@ -16,6 +24,8 @@ export default {
         await handleChosenInlineResult(update.chosen_inline_result, env, ctx);
       } else if (update.callback_query) {
         await handleCallbackQuery(update.callback_query, env, ctx);
+      } else if (update.pre_checkout_query && hasFeature(env, 'donator')) {
+        await handlePreCheckout(update.pre_checkout_query, env);
       } else if (update.message) {
         await handleMessage(update.message, env);
       }

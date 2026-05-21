@@ -2,14 +2,17 @@ import type {
   ChainMeta,
   Choice,
   ChosenInlineResult,
+  Env,
+  GameConfig,
   GameSession,
   InlineQuery,
   InlineResult,
-  Env,
+  LeaderboardEntry,
 } from '../types';
 import { answerInlineQuery, editInlineMessage } from '../telegram';
 import {
   EMOJI,
+  escHtml,
   formatUser,
   generateId,
   getWeekKey,
@@ -17,6 +20,8 @@ import {
   waitingKeyboard,
   waitingText,
 } from '../game';
+import { hasFeature } from '../feature';
+import { loadConfig } from '../config';
 
 const GAME_ID_RE = /^[A-Z2-9]{4}$/;
 const CHAIN_CODE_RE = /^R[A-Z2-9]{4}$/;
@@ -43,26 +48,53 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function buildChoiceResults(initText: string, env: Env): InlineResult[] {
+function buildChoiceResults(initText: string, env: Env, config?: GameConfig | null): InlineResult[] {
   const envAny = env as unknown as Record<string, string>;
 
   const choices = shuffle(CHOICES).map(choice => {
-    const stickerId = envAny[`STICKER_${choice.toUpperCase()}`];
-    if (stickerId) {
+    // Config-based: sticker popup
+    if (config?.sticker[choice]) {
       return {
         type: 'sticker' as const,
         id: choice,
-        sticker_file_id: stickerId,
+        sticker_file_id: config.sticker[choice]!,
         input_message_content: { message_text: initText },
         reply_markup: PLACEHOLDER_KEYBOARD,
       };
     }
+    // Config-based: gif thumbnail
+    if (config?.thumb[choice]?.type === 'gif') {
+      return {
+        type: 'gif' as const,
+        id: choice,
+        gif_file_id: config.thumb[choice]!.value,
+        title: LABELS[choice],
+        input_message_content: { message_text: initText },
+        reply_markup: PLACEHOLDER_KEYBOARD,
+      };
+    }
+    // Env-based: sticker (when no per-user config)
+    if (!config) {
+      const stickerId = envAny[`STICKER_${choice.toUpperCase()}`];
+      if (stickerId) {
+        return {
+          type: 'sticker' as const,
+          id: choice,
+          sticker_file_id: stickerId,
+          input_message_content: { message_text: initText },
+          reply_markup: PLACEHOLDER_KEYBOARD,
+        };
+      }
+    }
+    // Article with optional url thumbnail
+    const thumbUrl = config?.thumb[choice]?.type === 'url' ? config.thumb[choice]!.value : undefined;
     return {
       type: 'article' as const,
       id: choice,
       title: LABELS[choice],
       input_message_content: { message_text: initText },
       reply_markup: PLACEHOLDER_KEYBOARD,
+      ...(thumbUrl && { thumbnail_url: thumbUrl }),
     };
   });
 
@@ -113,6 +145,24 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
 
+  if (q === 'TOP' && hasFeature(env, 'leaderboard')) {
+    const board = (await kv.get<LeaderboardEntry[]>('leaderboard', 'json')) ?? [];
+    const lines = board.slice(0, 20).map((e, i) =>
+      `${i + 1}. ${escHtml(e.name)} — ${e.wins}W / ${e.total - e.wins}L`
+    );
+    const text = board.length === 0
+      ? '📊 Leaderboard is empty. Play some games!'
+      : `🏆 <b>Top ${board.length} Players</b>\n━━━━━━━━━━━━━━\n${lines.join('\n')}`;
+    await answerInlineQuery(token, query.id, [{
+      type: 'article',
+      id: 'leaderboard',
+      title: board.length > 0 ? `🏆 #1: ${board[0].name} (${board[0].wins}W)` : '🏆 Leaderboard',
+      description: board.length > 0 ? `Top ${board.length} players this season` : 'No data yet',
+      input_message_content: { message_text: text, parse_mode: 'HTML' },
+    }]);
+    return;
+  }
+
   if (q === 'STATS') {
     const weekKey = getWeekKey();
     const [lifetime, weekly] = await Promise.all([
@@ -148,7 +198,8 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       }]);
       return;
     }
-    await answerInlineQuery(token, query.id, buildChoiceResults('🔄 Rematch!', env));
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, query.from.id, env) : null;
+    await answerInlineQuery(token, query.id, buildChoiceResults('🔄 Rematch!', env, config));
     return;
   }
 
@@ -203,7 +254,8 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       );
     }
 
-    await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Challenge accepted!', env));
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, query.from.id, env) : null;
+    await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Challenge accepted!', env, config));
     return;
   }
 
@@ -222,7 +274,8 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     }
     const targetUsername = privateMatch[1];
     const modeLabel = privateMatch[2] === 'BO3' ? ' BO3' : '';
-    await answerInlineQuery(token, query.id, buildChoiceResults(`🔒 Private challenge for @${targetUsername}${modeLabel}`, env));
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, query.from.id, env) : null;
+    await answerInlineQuery(token, query.id, buildChoiceResults(`🔒 Private challenge for @${targetUsername}${modeLabel}`, env, config));
     return;
   }
 
@@ -237,7 +290,8 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
-  await answerInlineQuery(token, query.id, buildChoiceResults('🎮 Setting up game...', env));
+  const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, query.from.id, env) : null;
+  await answerInlineQuery(token, query.id, buildChoiceResults('🎮 Setting up game...', env, config));
 }
 
 export async function handleChosenInlineResult(

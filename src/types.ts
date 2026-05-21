@@ -63,7 +63,10 @@ export interface Env {
   CUSTOM_EMOJI_ROCK: string;
   CUSTOM_EMOJI_PAPER: string;
   CUSTOM_EMOJI_SCISSORS: string;
+  FEATURE_FLAGS: string;
   WEBHOOK_SECRET?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
 }
 
 export interface TelegramUser {
@@ -78,6 +81,7 @@ export interface TelegramMessage {
   from?: TelegramUser;
   chat: { id: number; type: string };
   text?: string;
+  successful_payment?: SuccessfulPayment;
 }
 
 export interface TelegramUpdate {
@@ -86,6 +90,7 @@ export interface TelegramUpdate {
   chosen_inline_result?: ChosenInlineResult;
   callback_query?: CallbackQuery;
   message?: TelegramMessage;
+  pre_checkout_query?: PreCheckoutQuery;
 }
 
 export interface InlineQuery {
@@ -149,4 +154,52 @@ export interface InlineQueryResultCachedSticker {
   };
 }
 
-export type InlineResult = InlineQueryResultArticle | InlineQueryResultCachedSticker;
+export interface InlineQueryResultCachedGif {
+  type: 'gif';
+  id: string;
+  gif_file_id: string;
+  title?: string;
+  caption?: string;
+  reply_markup?: InlineKeyboardMarkup;
+  input_message_content?: {
+    message_text: string;
+    parse_mode?: string;
+  };
+}
+
+export type InlineResult = InlineQueryResultArticle | InlineQueryResultCachedSticker | InlineQueryResultCachedGif;
+
+export interface LeaderboardEntry {
+  userId: number;
+  name: string;
+  wins: number;
+  total: number;
+}
+
+export type ThumbType = 'url' | 'gif' | 'sticker';
+
+export interface ThumbConfig {
+  type: ThumbType;
+  value: string;
+}
+
+export interface GameConfig {
+  reveal: Record<Choice, string>;
+  sticker: Partial<Record<Choice, string>>;
+  thumb: Partial<Record<Choice, ThumbConfig>>;
+}
+
+export interface PreCheckoutQuery {
+  id: string;
+  from: TelegramUser;
+  currency: string;
+  total_amount: number;
+  invoice_payload: string;
+}
+
+export interface SuccessfulPayment {
+  currency: string;
+  total_amount: number;
+  invoice_payload: string;
+  telegram_payment_charge_id: string;
+}

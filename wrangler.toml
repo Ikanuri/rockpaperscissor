@@ -17,7 +17,6 @@ CUSTOM_EMOJI_ROCK = ""
 CUSTOM_EMOJI_PAPER = ""
 CUSTOM_EMOJI_SCISSORS = ""
 # Comma-separated feature flags (leave empty for stable production)
-# Example for beta: "donator,gif_thumb,leaderboard"
 FEATURE_FLAGS = ""
 
 [[kv_namespaces]]
@@ -30,6 +29,8 @@ preview_id = "c8e5c7ebf6264fe9b450f6794d234d8e"
 # Secrets — set via CLI (never put real values here):
 #   npx wrangler secret put BOT_TOKEN
 #   npx wrangler secret put WEBHOOK_SECRET
+#   npx wrangler secret put STRIPE_SECRET_KEY       (optional, enables Stripe payments)
+#   npx wrangler secret put STRIPE_WEBHOOK_SECRET   (optional, required with STRIPE_SECRET_KEY)
 #
 # Webhook registration:
 #   curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
@@ -43,6 +44,10 @@ preview_id = "c8e5c7ebf6264fe9b450f6794d234d8e"
 #          npx wrangler secret put WEBHOOK_SECRET --env beta
 #          npx wrangler secret put STRIPE_SECRET_KEY --env beta      (optional)
 #          npx wrangler secret put STRIPE_WEBHOOK_SECRET --env beta  (optional)
+# Secrets (beta): npx wrangler secret put BOT_TOKEN --env beta
+#                 npx wrangler secret put WEBHOOK_SECRET --env beta
+#                 npx wrangler secret put STRIPE_SECRET_KEY --env beta       (optional)
+#                 npx wrangler secret put STRIPE_WEBHOOK_SECRET --env beta   (optional)
 # Webhook: curl "https://api.telegram.org/bot<BETA_TOKEN>/setWebhook" \
 #            -d "url=https://rps-bot-beta.<account>.workers.dev" \
 #            -d "secret_token=<WEBHOOK_SECRET>" \
