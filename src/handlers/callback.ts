@@ -4,8 +4,6 @@ import {
   nextRoundText,
   pickKeyboard,
   runRevealAndResult,
-  waitingKeyboard,
-  waitingText,
 } from '../game';
 
 export async function handleCallbackQuery(
@@ -22,8 +20,6 @@ export async function handleCallbackQuery(
     await handlePick(query, env, ctx, parts[1], parts[2] as Choice);
   } else if (action === 'cancel' && parts.length === 2) {
     await handleCancel(query, env, parts[1]);
-  } else if (action === 'refresh' && parts.length === 2) {
-    await handleRefresh(query, env, parts[1]);
   } else {
     await answerCallbackQuery(env.BOT_TOKEN, query.id);
   }
@@ -106,45 +102,4 @@ async function handleCancel(
 
   await editInlineMessage(token, session.hostInlineMessageId, '❌ Game cancelled.');
   await answerCallbackQuery(token, query.id);
-}
-
-async function handleRefresh(
-  query: CallbackQuery,
-  env: Env,
-  gameId: string
-): Promise<void> {
-  const token = env.BOT_TOKEN;
-  if (!query.inline_message_id) {
-    await answerCallbackQuery(token, query.id);
-    return;
-  }
-
-  const session = await env.GAME_SESSIONS.get<GameSession>(`game:${gameId}`, 'json');
-  if (!session) {
-    await answerCallbackQuery(token, query.id, '❌ Game not found.', true);
-    return;
-  }
-
-  if (session.status === 'waiting') {
-    await editInlineMessage(
-      token,
-      query.inline_message_id,
-      waitingText(session, env.BOT_USERNAME, Date.now()),
-      waitingKeyboard(gameId)
-    );
-  } else if (session.status === 'playing') {
-    const isParticipant =
-      query.from.id === session.hostUserId ||
-      query.from.id === session.opponentUserId;
-    if (isParticipant) {
-      await editInlineMessage(
-        token,
-        query.inline_message_id,
-        nextRoundText(session) + '\n\nPick your weapon!',
-        pickKeyboard(gameId)
-      );
-    }
-  }
-
-  await answerCallbackQuery(token, query.id, '🔄 Refreshed!');
 }

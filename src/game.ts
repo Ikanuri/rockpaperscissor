@@ -73,10 +73,7 @@ export function waitingKeyboard(gameId: string, joinQuery?: string): InlineKeybo
   return {
     inline_keyboard: [
       [{ text: '🎮 Join', switch_inline_query_current_chat: joinQuery ?? gameId }],
-      [
-        { text: '🔄', callback_data: `refresh:${gameId}` },
-        { text: '❌ Cancel', callback_data: `cancel:${gameId}` },
-      ],
+      [{ text: '❌ Cancel', callback_data: `cancel:${gameId}` }],
     ],
   };
 }
