@@ -329,7 +329,7 @@ export async function runRevealAndResult(
     editInlineMessage(token, h, reveal, undefined, REALTIME_RETRY_MS),
     editInlineMessage(token, o, reveal, undefined, REALTIME_RETRY_MS),
   ]);
-  await sleep(2000);
+  await sleep(5000);
 
   const roundOutcome = determineWinner(session.hostChoice!, session.opponentChoice!);
 
