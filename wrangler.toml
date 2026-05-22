@@ -66,7 +66,7 @@ CUSTOM_EMOJI_ROCK = ""
 CUSTOM_EMOJI_PAPER = ""
 CUSTOM_EMOJI_SCISSORS = ""
 # All beta features enabled
-FEATURE_FLAGS = "donator,gif_thumb,leaderboard,refresh_button,beta_config"
+FEATURE_FLAGS = "donator,gif_thumb,leaderboard,refresh_button,beta_config,group_mode"
 
 [[env.beta.kv_namespaces]]
 binding = "GAME_SESSIONS"

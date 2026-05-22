@@ -127,6 +127,8 @@ export interface TelegramMessage {
   animation?: { file_id: string; file_unique_id: string };
   entities?: Array<{ type: string; offset: number; length: number; custom_emoji_id?: string }>;
   successful_payment?: SuccessfulPayment;
+  new_chat_members?: TelegramUser[];
+  left_chat_member?: TelegramUser;
 }
 
 export type PendingAction =

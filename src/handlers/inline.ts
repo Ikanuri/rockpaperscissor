@@ -11,7 +11,7 @@ import type {
   LeaderboardEntry,
   UserStats,
 } from '../types';
-import { answerInlineQuery, editInlineMessage } from '../telegram';
+import { answerInlineQuery, editInlineMessage, sendMessage } from '../telegram';
 import {
   EMOJI,
   escHtml,
@@ -45,6 +45,31 @@ function parseMode(s: string): GameMode {
 
 function isCustomCode(q: string): boolean {
   return CUSTOM_CODE_RE.test(q) && !RESERVED_CODES.has(q) && !GAME_ID_RE.test(q) && !CHAIN_CODE_RE.test(q);
+}
+
+async function maybeAnnounceGame(
+  token: string,
+  kv: KVNamespace,
+  session: GameSession,
+  botUsername: string
+): Promise<void> {
+  const key = `group:announce:${session.hostUserId}`;
+  const chatIdStr = await kv.get(key);
+  if (!chatIdStr) return;
+  await kv.delete(key);
+  const chatId = parseInt(chatIdStr);
+  if (isNaN(chatId)) return;
+  const joinCode = session.chainId ?? session.gameId;
+  const extras: string[] = [];
+  if (session.ranked) extras.push('🏆 Ranked');
+  if (session.mode === 'best_of_3') extras.push('Best of 3');
+  else if (session.mode === 'best_of_5') extras.push('Best of 5');
+  else if (session.mode === 'best_of_7') extras.push('Best of 7');
+  const suffix = extras.length ? ` · ${extras.join(' · ')}` : '';
+  await sendMessage(token, chatId,
+    `🎮 <b>${escHtml(session.hostName)}</b> mulai game RPS${suffix}!\n` +
+    `Siapa mau lawan? Ketik <code>@${botUsername} ${joinCode}</code> 👆`
+  );
 }
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 
@@ -630,6 +655,7 @@ export async function handleChosenInlineResult(
       waitingText(session, env.BOT_USERNAME),
       waitingKeyboard(gameId)
     );
+    ctx.waitUntil(maybeAnnounceGame(token, kv, session, env.BOT_USERNAME));
     return;
   }
 
@@ -672,6 +698,7 @@ export async function handleChosenInlineResult(
       waitingText(rankedSession, env.BOT_USERNAME),
       waitingKeyboard(gameId)
     );
+    ctx.waitUntil(maybeAnnounceGame(token, kv, rankedSession, env.BOT_USERNAME));
     return;
   }
 
@@ -781,6 +808,7 @@ export async function handleChosenInlineResult(
       waitingText(customSession, env.BOT_USERNAME),
       waitingKeyboard(q)
     );
+    ctx.waitUntil(maybeAnnounceGame(token, kv, customSession, env.BOT_USERNAME));
     return;
   }
 
@@ -822,4 +850,5 @@ export async function handleChosenInlineResult(
     waitingText(session, env.BOT_USERNAME),
     waitingKeyboard(gameId)
   );
+  ctx.waitUntil(maybeAnnounceGame(token, kv, session, env.BOT_USERNAME));
 }

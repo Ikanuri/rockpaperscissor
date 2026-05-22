@@ -1,4 +1,4 @@
-import type { Choice, Env, GameSession, PendingConfig, TelegramMessage } from '../types';
+import type { Choice, Env, GameSession, LeaderboardEntry, PendingConfig, TelegramMessage } from '../types';
 import { editInlineMessage, getChatInfo, sendMessage, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
@@ -43,7 +43,12 @@ function reply(token: string, chatId: number, text: string) {
 }
 
 export async function handleMessage(msg: TelegramMessage, env: Env): Promise<void> {
-  if (!msg.from || msg.chat.type !== 'private') return;
+  const chatType = msg.chat.type;
+  if (chatType === 'group' || chatType === 'supergroup') {
+    await handleGroupMessage(msg, env);
+    return;
+  }
+  if (!msg.from || chatType !== 'private') return;
 
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
@@ -755,6 +760,93 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     `<b>All Users:</b>\n` +
     `/clearhost`
   );
+}
+
+async function handleGroupMessage(msg: TelegramMessage, env: Env): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const chatId = msg.chat.id;
+  const botName = env.BOT_USERNAME.toLowerCase();
+
+  // Bot added to group — persist settings; send welcome if group_mode enabled
+  if (msg.new_chat_members?.some(m => m.username?.toLowerCase() === botName)) {
+    await kv.put(`group:settings:${chatId}`, JSON.stringify({ chatId, joinedAt: Date.now() }));
+    if (hasFeature(env, 'group_mode')) {
+      await sendMessage(token, chatId,
+        `👋 Halo semua! Ketik <code>@${env.BOT_USERNAME}</code> di chat untuk main Rock Paper Scissors! 🎮\n\n` +
+        `/leaderboard — Papan skor global\n` +
+        `/announce — Umumkan game berikutmu di grup ini\n\n` +
+        `<i>Ketik /start untuk info lebih lanjut.</i>`
+      );
+    }
+    return;
+  }
+
+  // Bot removed from group — clean up settings
+  if (msg.left_chat_member?.username?.toLowerCase() === botName) {
+    await kv.delete(`group:settings:${chatId}`);
+    return;
+  }
+
+  // New human members joined
+  if (msg.new_chat_members) {
+    if (hasFeature(env, 'group_mode')) {
+      const humans = msg.new_chat_members.filter(m => !m.is_bot);
+      if (humans.length > 0) {
+        const mentions = humans.map(m => m.username ? `@${m.username}` : escHtml(m.first_name)).join(', ');
+        await sendMessage(token, chatId,
+          `👋 Selamat datang ${mentions}! Ketik @${env.BOT_USERNAME} untuk main RPS 🎮`
+        );
+      }
+    }
+    return;
+  }
+
+  // Commands — only when group_mode is enabled
+  if (!hasFeature(env, 'group_mode')) return;
+  if (!msg.from || !msg.text) return;
+
+  // Strip @BotName suffix: /leaderboard@gubakebetabot → /leaderboard
+  const rawCmd = msg.text.trim().split(/\s+/)[0].toLowerCase();
+  const cmd = rawCmd.replace(/@\w+$/, '');
+
+  if (cmd === '/leaderboard') {
+    const board = (await kv.get<LeaderboardEntry[]>('leaderboard', 'json')) ?? [];
+    if (board.length === 0) {
+      await sendMessage(token, chatId, '📊 Leaderboard masih kosong. Mulai game dulu!');
+      return;
+    }
+    const lines = board.slice(0, 20).map((e, i) =>
+      `${i + 1}. ${escHtml(e.name)} — ${e.wins}W / ${e.total - e.wins}L`
+    );
+    await sendMessage(token, chatId,
+      `🏆 <b>Top ${board.length} Players</b>\n━━━━━━━━━━━━━━\n${lines.join('\n')}`
+    );
+    return;
+  }
+
+  if (cmd === '/start' || cmd === '/help') {
+    await sendMessage(token, chatId,
+      `🎮 <b>Rock Paper Scissors</b>\n\n` +
+      `Ketik <code>@${env.BOT_USERNAME}</code> di chat ini untuk mulai game!\n\n` +
+      `<b>Mode tersedia:</b>\n` +
+      `• Single, <code>BO3</code>, <code>BO5</code>, <code>BO7</code>\n` +
+      `• <code>RANKED</code> — mode ranked dengan ELO\n` +
+      `• <code>@username</code> — private challenge\n\n` +
+      `/leaderboard — Papan skor global\n` +
+      `/announce — Umumkan game berikutmu di grup ini`
+    );
+    return;
+  }
+
+  if (cmd === '/announce') {
+    await kv.put(`group:announce:${msg.from.id}`, String(chatId), { expirationTtl: 300 });
+    await sendMessage(token, chatId,
+      `✅ Siap ${escHtml(msg.from.first_name)}! Game inline berikutnya yang kamu buat akan diumumkan di sini.\n` +
+      `<i>Berlaku 5 menit atau sampai satu game dibuat.</i>`
+    );
+    return;
+  }
 }
 
 function welcomeText(env: Env): string {
