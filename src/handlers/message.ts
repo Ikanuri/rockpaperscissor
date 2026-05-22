@@ -12,7 +12,7 @@ import {
 } from '../config';
 import { activateTier, loadDonatorTier, TIER_PERKS, tierBadge } from '../donator';
 import { handleDonate, handleSuccessfulPayment } from './payment';
-import { escHtml, getWeekKey } from '../game';
+import { escHtml, fmtEmoji, getWeekKey } from '../game';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
@@ -108,12 +108,13 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       const customEmoji = msg.entities?.find(e => e.type === 'custom_emoji');
       const val = customEmoji?.custom_emoji_id ?? msg.text.trim();
       try {
+        const fallbackChar = msg.text?.trim() ?? '?';
         if (pending.action === 'setemoji_reveal') {
           await setUserConfig(kv, msg.from.id, { reveal: { [pending.choice]: val } as Record<Choice, string> });
-          await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset ke: ${val}`);
+          await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset ke: ${fmtEmoji(val, fallbackChar)}`);
         } else {
           await setGlobalConfig(kv, { reveal: { [pending.choice]: val } as Record<Choice, string> });
-          await reply(token, msg.chat.id, `✅ Global reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset.`);
+          await reply(token, msg.chat.id, `✅ Global reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset ke: ${fmtEmoji(val, fallbackChar)}`);
         }
       } catch (e) {
         await reply(token, msg.chat.id, `❌ Gagal simpan: ${String(e)}`);
@@ -213,8 +214,11 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       return;
     }
     if (rawValue) {
-      await setUserConfig(kv, msg.from.id, { reveal: { [choice]: rawValue } as Record<Choice, string> });
-      await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> diset ke: ${rawValue}`);
+      // Kalau emoji custom ditulis inline dalam command, ambil custom_emoji_id dari entities
+      const inlineCE = msg.entities?.find(e => e.type === 'custom_emoji');
+      const val = inlineCE?.custom_emoji_id ?? rawValue;
+      await setUserConfig(kv, msg.from.id, { reveal: { [choice]: val } as Record<Choice, string> });
+      await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> diset ke: ${fmtEmoji(val, rawValue)}`);
       return;
     }
     await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action: 'setemoji_reveal', choice }), { expirationTtl: 300 });
