@@ -631,12 +631,21 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       ? `${expiryUtc.toISOString().slice(0, 16).replace('T', ' ')} UTC · ${expiryWib.toISOString().slice(11, 16)} WIB`
       : `${expiryUtc.toISOString().slice(0, 10)} · ${expiryWib.toISOString().slice(0, 10)} WIB`;
 
+    // Teks expiry untuk notif user — relatif jika < 24 jam, tanggal jika >= 1 hari
+    const userExpiryStr = durationMs < 60_000
+      ? `dalam kurang dari 1 menit`
+      : durationMs < 3_600_000
+        ? `dalam ${Math.round(durationMs / 60_000)} menit`
+        : durationMs < 86_400_000
+          ? `dalam ${Math.round(durationMs / 3_600_000)} jam`
+          : `hingga ${expiryUtc.toISOString().slice(0, 10)}`;
+
     // Notifikasi ke tiap user
-    const expiryDateOnly = expiryUtc.toISOString().slice(0, 10);
+    const expiryDateOnly = userExpiryStr;
     const userNotifText =
       `🎉 <b>Tier kamu diaktifkan!</b>\n\n` +
       `Tier: <b>${TIER_PERKS[activeTier].label}</b>\n` +
-      `Berlaku hingga: <b>${expiryDateOnly}</b>\n\n` +
+      `Berlaku: <b>${expiryDateOnly}</b>\n\n` +
       `<b>Yang bisa kamu lakukan sekarang:</b>\n` +
       TIER_PERKS[activeTier].features.map(f => `• ${f}`).join('\n') + '\n\n' +
       `Ketik /setemoji, /setsticker, atau /setthumb di sini untuk mulai kustomisasi.`;
