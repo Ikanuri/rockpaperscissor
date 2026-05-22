@@ -468,6 +468,45 @@ async function updateLeaderboard(
   await kv.put('leaderboard', JSON.stringify(board.slice(0, 20)));
 }
 
+async function updateDailyLeaderboard(
+  kv: KVNamespace,
+  host: { userId: number; name: string },
+  op: { userId: number; name: string },
+  outcome: 'a' | 'b' | 'draw'
+): Promise<void> {
+  const dayIdx = getDayIndex();
+  const key = `daily:${dayIdx}:leaderboard`;
+  const board = (await kv.get<LeaderboardEntry[]>(key, 'json')) ?? [];
+  for (const [user, won] of [[host, outcome === 'a'], [op, outcome === 'b']] as Array<[{ userId: number; name: string }, boolean]>) {
+    const idx = board.findIndex(e => e.userId === user.userId);
+    if (idx >= 0) {
+      board[idx].name = user.name;
+      board[idx].total++;
+      if (won) board[idx].wins++;
+    } else {
+      board.push({ userId: user.userId, name: user.name, wins: won ? 1 : 0, total: 1 });
+    }
+  }
+  board.sort((a, b) => b.wins - a.wins || b.total - a.total);
+  await kv.put(key, JSON.stringify(board.slice(0, 20)), { expirationTtl: 86400 * 3 });
+}
+
+async function sendGroupStreakMention(
+  kv: KVNamespace,
+  token: string,
+  userId: number,
+  name: string,
+  streak: number
+): Promise<void> {
+  const chatIdStr = await kv.get('config:daily_challenge_chat');
+  if (!chatIdStr) return;
+  const chatId = parseInt(chatIdStr);
+  if (isNaN(chatId)) return;
+  await sendMessage(token, chatId,
+    `🔥 <b>${escHtml(name)}</b> baru capai streak <b>${streak}x</b> beruntun! Ada yang mau tantang? <code>@</code> · ${userId}`
+  );
+}
+
 async function finishGame(
   token: string,
   kv: KVNamespace,
@@ -510,27 +549,37 @@ async function finishGame(
       session.opponentChoice!, session.hostUserId, session.hostName,
       hostRating, isRanked, opponentIsPremium, opponentLifetime
     ),
-    ...(hasFeature(env, 'leaderboard') ? [updateLeaderboard(
-      kv,
-      { userId: session.hostUserId, name: session.hostName },
-      { userId: session.opponentUserId!, name: session.opponentName! },
-      matchOutcome
-    )] : []),
+    ...(hasFeature(env, 'leaderboard') ? [
+      updateLeaderboard(
+        kv,
+        { userId: session.hostUserId, name: session.hostName },
+        { userId: session.opponentUserId!, name: session.opponentName! },
+        matchOutcome
+      ),
+      updateDailyLeaderboard(
+        kv,
+        { userId: session.hostUserId, name: session.hostName },
+        { userId: session.opponentUserId!, name: session.opponentName! },
+        matchOutcome
+      ),
+    ] : []),
   ]);
 
   const hostStats = hostResult.stats;
   const opponentStats = opponentResult.stats;
 
-  // Streak milestone DMs (fire-and-forget)
+  // Streak milestone DMs + group mention (fire-and-forget)
   if (hostResult.notifyStreak) {
     ctx.waitUntil(sendMessage(token, session.hostUserId,
       `🔥 Streak <b>${hostResult.notifyStreak}x</b> beruntun! Luar biasa! 🏆`
     ));
+    ctx.waitUntil(sendGroupStreakMention(kv, token, session.hostUserId, session.hostName, hostResult.notifyStreak));
   }
   if (opponentResult.notifyStreak) {
     ctx.waitUntil(sendMessage(token, session.opponentUserId!,
       `🔥 Streak <b>${opponentResult.notifyStreak}x</b> beruntun! Luar biasa! 🏆`
     ));
+    ctx.waitUntil(sendGroupStreakMention(kv, token, session.opponentUserId!, session.opponentName!, opponentResult.notifyStreak));
   }
 
   // Achievement DMs (fire-and-forget)

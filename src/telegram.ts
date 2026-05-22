@@ -142,3 +142,44 @@ export function sendInvoice(
     prices,
   });
 }
+
+export function sendChatAction(
+  token: string,
+  chatId: number,
+  action: string
+): Promise<void> {
+  return call(token, 'sendChatAction', { chat_id: chatId, action });
+}
+
+export function sendPoll(
+  token: string,
+  chatId: number,
+  question: string,
+  options: string[],
+  isAnonymous = true
+): Promise<void> {
+  return call(token, 'sendPoll', {
+    chat_id: chatId,
+    question,
+    options,
+    is_anonymous: isAnonymous,
+  });
+}
+
+export async function sendDice(
+  token: string,
+  chatId: number,
+  emoji = '🎲'
+): Promise<number> {
+  const res = await fetch(`${API}${token}/sendDice`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, emoji }),
+  });
+  if (!res.ok) {
+    console.error('[tg:sendDice]', await res.text());
+    return 0;
+  }
+  const data = await res.json<{ result?: { dice?: { value?: number } } }>();
+  return data.result?.dice?.value ?? 0;
+}

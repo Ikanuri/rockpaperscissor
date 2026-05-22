@@ -1,21 +1,31 @@
-import type { Env, TelegramUpdate } from './types';
+import type { Env, LeaderboardEntry, TelegramUpdate } from './types';
 import { handleInlineQuery, handleChosenInlineResult } from './handlers/inline';
 import { handleCallbackQuery } from './handlers/callback';
 import { handleMessage } from './handlers/message';
 import { handlePreCheckout, handleStripeWebhook } from './handlers/payment';
 import { hasFeature } from './feature';
 import { sendMessage } from './telegram';
+import { getDayIndex, escHtml } from './game';
 
 async function handleDailyChallenge(env: Env): Promise<void> {
   const chatIdStr = await env.GAME_SESSIONS.get('config:daily_challenge_chat');
   if (!chatIdStr) return;
   const chatId = parseInt(chatIdStr);
   if (isNaN(chatId)) return;
-  await sendMessage(env.BOT_TOKEN, chatId,
-    `🎮 <b>Daily RPS Challenge!</b>\n` +
-    `Siapa yang bisa menang paling banyak hari ini?\n\n` +
-    `Ketik <code>@${env.BOT_USERNAME}</code> untuk mulai! ✊✋✌️`
-  );
+
+  const yesterdayIdx = getDayIndex() - 1;
+  const yesterdayBoard = yesterdayIdx >= 0
+    ? await env.GAME_SESSIONS.get<LeaderboardEntry[]>(`daily:${yesterdayIdx}:leaderboard`, 'json')
+    : null;
+
+  let text = `🎮 <b>Daily RPS Challenge!</b>\nSiapa yang bisa menang paling banyak hari ini?\n\n`;
+  if (yesterdayBoard && yesterdayBoard.length > 0) {
+    const champ = yesterdayBoard[0];
+    text += `👑 Juara kemarin: <b>${escHtml(champ.name)}</b> (${champ.wins}W / ${champ.total} game)\n\n`;
+  }
+  text += `Ketik <code>@${env.BOT_USERNAME}</code> untuk mulai! ✊✋✌️`;
+
+  await sendMessage(env.BOT_TOKEN, chatId, text);
 }
 
 export default {

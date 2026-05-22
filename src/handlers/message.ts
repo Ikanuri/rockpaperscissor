@@ -1,5 +1,5 @@
 import type { Choice, Env, GameSession, LeaderboardEntry, PendingConfig, TelegramMessage, UserStats } from '../types';
-import { editInlineMessage, getChatInfo, sendMessage, setMyCommands } from '../telegram';
+import { editInlineMessage, getChatInfo, sendChatAction, sendDice, sendMessage, sendPoll, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
   loadConfig,
@@ -830,6 +830,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env): Promise<void>
   const cmd = rawCmd.replace(/@\w+$/, '');
 
   if (cmd === '/leaderboard') {
+    await sendChatAction(token, chatId, 'typing');
     const board = (await kv.get<LeaderboardEntry[]>('leaderboard', 'json')) ?? [];
     if (board.length === 0) {
       await sendMessage(token, chatId, '📊 Leaderboard masih kosong. Mulai game dulu!');
@@ -864,6 +865,23 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env): Promise<void>
       `✅ Siap ${escHtml(msg.from.first_name)}! Game inline berikutnya yang kamu buat akan diumumkan di sini.\n` +
       `<i>Berlaku 5 menit atau sampai satu game dibuat.</i>`
     );
+    return;
+  }
+
+  if (cmd === '/poll') {
+    await sendPoll(token, chatId,
+      '🎮 Mau main apa malam ini?',
+      ['1v1 Classic', 'Best of 3', 'Best of 5', 'Last Man Standing'],
+      false
+    );
+    return;
+  }
+
+  if (cmd === '/dice') {
+    const parts = msg.text.trim().split(/\s+/);
+    const validEmojis = ['🎲', '🎯', '🏀', '⚽', '🎳', '🎰'];
+    const emoji = validEmojis.includes(parts[1] ?? '') ? parts[1] : '🎲';
+    await sendDice(token, chatId, emoji);
     return;
   }
 
