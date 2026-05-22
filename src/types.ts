@@ -94,6 +94,25 @@ export interface ChainMeta {
   ranked?: boolean;
 }
 
+export interface VsStats {
+  wins: number;
+  losses: number;
+  draws: number;
+  total: number;
+  currentStreak?: number;
+  longestStreak?: number;
+}
+
+export interface LastGameRecord {
+  opponentId: number;
+  opponentName: string;
+  myChoice: Choice;
+  opponentChoice: Choice;
+  outcome: 'win' | 'loss' | 'draw';
+  ranked: boolean;
+  at: number;
+}
+
 export interface Env {
   GAME_SESSIONS: KVNamespace;
   BOT_TOKEN: string;

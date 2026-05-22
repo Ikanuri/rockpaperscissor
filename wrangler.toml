@@ -68,6 +68,9 @@ CUSTOM_EMOJI_SCISSORS = ""
 # All beta features enabled
 FEATURE_FLAGS = "donator,gif_thumb,leaderboard,refresh_button,beta_config,group_mode"
 
+[env.beta.triggers]
+crons = ["0 0 * * *"]
+
 [[env.beta.kv_namespaces]]
 binding = "GAME_SESSIONS"
 # Run: npx wrangler kv namespace create GAME_SESSIONS --env beta

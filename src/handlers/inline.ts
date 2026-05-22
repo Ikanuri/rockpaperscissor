@@ -8,17 +8,21 @@ import type {
   GameSession,
   InlineQuery,
   InlineResult,
+  LastGameRecord,
   LeaderboardEntry,
   UserStats,
+  VsStats,
 } from '../types';
 import { answerInlineQuery, editInlineMessage, sendMessage } from '../telegram';
 import {
   EMOJI,
+  determineWinner,
   escHtml,
   formatUser,
   generateId,
   runRevealAndResult,
   trackHostedGame,
+  updateStats,
   waitingKeyboard,
   waitingText,
 } from '../game';
@@ -32,9 +36,11 @@ const CHAIN_CODE_RE = /^R[A-Z2-9]{6}$/;
 const PRIVATE_RE = /^@(\w{1,32})(?:\s+(BO[357]))?$/;
 // Ranked mode: RANKED [BO3/BO5/BO7]
 const RANKED_RE = /^RANKED(?:\s+(BO[357]))?$/;
+// Head-to-head: VS @username
+const VS_RE = /^VS\s+@(\w{1,32})$/;
 // Custom game code: 2–20 alphanumeric chars (must not match other patterns)
 const CUSTOM_CODE_RE = /^[A-Z0-9]{2,20}$/;
-const RESERVED_CODES = new Set(['TOP', 'STATS', 'CLEARHOST', 'SYNCSTATS', 'BO3', 'BO5', 'BO7', 'START', 'HELP', 'RANKED']);
+const RESERVED_CODES = new Set(['TOP', 'STATS', 'CLEARHOST', 'SYNCSTATS', 'BO3', 'BO5', 'BO7', 'START', 'HELP', 'RANKED', 'LAST', 'BOT', 'VS']);
 
 function parseMode(s: string): GameMode {
   if (s === 'BO3') return 'best_of_3';
@@ -222,6 +228,19 @@ function statsResult(stats: UserStats): InlineResult {
   };
 }
 
+function formatLastGame(last: LastGameRecord): string {
+  const myE = EMOJI[last.myChoice];
+  const oppE = EMOJI[last.opponentChoice];
+  const outcomeText = last.outcome === 'win' ? '🏆 Kamu menang!'
+    : last.outcome === 'loss' ? '😔 Kalah' : '🤝 Draw!';
+  const rankedLabel = last.ranked ? ' · 🏆 Ranked' : '';
+  const timeStr = new Date(last.at).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+  return `📽️ <b>Game terakhirmu</b>\n━━━━━━━━━━━━━━\n` +
+    `${outcomeText}${rankedLabel}\n` +
+    `Kamu: ${myE}  vs  ${escHtml(last.opponentName)}: ${oppE}\n` +
+    `🕐 ${timeStr}`;
+}
+
 export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<void> {
   const q = query.query.trim().toUpperCase();
   const token = env.BOT_TOKEN;
@@ -286,6 +305,69 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   if (q === 'STATS') {
     const s = (await kv.get<UserStats>(`stats:${from.id}`, 'json')) ?? { wins: 0, losses: 0, draws: 0, total: 0 };
     await answerInlineQuery(token, query.id, [statsResult(s)]);
+    return;
+  }
+
+  if (q === 'LAST') {
+    const last = await kv.get<LastGameRecord>(`stats:${from.id}:last`, 'json');
+    const text = last ? formatLastGame(last) : '❌ Belum ada game yang dimainkan.';
+    const title = last
+      ? `📽️ Kamu ${EMOJI[last.myChoice]} vs ${escHtml(last.opponentName)} ${EMOJI[last.opponentChoice]} — ${last.outcome}`
+      : '📽️ Belum ada game';
+    await answerInlineQuery(token, query.id, [{
+      type: 'article', id: 'last', title,
+      description: last ? new Date(last.at).toISOString().slice(0, 10) : 'Play a game first',
+      input_message_content: { message_text: text, parse_mode: 'HTML' },
+    }]);
+    return;
+  }
+
+  if (q === 'BOT') {
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    await answerInlineQuery(token, query.id, buildChoiceResults('🤖 vs Bot', env, config));
+    return;
+  }
+
+  const vsMatch = VS_RE.exec(q);
+  if (vsMatch) {
+    const username = vsMatch[1].toLowerCase();
+    const targetIdStr = await kv.get(`user:by_username:${username}`);
+    if (!targetIdStr) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'vs_notfound',
+        title: `❌ @${vsMatch[1]} not found`,
+        description: 'Player belum pernah main atau belum /start',
+        input_message_content: { message_text: `❌ @${vsMatch[1]} belum ditemukan. Minta mereka /start dulu.` },
+      }]);
+      return;
+    }
+    const opponentId = parseInt(targetIdStr);
+    const [vs, opponentInfo] = await Promise.all([
+      kv.get<VsStats>(`stats:${from.id}:vs:${opponentId}`, 'json'),
+      kv.get<{ name: string; username: string | null }>(`user:info:${opponentId}`, 'json'),
+    ]);
+    const opponentName = opponentInfo?.name ?? vsMatch[1];
+    if (!vs || vs.total === 0) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'vs_empty',
+        title: `📊 vs @${vsMatch[1]}: belum ada game`,
+        description: 'Belum pernah main vs player ini',
+        input_message_content: { message_text: `📊 Kamu belum pernah main vs @${vsMatch[1]}.` },
+      }]);
+      return;
+    }
+    const winRate = Math.round((vs.wins / vs.total) * 100);
+    const vsText = `📊 <b>Kamu vs @${vsMatch[1]}</b>\n━━━━━━━━━━━━━━\n` +
+      `🏆 ${vs.wins}W · 😔 ${vs.losses}L · 🤝 ${vs.draws}D\n` +
+      `📈 ${vs.total} game · ${winRate}% win rate\n` +
+      ((vs.longestStreak ?? 0) > 0 ? `🔥 Streak terpanjang: ${vs.longestStreak}x\n` : '') +
+      ((vs.currentStreak ?? 0) >= 2 ? `⚡ Streak saat ini: ${vs.currentStreak}x` : '');
+    await answerInlineQuery(token, query.id, [{
+      type: 'article', id: 'vs',
+      title: `📊 vs ${escHtml(opponentName)}: ${vs.wins}W / ${vs.losses}L / ${vs.draws}D`,
+      description: `${vs.total} game · ${winRate}% win rate`,
+      input_message_content: { message_text: vsText, parse_mode: 'HTML' },
+    }]);
     return;
   }
 
@@ -527,6 +609,10 @@ export async function handleChosenInlineResult(
     return;
   }
 
+  // Informational articles — message already final from article content
+  if (q === 'LAST') return;
+  if (VS_RE.test(q)) return;
+
   const choice = resolveChoice(result.result_id);
 
   // Keep user info cache fresh even for users who haven't DM'd the bot
@@ -534,6 +620,45 @@ export async function handleChosenInlineResult(
     name: result.from.first_name,
     username: result.from.username ?? null,
   }));
+  if (result.from.username) {
+    kv.put(`user:by_username:${result.from.username.toLowerCase()}`, String(result.from.id));
+  }
+
+  // Instant game vs Bot
+  if (q === 'BOT') {
+    const botChoice = CHOICES[Math.floor(Math.random() * 3)];
+    const rawOutcome = determineWinner(choice, botChoice);
+    const botOutcome: 'win' | 'loss' | 'draw' = rawOutcome === 'a' ? 'win' : rawOutcome === 'b' ? 'loss' : 'draw';
+    const botUpdateResult = await updateStats(kv, result.from.id, botOutcome, choice, 0, 'Bot', 1000, false, false);
+    const botLastGame: LastGameRecord = {
+      opponentId: 0,
+      opponentName: 'Bot',
+      myChoice: choice,
+      opponentChoice: botChoice,
+      outcome: botOutcome,
+      ranked: false,
+      at: Date.now(),
+    };
+    await kv.put(`stats:${result.from.id}:last`, JSON.stringify(botLastGame));
+    const outcomeText = botOutcome === 'win' ? '🏆 Kamu menang!'
+      : botOutcome === 'loss' ? '😔 Bot menang' : '🤝 Draw!';
+    const botStreakPart = botOutcome === 'win' && (botUpdateResult.stats.currentStreak ?? 0) >= 2
+      ? `\n🔥 ${botUpdateResult.stats.currentStreak} win streak!` : '';
+    const playAgainKeyboard = {
+      inline_keyboard: [[{ text: '🔄 Main lagi vs Bot', switch_inline_query_current_chat: 'BOT' }]],
+    };
+    await editInlineMessage(token, result.inline_message_id,
+      `🤖 <b>vs Bot</b>\nKamu: ${EMOJI[choice]}  ·  Bot: ${EMOJI[botChoice]}\n${outcomeText}${botStreakPart}`,
+      playAgainKeyboard
+    );
+    for (const achLabel of botUpdateResult.newAchievements) {
+      ctx.waitUntil(sendMessage(token, result.from.id, `🏅 Achievement unlocked: ${achLabel}`));
+    }
+    if (botUpdateResult.notifyStreak) {
+      ctx.waitUntil(sendMessage(token, result.from.id, `🔥 Streak <b>${botUpdateResult.notifyStreak}x</b> beruntun! Luar biasa! 🏆`));
+    }
+    return;
+  }
 
   // Chain rematch
   if (CHAIN_CODE_RE.test(q)) {

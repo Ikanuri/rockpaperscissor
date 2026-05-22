@@ -7,9 +7,11 @@ import type {
   GameMode,
   GameSession,
   InlineKeyboardMarkup,
+  LastGameRecord,
   LeaderboardEntry,
   TelegramUser,
   UserStats,
+  VsStats,
 } from './types';
 import { editInlineMessage, sendMessage } from './telegram';
 import { loadConfig, RELEASE_DATE } from './config';
@@ -277,15 +279,6 @@ function resultText(
   const streakLine = winnerStreak && winnerStreak >= 2 ? `\n🔥 ${winnerStreak} win streak!` : '';
   const histBlock = history ? historyBlock(history) : '';
   return `${verdict}${streakLine}\n${hName} ${hE} · ${oName} ${oE}${histBlock}`;
-}
-
-interface VsStats {
-  wins: number;
-  losses: number;
-  draws: number;
-  total: number;
-  currentStreak?: number;
-  longestStreak?: number;
 }
 
 interface UpdateStatsResult {
@@ -571,9 +564,30 @@ async function finishGame(
     ranked: isRanked || (existingMeta?.ranked ?? false),
   };
 
+  const hostLastGame: LastGameRecord = {
+    opponentId: session.opponentUserId!,
+    opponentName: session.opponentName!,
+    myChoice: session.hostChoice!,
+    opponentChoice: session.opponentChoice!,
+    outcome: matchOutcome === 'a' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
+    ranked: isRanked,
+    at: now,
+  };
+  const opponentLastGame: LastGameRecord = {
+    opponentId: session.hostUserId,
+    opponentName: session.hostName,
+    myChoice: session.opponentChoice!,
+    opponentChoice: session.hostChoice!,
+    outcome: matchOutcome === 'b' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
+    ranked: isRanked,
+    at: now,
+  };
+
   await Promise.all([
     kv.put(histKey, JSON.stringify(history), { expirationTtl: 3600 }),
     kv.put(`chain:${chainCode}:meta`, JSON.stringify(chainMeta), { expirationTtl: 300 }),
+    kv.put(`stats:${session.hostUserId}:last`, JSON.stringify(hostLastGame)),
+    kv.put(`stats:${session.opponentUserId!}:last`, JSON.stringify(opponentLastGame)),
   ]);
 
   const keyboard = rematchKeyboard(chainCode);

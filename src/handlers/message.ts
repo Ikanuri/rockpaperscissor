@@ -1,4 +1,4 @@
-import type { Choice, Env, GameSession, LeaderboardEntry, PendingConfig, TelegramMessage } from '../types';
+import type { Choice, Env, GameSession, LeaderboardEntry, PendingConfig, TelegramMessage, UserStats } from '../types';
 import { editInlineMessage, getChatInfo, sendMessage, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
@@ -63,6 +63,9 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     name: msg.from.first_name,
     username: msg.from.username ?? null,
   }));
+  if (msg.from.username) {
+    kv.put(`user:by_username:${msg.from.username.toLowerCase()}`, String(msg.from.id));
+  }
 
   // Successful payment (no text field)
   if (msg.successful_payment) {
@@ -706,6 +709,22 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     return;
   }
 
+  if (cmd === '/setdailychat') {
+    const chatIdArg = parts[1];
+    if (!chatIdArg) {
+      await reply(token, msg.chat.id, '❌ Usage: /setdailychat &lt;chatId&gt;');
+      return;
+    }
+    const chatIdNum = parseInt(chatIdArg);
+    if (isNaN(chatIdNum)) {
+      await reply(token, msg.chat.id, '❌ Invalid chat ID.');
+      return;
+    }
+    await kv.put('config:daily_challenge_chat', String(chatIdNum));
+    await reply(token, msg.chat.id, `✅ Daily challenge chat set to <code>${chatIdNum}</code>.`);
+    return;
+  }
+
   if (cmd === '/riverwas') {
     await reply(token, msg.chat.id,
       `📖 <b>Semua Command @${env.BOT_USERNAME}</b>\n` +
@@ -845,6 +864,22 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env): Promise<void>
       `✅ Siap ${escHtml(msg.from.first_name)}! Game inline berikutnya yang kamu buat akan diumumkan di sini.\n` +
       `<i>Berlaku 5 menit atau sampai satu game dibuat.</i>`
     );
+    return;
+  }
+
+  if (cmd === '/stats') {
+    const s = (await kv.get<UserStats>(`stats:${msg.from.id}`, 'json')) ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+    const streak = s.currentStreak ?? 0;
+    const weekWins = s.weekWins ?? 0;
+    const weekLosses = s.weekLosses ?? 0;
+    const weekDraws = s.weekDraws ?? 0;
+    let statsText = `📊 <b>${escHtml(msg.from.first_name)}</b>: ` +
+      `🏆 ${s.wins}W · 😔 ${s.losses}L · 🤝 ${s.draws}D · 📈 ${s.total} total`;
+    if (streak >= 2) statsText += `\n🔥 Streak: ${streak}x beruntun`;
+    if (weekWins + weekLosses + weekDraws > 0) {
+      statsText += `\n📅 Minggu ini: ${weekWins}W · ${weekLosses}L · ${weekDraws}D`;
+    }
+    await sendMessage(token, chatId, statsText);
     return;
   }
 }

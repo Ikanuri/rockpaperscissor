@@ -4,6 +4,19 @@ import { handleCallbackQuery } from './handlers/callback';
 import { handleMessage } from './handlers/message';
 import { handlePreCheckout, handleStripeWebhook } from './handlers/payment';
 import { hasFeature } from './feature';
+import { sendMessage } from './telegram';
+
+async function handleDailyChallenge(env: Env): Promise<void> {
+  const chatIdStr = await env.GAME_SESSIONS.get('config:daily_challenge_chat');
+  if (!chatIdStr) return;
+  const chatId = parseInt(chatIdStr);
+  if (isNaN(chatId)) return;
+  await sendMessage(env.BOT_TOKEN, chatId,
+    `🎮 <b>Daily RPS Challenge!</b>\n` +
+    `Siapa yang bisa menang paling banyak hari ini?\n\n` +
+    `Ketik <code>@${env.BOT_USERNAME}</code> untuk mulai! ✊✋✌️`
+  );
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -35,5 +48,9 @@ export default {
 
     // Always return 200 — Telegram retries on non-200
     return new Response('OK');
+  },
+
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(handleDailyChallenge(env));
   },
 };
