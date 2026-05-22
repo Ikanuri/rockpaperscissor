@@ -1,6 +1,104 @@
-# Patch Notes — JankensBot
+# Patch Notes — GubakeBot
 
 Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
+
+---
+
+## v1.5.0 — 22 Mei 2026
+
+### ✨ Fitur Baru (Beta)
+
+**🎨 Emoji reveal milik sendiri**
+
+Sebelumnya emoji reveal di hasil game mengikuti config host. Sekarang tiap pemain pakai setting mereka masing-masing — kamu lihat emojimu sendiri, lawan lihat emojinya sendiri.
+
+---
+
+**🏷️ Emoji standar sebagai info**
+
+Kalau kamu pakai custom emoji premium Telegram, emoji standar ditampilkan dalam kurung sebagai referensi:
+
+```
+🏆 Andi wins!
+Andi 🍎 (✊) · Budi 🧱 (✌️)
+```
+
+Kalau tidak ada custom emoji, tampil seperti biasa tanpa kurung.
+
+---
+
+**💎 Tier Donator kini aktif**
+
+Fitur kustomisasi (`/setemoji`, `/setsticker`, `/setthumb`) sekarang memerlukan tier:
+
+| Tier | Yang bisa dilakukan |
+|------|-------------------|
+| Free | Main game saja |
+| 🥉 Basic | Set emoji (plain), stiker popup, thumbnail GIF/stiker |
+| 🥇 Premium | Semua Basic + emoji animasi custom Telegram |
+
+Hubungi owner untuk upgrade atau info lebih lanjut.
+
+---
+
+### 🔧 Perubahan (Owner/Admin)
+
+**`/activatetier` — lebih powerful**
+
+Command aktivasi tier manual sekarang mendukung:
+- **Bulk**: aktifkan beberapa user sekaligus — `/activatetier basic 123 456 789`
+- **Durasi fleksibel**: hari (`30d`), menit (`60m`), atau angka saja untuk hari — `/activatetier premium 7d 123456`
+- **Konfirmasi lengkap**: tampil nama user, expiry dalam UTC dan WIB
+
+```
+✅ 🥉 Basic activated · 30d
+⏰ Until: 2026-06-21 · 2026-06-21 WIB
+
+  • Raven @Beelzeboi (5298448445)
+  • Budi @budisantoso (123456789)
+```
+
+---
+
+**`/donatorlist` — daftar donator aktif**
+
+List semua donator dengan nama, username, tier, dan expiry. Badge otomatis sesuai tier:
+- Basic → `(✊)`
+- Premium → emoji custom rock mereka (kalau sudah diset)
+
+```
+📋 Donator list (2):
+  (✊) Budi @budisantoso (123456789)
+     until 2026-06-21 WIB
+  🍎 Raven @Beelzeboi (5298448445)
+     until 2026-07-21 WIB
+```
+
+---
+
+**`/betalist` — format diperbarui**
+
+Sekarang tampil nama + username + ID monospace, sama seperti `/donatorlist`.
+
+---
+
+**`/removedonator` — bulk**
+
+Hapus beberapa donator sekaligus: `/removedonator 123 456 789`
+
+---
+
+**`/setupcommands` — register command per user**
+
+Jalankan sekali untuk set command menu Telegram berbeda per role:
+- User biasa: hanya lihat command yang relevan
+- Owner: lihat semua command termasuk admin tools
+
+---
+
+**`/riverwas` — daftar semua command**
+
+Tampilkan semua command terorganisir per role: Semua User → Donator → Beta Tester → Owner.
 
 ---
 
