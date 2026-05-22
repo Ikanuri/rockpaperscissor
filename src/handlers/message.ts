@@ -631,14 +631,38 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       ? `${expiryUtc.toISOString().slice(0, 16).replace('T', ' ')} UTC · ${expiryWib.toISOString().slice(11, 16)} WIB`
       : `${expiryUtc.toISOString().slice(0, 10)} · ${expiryWib.toISOString().slice(0, 10)} WIB`;
 
+    // Notifikasi ke tiap user
+    const expiryDateOnly = expiryUtc.toISOString().slice(0, 10);
+    const userNotifText =
+      `🎉 <b>Tier kamu diaktifkan!</b>\n\n` +
+      `Tier: <b>${TIER_PERKS[activeTier].label}</b>\n` +
+      `Berlaku hingga: <b>${expiryDateOnly}</b>\n\n` +
+      `<b>Yang bisa kamu lakukan sekarang:</b>\n` +
+      TIER_PERKS[activeTier].features.map(f => `• ${f}`).join('\n') + '\n\n' +
+      `Ketik /setemoji, /setsticker, atau /setthumb di sini untuk mulai kustomisasi.`;
+
+    const notifResults = await Promise.all(
+      userIds.map(uid =>
+        sendMessage(token, uid, userNotifText)
+          .then(() => ({ uid, ok: true }))
+          .catch(() => ({ uid, ok: false }))
+      )
+    );
+
     const userLines = (await Promise.all(
-      userIds.map(async uid => `  • ${await resolveUserDisplay(kv, token, uid)}`)
+      userIds.map(async uid => {
+        const sent = notifResults.find(r => r.uid === uid)?.ok;
+        const notifIcon = sent ? '✉️' : '⚠️';
+        return `  ${notifIcon} ${await resolveUserDisplay(kv, token, uid)}`;
+      })
     )).join('\n');
 
+    const hasUnnotified = notifResults.some(r => !r.ok);
     await reply(token, msg.chat.id,
       `✅ <b>${TIER_PERKS[activeTier].label}</b> activated · ${durationLabel}\n` +
       `⏰ Until: ${expiryStr}\n\n` +
-      userLines
+      userLines +
+      (hasUnnotified ? '\n\n<i>⚠️ = belum pernah DM bot, tidak bisa dinotifikasi.</i>' : '')
     );
     return;
   }
