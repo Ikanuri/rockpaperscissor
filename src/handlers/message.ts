@@ -425,31 +425,51 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   if (cmd === '/betaadd' && parts.length >= 2) {
     const targetId = parseInt(parts[1]);
     if (isNaN(targetId)) { await reply(token, msg.chat.id, '❌ Invalid user ID.'); return; }
-    const list = await kv.get<number[]>('beta:approved', 'json') ?? [];
-    if (!list.includes(targetId)) {
-      list.push(targetId);
-      await kv.put('beta:approved', JSON.stringify(list));
+    try {
+      const list = await kv.get<number[]>('beta:approved', 'json') ?? [];
+      const alreadyIn = list.includes(targetId);
+      if (!alreadyIn) {
+        list.push(targetId);
+        await kv.put('beta:approved', JSON.stringify(list));
+      }
+      const note = alreadyIn ? ' (already in list)' : '';
+      await reply(token, msg.chat.id,
+        `✅ ${targetId} added to beta list${note}.\n` +
+        `📋 Current list (${list.length}): ${list.join(', ') || '(empty)'}`
+      );
+    } catch (e) {
+      await reply(token, msg.chat.id, `❌ Failed: ${String(e)}`);
     }
-    await reply(token, msg.chat.id, `✅ ${targetId} added to beta list.`);
     return;
   }
 
   if (cmd === '/betaremove' && parts.length >= 2) {
     const targetId = parseInt(parts[1]);
     if (isNaN(targetId)) { await reply(token, msg.chat.id, '❌ Invalid user ID.'); return; }
-    const list = (await kv.get<number[]>('beta:approved', 'json') ?? []).filter(id => id !== targetId);
-    await kv.put('beta:approved', JSON.stringify(list));
-    await reply(token, msg.chat.id, `✅ ${targetId} removed from beta list.`);
+    try {
+      const list = (await kv.get<number[]>('beta:approved', 'json') ?? []).filter(id => id !== targetId);
+      await kv.put('beta:approved', JSON.stringify(list));
+      await reply(token, msg.chat.id,
+        `✅ ${targetId} removed from beta list.\n` +
+        `📋 Current list (${list.length}): ${list.join(', ') || '(empty)'}`
+      );
+    } catch (e) {
+      await reply(token, msg.chat.id, `❌ Failed: ${String(e)}`);
+    }
     return;
   }
 
   if (cmd === '/betalist') {
-    const list = await kv.get<number[]>('beta:approved', 'json') ?? [];
-    await reply(token, msg.chat.id,
-      list.length === 0
-        ? '📋 Beta approved list is empty.'
-        : `📋 <b>Beta approved (${list.length}):</b>\n${list.join(', ')}`
-    );
+    try {
+      const list = await kv.get<number[]>('beta:approved', 'json') ?? [];
+      await reply(token, msg.chat.id,
+        list.length === 0
+          ? '📋 Beta approved list is empty.\n<i>Note: KV writes may take a few seconds to propagate.</i>'
+          : `📋 <b>Beta approved (${list.length}):</b>\n${list.join(', ')}`
+      );
+    } catch (e) {
+      await reply(token, msg.chat.id, `❌ Failed to read list: ${String(e)}`);
+    }
     return;
   }
 
