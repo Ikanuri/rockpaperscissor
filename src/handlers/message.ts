@@ -163,28 +163,28 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   // ── Per-user config commands ─────────────────────────────────────────
   if (cmd === '/setemoji') {
     if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
-    if (parts[1]?.toLowerCase() === 'reveal' && parts.length >= 3) {
-      const choice = parts[2].toLowerCase() as Choice;
-      if (!CHOICES.includes(choice)) {
-        await reply(token, msg.chat.id, '❌ Usage: /setemoji reveal [rock|paper|scissors]');
-        return;
-      }
-      if (parts[3]) {
-        await setUserConfig(kv, msg.from.id, { reveal: { [choice]: parts[3] } as Record<Choice, string> });
-        await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> diset ke: ${parts[3]}`);
-        return;
-      }
-      await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action: 'setemoji_reveal', choice }), { expirationTtl: 300 });
-      await reply(token, msg.chat.id,
-        `📌 Sekarang kirim emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b>.\n` +
-        `Bisa emoji biasa atau custom emoji animasi.\n<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
-      );
-    } else {
+    // Accept both: /setemoji rock  AND  /setemoji reveal rock
+    const rawChoice = parts[1]?.toLowerCase() === 'reveal' ? parts[2]?.toLowerCase() : parts[1]?.toLowerCase();
+    const rawValue  = parts[1]?.toLowerCase() === 'reveal' ? parts[3] : parts[2];
+    const choice = rawChoice as Choice;
+    if (!choice || !CHOICES.includes(choice)) {
       await reply(token, msg.chat.id,
         '<b>/setemoji usage:</b>\n' +
-        '/setemoji reveal [rock|paper|scissors]'
+        '/setemoji [rock|paper|scissors] — lalu kirim emoji\n' +
+        '/setemoji reveal [rock|paper|scissors] — sama saja'
       );
+      return;
     }
+    if (rawValue) {
+      await setUserConfig(kv, msg.from.id, { reveal: { [choice]: rawValue } as Record<Choice, string> });
+      await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> diset ke: ${rawValue}`);
+      return;
+    }
+    await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action: 'setemoji_reveal', choice }), { expirationTtl: 300 });
+    await reply(token, msg.chat.id,
+      `📌 Sekarang kirim emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b>.\n` +
+      `Bisa emoji biasa atau custom emoji animasi.\n<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
+    );
     return;
   }
 
