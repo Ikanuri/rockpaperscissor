@@ -8,6 +8,7 @@ import type {
   InlineQuery,
   InlineResult,
   LeaderboardEntry,
+  UserStats,
 } from '../types';
 import { answerInlineQuery, editInlineMessage } from '../telegram';
 import {
@@ -15,7 +16,6 @@ import {
   escHtml,
   formatUser,
   generateId,
-  getWeekKey,
   runRevealAndResult,
   trackHostedGame,
   waitingKeyboard,
@@ -24,8 +24,8 @@ import {
 import { hasFeature } from '../feature';
 import { loadConfig } from '../config';
 
-const GAME_ID_RE = /^[A-Z2-9]{4}$/;
-const CHAIN_CODE_RE = /^R[A-Z2-9]{4}$/;
+const GAME_ID_RE = /^[A-Z2-9]{6}$/;
+const CHAIN_CODE_RE = /^R[A-Z2-9]{6}$/;
 // @USERNAME or @USERNAME BO3 — private challenge
 const PRIVATE_RE = /^@(\w{1,32})(?:\s+(BO3))?$/;
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
@@ -116,10 +116,7 @@ function resolveChoice(resultId: string): Choice {
   return CHOICES[Math.floor(Math.random() * 3)];
 }
 
-function statsResult(
-  stats: { wins: number; losses: number; draws: number; total: number; choices?: Record<string, number>; currentStreak?: number; longestStreak?: number; longestStreakOpponent?: string },
-  weekly: { wins: number; losses: number; draws: number; total: number }
-): InlineResult {
+function statsResult(stats: UserStats): InlineResult {
   const choiceEntries = Object.entries(stats.choices ?? {}).sort(([, a], [, b]) => b - a);
   const favLine = choiceEntries.length
     ? `\n🎯 Fav: ${EMOJI[choiceEntries[0][0] as Choice]} (${choiceEntries[0][1]}x)`
@@ -127,13 +124,38 @@ function statsResult(
 
   const currentStreak = stats.currentStreak ?? 0;
   const longestStreak = stats.longestStreak ?? 0;
-  const streakLines = currentStreak >= 2
-    ? `\n\n🔥 <b>Streak</b>\n` +
-      `Sekarang: ${currentStreak} win beruntun\n` +
-      (longestStreak > 0 ? `Terpanjang: ${longestStreak}x${stats.longestStreakOpponent ? ` (vs ${escHtml(stats.longestStreakOpponent)})` : ''}` : '')
-    : longestStreak > 0
-      ? `\n\n🏅 <b>Streak terpanjang:</b> ${longestStreak}x${stats.longestStreakOpponent ? ` (vs ${escHtml(stats.longestStreakOpponent)})` : ''}`
-      : '';
+
+  let streakBlock = '';
+  if (currentStreak > 0 || longestStreak > 0) {
+    streakBlock = `\n\n🔥 <b>Streak</b>\n`;
+    if (currentStreak >= 2) streakBlock += `Sekarang: ${currentStreak} win beruntun\n`;
+    if (longestStreak > 0) streakBlock += `Terpanjang: ${longestStreak}x`;
+
+    const dayS = stats.dayStreak ?? 0;
+    const weekS = stats.weekStreak ?? 0;
+    const monthS = stats.monthStreak ?? 0;
+    if (dayS > 0 || weekS > 0 || monthS > 0) {
+      streakBlock += '\n';
+      if (dayS > 0) streakBlock += `\n  📅 Hari ini: ${dayS}x`;
+      if (weekS > 0) streakBlock += `\n  📅 Minggu ini: ${weekS}x`;
+      if (monthS > 0) streakBlock += `\n  📅 Bulan ini: ${monthS}x`;
+    }
+  }
+
+  let vsLine = '';
+  if ((stats.longestVsStreak ?? 0) > 0) {
+    const vsName = stats.longestVsOpponentName ? escHtml(stats.longestVsOpponentName) : '';
+    const vsId = stats.longestVsOpponentId ?? '';
+    vsLine = `\n\n🏅 Vs satu lawan: ${stats.longestVsStreak}x` +
+      (vsName ? ` (vs ${vsName}${vsId ? ` · ${vsId}` : ''})` : '');
+  }
+
+  const weekWins = stats.weekWins ?? 0;
+  const weekLosses = stats.weekLosses ?? 0;
+  const weekDraws = stats.weekDraws ?? 0;
+  const weekLine = (weekWins + weekLosses + weekDraws) > 0
+    ? `\n\n📅 <b>This week</b>\n🏆 ${weekWins}W · 😔 ${weekLosses}L · 🤝 ${weekDraws}D`
+    : '';
 
   const streakTitle = currentStreak >= 2 ? ` 🔥${currentStreak}` : '';
 
@@ -141,14 +163,12 @@ function statsResult(
     type: 'article',
     id: 'stats',
     title: `📊 ${stats.wins}W / ${stats.losses}L / ${stats.draws}D — ${stats.total} games${streakTitle}`,
-    description: `This week: ${weekly.wins}W ${weekly.losses}L ${weekly.draws}D`,
+    description: `This week: ${weekWins}W ${weekLosses}L ${weekDraws}D`,
     input_message_content: {
       message_text:
         `📊 <b>My RPS Stats</b>\n━━━━━━━━━━━━━━\n` +
         `🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}${favLine}` +
-        streakLines + '\n\n' +
-        `📅 <b>This week</b>\n` +
-        `🏆 ${weekly.wins}W · 😔 ${weekly.losses}L · 🤝 ${weekly.draws}D`,
+        streakBlock + vsLine + weekLine,
       parse_mode: 'HTML',
     },
   };
@@ -158,6 +178,20 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   const q = query.query.trim().toUpperCase();
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
+  const { from } = query;
+
+  // Force-start gate: user must DM /start before playing inline
+  const userInfo = await kv.get(`user:info:${from.id}`);
+  if (!userInfo) {
+    await answerInlineQuery(token, query.id, [{
+      type: 'article',
+      id: 'start_required',
+      title: '⚠️ Start bot dulu sebelum main',
+      description: `Buka chat dengan @${env.BOT_USERNAME} lalu ketik /start`,
+      input_message_content: { message_text: `Buka @${env.BOT_USERNAME} dan ketik /start untuk bisa main! 👋` },
+    }]);
+    return;
+  }
 
   if (q === 'TOP' && hasFeature(env, 'leaderboard')) {
     const board = (await kv.get<LeaderboardEntry[]>('leaderboard', 'json')) ?? [];
@@ -202,19 +236,8 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   }
 
   if (q === 'STATS') {
-    const weekKey = getWeekKey();
-    const [lifetime, weekly] = await Promise.all([
-      kv.get<{ wins: number; losses: number; draws: number; total: number; choices?: Record<string, number> }>(
-        `stats:${query.from.id}`, 'json'
-      ),
-      kv.get<{ wins: number; losses: number; draws: number; total: number }>(
-        `stats:${query.from.id}:week:${weekKey}`, 'json'
-      ),
-    ]);
-    const s = lifetime ?? { wins: 0, losses: 0, draws: 0, total: 0 };
-    // Fall back to lifetime when no weekly record exists (e.g. bot just launched, or new week not started)
-    const w = weekly ?? s;
-    await answerInlineQuery(token, query.id, [statsResult(s, w)]);
+    const s = (await kv.get<UserStats>(`stats:${from.id}`, 'json')) ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+    await answerInlineQuery(token, query.id, [statsResult(s)]);
     return;
   }
 
@@ -229,7 +252,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       }]);
       return;
     }
-    if (query.from.id !== meta.hostUserId && query.from.id !== meta.opponentUserId) {
+    if (from.id !== meta.hostUserId && from.id !== meta.opponentUserId) {
       await answerInlineQuery(token, query.id, [{
         type: 'article', id: 'err', title: '❌ Not your game',
         description: 'This rematch is for the original players only.',
@@ -237,7 +260,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       }]);
       return;
     }
-    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, query.from.id, env) : null;
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults('🔄 Rematch!', env, config));
     return;
   }
@@ -264,7 +287,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       return;
     }
 
-    if (session.hostUserId === query.from.id) {
+    if (session.hostUserId === from.id) {
       await answerInlineQuery(token, query.id, [{
         type: 'article', id: 'err', title: '❌ This is your own game!',
         description: 'Share the code with a friend to challenge them.',
@@ -274,7 +297,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     }
 
     if (session.lockedToUsername &&
-        query.from.username?.toLowerCase() !== session.lockedToUsername.toLowerCase()) {
+        from.username?.toLowerCase() !== session.lockedToUsername.toLowerCase()) {
       await answerInlineQuery(token, query.id, [{
         type: 'article', id: 'err', title: '🔒 Private game',
         description: `Only @${session.lockedToUsername} can join.`,
@@ -293,7 +316,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       );
     }
 
-    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, query.from.id, env) : null;
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Challenge accepted!', env, config));
     return;
   }
@@ -301,7 +324,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   // Private challenge: @username [BO3]
   const privateMatch = PRIVATE_RE.exec(q);
   if (privateMatch) {
-    const rateKey = `ratelimit:${query.from.id}`;
+    const rateKey = `ratelimit:${from.id}`;
     const active = parseInt(await kv.get(rateKey) ?? '0');
     if (active >= 3) {
       await answerInlineQuery(token, query.id, [{
@@ -313,12 +336,12 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     }
     const targetUsername = privateMatch[1];
     const modeLabel = privateMatch[2] === 'BO3' ? ' BO3' : '';
-    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, query.from.id, env) : null;
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults(`🔒 Private challenge for @${targetUsername}${modeLabel}`, env, config));
     return;
   }
 
-  const rateKey = `ratelimit:${query.from.id}`;
+  const rateKey = `ratelimit:${from.id}`;
   const active = parseInt(await kv.get(rateKey) ?? '0');
   if (active >= 3) {
     await answerInlineQuery(token, query.id, [{
@@ -329,7 +352,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
-  const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, query.from.id, env) : null;
+  const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
   await answerInlineQuery(token, query.id, buildChoiceResults('🎮 Setting up game...', env, config));
 }
 
@@ -371,26 +394,20 @@ export async function handleChosenInlineResult(
   }
 
   if (q === 'SYNCSTATS') {
-    const lifetime = await kv.get<{ wins: number; losses: number; draws: number; total: number }>(
-      `stats:${result.from.id}`, 'json'
-    );
-    if (!lifetime) {
-      await editInlineMessage(token, result.inline_message_id, '📊 No stats found. Play some games first!');
-      return;
-    }
-    const weekKey = getWeekKey();
-    await kv.put(
-      `stats:${result.from.id}:week:${weekKey}`,
-      JSON.stringify({ wins: lifetime.wins, losses: lifetime.losses, draws: lifetime.draws, total: lifetime.total }),
-      { expirationTtl: 7 * 24 * 3600 }
-    );
+    // SYNCSTATS no longer needed — period stats are embedded in the main stats key and update automatically.
     await editInlineMessage(token, result.inline_message_id,
-      `✅ Weekly stats synced!\n🏆 ${lifetime.wins}W · 😔 ${lifetime.losses}L · 🤝 ${lifetime.draws}D`
+      `ℹ️ SYNCSTATS tidak lagi diperlukan.\nStats periode (hari/minggu/bulan) diupdate otomatis setiap game selesai.`
     );
     return;
   }
 
   const choice = resolveChoice(result.result_id);
+
+  // Keep user info cache fresh even for users who haven't DM'd the bot
+  kv.put(`user:info:${result.from.id}`, JSON.stringify({
+    name: result.from.first_name,
+    username: result.from.username ?? null,
+  }));
 
   // Chain rematch
   if (CHAIN_CODE_RE.test(q)) {

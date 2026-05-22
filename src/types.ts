@@ -34,9 +34,40 @@ export interface UserStats {
   draws: number;
   total: number;
   choices?: { rock: number; paper: number; scissors: number };
+
+  // Overall streak
   currentStreak?: number;
   longestStreak?: number;
   longestStreakOpponent?: string;
+
+  // Day period (index = days since RELEASE_DATE)
+  dayIndex?: number;
+  dayWins?: number;
+  dayLosses?: number;
+  dayDraws?: number;
+  dayStreak?: number;
+  longestDayStreak?: number;
+
+  // Week period (index = weeks since RELEASE_DATE)
+  weekIndex?: number;
+  weekWins?: number;
+  weekLosses?: number;
+  weekDraws?: number;
+  weekStreak?: number;
+  longestWeekStreak?: number;
+
+  // Month period (index = months since RELEASE_DATE)
+  monthIndex?: number;
+  monthWins?: number;
+  monthLosses?: number;
+  monthDraws?: number;
+  monthStreak?: number;
+  longestMonthStreak?: number;
+
+  // Best single-opponent streak ever
+  longestVsStreak?: number;
+  longestVsOpponentId?: number;
+  longestVsOpponentName?: string;
 }
 
 export interface ChainEntry {

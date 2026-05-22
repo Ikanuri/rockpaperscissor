@@ -12,7 +12,7 @@ import type {
   UserStats,
 } from './types';
 import { editInlineMessage } from './telegram';
-import { loadConfig } from './config';
+import { loadConfig, RELEASE_DATE } from './config';
 import { hasFeature } from './feature';
 
 export const EMOJI: Record<Choice, string> = {
@@ -41,7 +41,7 @@ export function sleep(ms: number): Promise<void> {
 
 export function generateId(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = new Uint8Array(4);
+  const bytes = new Uint8Array(6);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, b => chars[b % chars.length]).join('');
 }
@@ -136,6 +136,21 @@ function choiceDisplay(choice: Choice, env: Env, config?: GameConfig | null): st
   return rendered;
 }
 
+export function getDayIndex(now = Date.now()): number {
+  return Math.floor((now - RELEASE_DATE.getTime()) / 86_400_000);
+}
+
+export function getWeekIndex(now = Date.now()): number {
+  return Math.floor((now - RELEASE_DATE.getTime()) / (7 * 86_400_000));
+}
+
+export function getMonthIndex(now = Date.now()): number {
+  const r = RELEASE_DATE;
+  const d = new Date(now);
+  return (d.getUTCFullYear() - r.getUTCFullYear()) * 12 + (d.getUTCMonth() - r.getUTCMonth());
+}
+
+// Kept for backward compat with SYNCSTATS message handler
 export function getWeekKey(now = Date.now()): string {
   const d = new Date(now);
   const day = d.getUTCDay() || 7;
@@ -220,6 +235,15 @@ function resultText(
   return `${verdict}${streakLine}\n${hName} ${hE} · ${oName} ${oE}${histBlock}`;
 }
 
+interface VsStats {
+  wins: number;
+  losses: number;
+  draws: number;
+  total: number;
+  currentStreak?: number;
+  longestStreak?: number;
+}
+
 async function updateStats(
   kv: KVNamespace,
   userId: number,
@@ -228,33 +252,29 @@ async function updateStats(
   opponentId: number,
   opponentName: string
 ): Promise<UserStats> {
-  const weekKey = getWeekKey();
+  const now = Date.now();
+  const curDay = getDayIndex(now);
+  const curWeek = getWeekIndex(now);
+  const curMonth = getMonthIndex(now);
 
-  const [lifetime, weekly, vsOpp] = await Promise.all([
+  const [lifetime, vsOpp] = await Promise.all([
     kv.get<UserStats>(`stats:${userId}`, 'json'),
-    kv.get<UserStats>(`stats:${userId}:week:${weekKey}`, 'json'),
-    kv.get<UserStats>(`stats:${userId}:vs:${opponentId}`, 'json'),
+    kv.get<VsStats>(`stats:${userId}:vs:${opponentId}`, 'json'),
   ]);
 
-  const s = lifetime ?? { wins: 0, losses: 0, draws: 0, total: 0 };
-  const w = weekly ?? { wins: 0, losses: 0, draws: 0, total: 0 };
-  const v = vsOpp ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+  const s: UserStats = lifetime ?? { wins: 0, losses: 0, draws: 0, total: 0 };
+  const v: VsStats = vsOpp ?? { wins: 0, losses: 0, draws: 0, total: 0 };
 
-  const bump = (stat: UserStats) => {
-    if (outcome === 'win') stat.wins++;
-    else if (outcome === 'loss') stat.losses++;
-    else stat.draws++;
-    stat.total++;
-  };
-
-  bump(s);
-  bump(w);
-  bump(v);
+  // Lifetime W/L/D
+  if (outcome === 'win') s.wins++;
+  else if (outcome === 'loss') s.losses++;
+  else s.draws++;
+  s.total++;
 
   s.choices = s.choices ?? { rock: 0, paper: 0, scissors: 0 };
   s.choices[choice]++;
 
-  // Streak: win = +1, loss = reset, draw = no change
+  // Overall streak
   if (outcome === 'win') {
     s.currentStreak = (s.currentStreak ?? 0) + 1;
     if (s.currentStreak > (s.longestStreak ?? 0)) {
@@ -265,9 +285,76 @@ async function updateStats(
     s.currentStreak = 0;
   }
 
+  // Day period
+  if (s.dayIndex !== curDay) {
+    s.dayIndex = curDay;
+    s.dayWins = 0; s.dayLosses = 0; s.dayDraws = 0; s.dayStreak = 0;
+  }
+  if (outcome === 'win') {
+    s.dayWins = (s.dayWins ?? 0) + 1;
+    s.dayStreak = (s.dayStreak ?? 0) + 1;
+    if (s.dayStreak > (s.longestDayStreak ?? 0)) s.longestDayStreak = s.dayStreak;
+  } else if (outcome === 'loss') {
+    s.dayLosses = (s.dayLosses ?? 0) + 1;
+    s.dayStreak = 0;
+  } else {
+    s.dayDraws = (s.dayDraws ?? 0) + 1;
+  }
+
+  // Week period
+  if (s.weekIndex !== curWeek) {
+    s.weekIndex = curWeek;
+    s.weekWins = 0; s.weekLosses = 0; s.weekDraws = 0; s.weekStreak = 0;
+  }
+  if (outcome === 'win') {
+    s.weekWins = (s.weekWins ?? 0) + 1;
+    s.weekStreak = (s.weekStreak ?? 0) + 1;
+    if (s.weekStreak > (s.longestWeekStreak ?? 0)) s.longestWeekStreak = s.weekStreak;
+  } else if (outcome === 'loss') {
+    s.weekLosses = (s.weekLosses ?? 0) + 1;
+    s.weekStreak = 0;
+  } else {
+    s.weekDraws = (s.weekDraws ?? 0) + 1;
+  }
+
+  // Month period
+  if (s.monthIndex !== curMonth) {
+    s.monthIndex = curMonth;
+    s.monthWins = 0; s.monthLosses = 0; s.monthDraws = 0; s.monthStreak = 0;
+  }
+  if (outcome === 'win') {
+    s.monthWins = (s.monthWins ?? 0) + 1;
+    s.monthStreak = (s.monthStreak ?? 0) + 1;
+    if (s.monthStreak > (s.longestMonthStreak ?? 0)) s.longestMonthStreak = s.monthStreak;
+  } else if (outcome === 'loss') {
+    s.monthLosses = (s.monthLosses ?? 0) + 1;
+    s.monthStreak = 0;
+  } else {
+    s.monthDraws = (s.monthDraws ?? 0) + 1;
+  }
+
+  // vs-opponent
+  if (outcome === 'win') {
+    v.wins++;
+    v.currentStreak = (v.currentStreak ?? 0) + 1;
+    if (v.currentStreak > (v.longestStreak ?? 0)) v.longestStreak = v.currentStreak;
+  } else if (outcome === 'loss') {
+    v.losses++;
+    v.currentStreak = 0;
+  } else {
+    v.draws++;
+  }
+  v.total++;
+
+  // Update longest vs-streak record in lifetime stats
+  if ((v.longestStreak ?? 0) > (s.longestVsStreak ?? 0)) {
+    s.longestVsStreak = v.longestStreak;
+    s.longestVsOpponentId = opponentId;
+    s.longestVsOpponentName = opponentName;
+  }
+
   await Promise.all([
     kv.put(`stats:${userId}`, JSON.stringify(s)),
-    kv.put(`stats:${userId}:week:${weekKey}`, JSON.stringify(w), { expirationTtl: 7 * 24 * 3600 }),
     kv.put(`stats:${userId}:vs:${opponentId}`, JSON.stringify(v)),
   ]);
 

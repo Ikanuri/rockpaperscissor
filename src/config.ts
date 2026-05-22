@@ -1,5 +1,9 @@
 import type { Choice, Env, GameConfig, ThumbConfig } from './types';
 
+// Set to actual production launch date before deploying to production.
+// All period statistics (day/week/month) are indexed relative to this date.
+export const RELEASE_DATE = new Date('2026-05-22T00:00:00Z');
+
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 
 const DEFAULTS: GameConfig = {
