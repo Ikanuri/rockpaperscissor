@@ -500,12 +500,16 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
 
   if (cmd === '/betalist') {
     try {
-      const raw = await kv.get('beta:approved');
-      const list = raw ? (JSON.parse(raw) as number[]) : [];
+      const list = await kv.get<number[]>('beta:approved', 'json') ?? [];
+      if (list.length === 0) {
+        await reply(token, msg.chat.id, '📋 Beta approved list is empty.');
+        return;
+      }
+      const lines = await Promise.all(
+        list.map(async uid => `  🧪 ${await resolveUserDisplay(kv, token, uid)}`)
+      );
       await reply(token, msg.chat.id,
-        list.length === 0
-          ? `📋 Beta approved list is empty.\n<code>raw: ${escHtml(raw ?? 'null')}</code>`
-          : `📋 <b>Beta approved (${list.length}):</b>\n${list.join(', ')}\n<code>raw: ${escHtml(raw!)}</code>`
+        `📋 <b>Beta approved (${list.length}):</b>\n` + lines.join('\n')
       );
     } catch (e) {
       await reply(token, msg.chat.id, `❌ Failed to read list: ${String(e)}`);
