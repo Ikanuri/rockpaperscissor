@@ -1,6 +1,6 @@
 import type { Choice, Env, GameSession, PendingConfig, TelegramMessage, UserStats } from '../types';
 import { editInlineMessage, sendMessage } from '../telegram';
-import { hasFeature } from '../feature';
+import { hasFeature, isBetaUser } from '../feature';
 import {
   loadConfig,
   setUserConfig,
@@ -31,8 +31,9 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
   const owner = isOwner(msg, env);
-  const canConfig = owner || hasFeature(env, 'beta_config');
-  const canDonate = owner || hasFeature(env, 'donator');
+  const betaUser = await isBetaUser(kv, msg.from.id, env.BOT_OWNER_ID);
+  const canConfig = owner || betaUser || hasFeature(env, 'beta_config');
+  const canDonate = owner || betaUser || hasFeature(env, 'donator');
 
   // Successful payment (no text field)
   if (msg.successful_payment) {
