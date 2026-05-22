@@ -461,11 +461,12 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
 
   if (cmd === '/betalist') {
     try {
-      const list = await kv.get<number[]>('beta:approved', 'json') ?? [];
+      const raw = await kv.get('beta:approved');
+      const list = raw ? (JSON.parse(raw) as number[]) : [];
       await reply(token, msg.chat.id,
         list.length === 0
-          ? '📋 Beta approved list is empty.\n<i>Note: KV writes may take a few seconds to propagate.</i>'
-          : `📋 <b>Beta approved (${list.length}):</b>\n${list.join(', ')}`
+          ? `📋 Beta approved list is empty.\n<code>raw: ${escHtml(raw ?? 'null')}</code>`
+          : `📋 <b>Beta approved (${list.length}):</b>\n${list.join(', ')}\n<code>raw: ${escHtml(raw!)}</code>`
       );
     } catch (e) {
       await reply(token, msg.chat.id, `❌ Failed to read list: ${String(e)}`);
