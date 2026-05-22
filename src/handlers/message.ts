@@ -36,6 +36,12 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   const canConfig = owner || betaUser || tier !== 'free' || hasFeature(env, 'beta_config');
   const canDonate = owner || betaUser || hasFeature(env, 'donator');
 
+  // Cache user info setiap DM — dipakai untuk tampilan donatorlist dll.
+  kv.put(`user:info:${msg.from.id}`, JSON.stringify({
+    name: msg.from.first_name,
+    username: msg.from.username ?? null,
+  }));
+
   // Successful payment (no text field)
   if (msg.successful_payment) {
     await handleSuccessfulPayment(msg, env);
@@ -534,7 +540,34 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     const userIds = parts.slice(1).map(s => parseInt(s)).filter(n => !isNaN(n));
     if (userIds.length === 0) { await reply(token, msg.chat.id, '❌ Invalid user ID(s).'); return; }
     await Promise.all(userIds.map(uid => kv.delete(`donator:${uid}`)));
+    const idList = (await kv.get<number[]>('donators:ids', 'json') ?? []).filter(id => !userIds.includes(id));
+    await kv.put('donators:ids', JSON.stringify(idList));
     await reply(token, msg.chat.id, `✅ Donator record removed for ${userIds.length} user(s): ${userIds.join(', ')}`);
+    return;
+  }
+
+  if (cmd === '/donatorlist') {
+    const idList = await kv.get<number[]>('donators:ids', 'json') ?? [];
+    if (idList.length === 0) {
+      await reply(token, msg.chat.id, '📋 Belum ada donator.');
+      return;
+    }
+    const records = await Promise.all(idList.map(uid => kv.get<{ tier: string; expiry: number; method: string }>(`donator:${uid}`, 'json')));
+    const infos = await Promise.all(idList.map(uid => kv.get<{ name: string; username: string | null }>(`user:info:${uid}`, 'json')));
+    const now = Date.now();
+    const lines = idList.map((uid, i) => {
+      const rec = records[i];
+      const info = infos[i];
+      const display = info ? `${escHtml(info.name)}${info.username ? ` @${info.username}` : ''}` : `${uid}`;
+      if (!rec || now > rec.expiry) return `  ❌ ${display} (${uid}) — expired`;
+      const expiryWib = new Date(rec.expiry + 7 * 3600 * 1000);
+      const expiryStr = expiryWib.toISOString().slice(0, 10);
+      const badge = rec.tier === 'premium' ? '💎' : '✨';
+      return `  ${badge} ${display} (${uid})\n     until ${expiryStr} WIB`;
+    });
+    await reply(token, msg.chat.id,
+      `📋 <b>Donator list (${idList.length}):</b>\n` + lines.join('\n')
+    );
     return;
   }
 
@@ -559,16 +592,30 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       return;
     }
     await Promise.all(userIds.map(uid => activateTier(kv, uid, activeTier, 'stars', durationMs)));
+
+    // Maintain donators:ids list
+    const idList = await kv.get<number[]>('donators:ids', 'json') ?? [];
+    for (const uid of userIds) { if (!idList.includes(uid)) idList.push(uid); }
+    await kv.put('donators:ids', JSON.stringify(idList));
+
     const expiryMs = Date.now() + durationMs;
     const expiryUtc = new Date(expiryMs);
     const expiryWib = new Date(expiryMs + 7 * 3600 * 1000);
     const expiryStr = durationMs < 3_600_000
       ? `${expiryUtc.toISOString().slice(0, 16).replace('T', ' ')} UTC · ${expiryWib.toISOString().slice(11, 16)} WIB`
       : `${expiryUtc.toISOString().slice(0, 10)} · ${expiryWib.toISOString().slice(0, 10)} WIB`;
+
+    const infos = await Promise.all(userIds.map(uid => kv.get<{ name: string; username: string | null }>(`user:info:${uid}`, 'json')));
+    const userLines = userIds.map((uid, i) => {
+      const info = infos[i];
+      const display = info ? `${escHtml(info.name)}${info.username ? ` @${info.username}` : ''}` : `${uid}`;
+      return `  • ${display} (${uid})`;
+    }).join('\n');
+
     await reply(token, msg.chat.id,
-      `✅ <b>${TIER_PERKS[activeTier].label}</b> activated for ${userIds.length} user(s) · ${durationLabel}\n` +
-      `⏰ Until: ${expiryStr}\n` +
-      userIds.join(', ')
+      `✅ <b>${TIER_PERKS[activeTier].label}</b> activated · ${durationLabel}\n` +
+      `⏰ Until: ${expiryStr}\n\n` +
+      userLines
     );
     return;
   }
