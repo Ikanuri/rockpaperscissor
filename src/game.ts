@@ -350,9 +350,7 @@ export async function runRevealAndResult(
   const h = session.hostInlineMessageId;
   const o = session.opponentInlineMessageId!;
 
-  const config = hasFeature(env, 'beta_config')
-    ? await loadConfig(kv, session.hostUserId, env)
-    : null;
+  const config = await loadConfig(kv, session.hostUserId, env);
 
   const hE = revealEmoji(session.hostChoice!, env, config);
   const oE = revealEmoji(session.opponentChoice!, env, config);
