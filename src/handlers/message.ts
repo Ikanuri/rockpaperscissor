@@ -559,12 +559,15 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       return;
     }
     await Promise.all(userIds.map(uid => activateTier(kv, uid, activeTier, 'stars', durationMs)));
-    const expiry = new Date(Date.now() + durationMs);
+    const expiryMs = Date.now() + durationMs;
+    const expiryUtc = new Date(expiryMs);
+    const expiryWib = new Date(expiryMs + 7 * 3600 * 1000);
     const expiryStr = durationMs < 3_600_000
-      ? expiry.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
-      : expiry.toISOString().slice(0, 10);
+      ? `${expiryUtc.toISOString().slice(0, 16).replace('T', ' ')} UTC · ${expiryWib.toISOString().slice(11, 16)} WIB`
+      : `${expiryUtc.toISOString().slice(0, 10)} · ${expiryWib.toISOString().slice(0, 10)} WIB`;
     await reply(token, msg.chat.id,
-      `✅ <b>${TIER_PERKS[activeTier].label}</b> activated for ${userIds.length} user(s) · ${durationLabel} (until ${expiryStr}):\n` +
+      `✅ <b>${TIER_PERKS[activeTier].label}</b> activated for ${userIds.length} user(s) · ${durationLabel}\n` +
+      `⏰ Until: ${expiryStr}\n` +
       userIds.join(', ')
     );
     return;
