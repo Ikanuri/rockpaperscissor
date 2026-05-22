@@ -491,6 +491,29 @@ async function updateDailyLeaderboard(
   await kv.put(key, JSON.stringify(board.slice(0, 20)), { expirationTtl: 86400 * 3 });
 }
 
+async function updateGroupLeaderboard(
+  kv: KVNamespace,
+  chatId: number,
+  host: { userId: number; name: string },
+  op: { userId: number; name: string },
+  outcome: 'a' | 'b' | 'draw'
+): Promise<void> {
+  const key = `group:score:${chatId}`;
+  const board = (await kv.get<LeaderboardEntry[]>(key, 'json')) ?? [];
+  for (const [user, won] of [[host, outcome === 'a'], [op, outcome === 'b']] as Array<[{ userId: number; name: string }, boolean]>) {
+    const idx = board.findIndex(e => e.userId === user.userId);
+    if (idx >= 0) {
+      board[idx].name = user.name;
+      board[idx].total++;
+      if (won) board[idx].wins++;
+    } else {
+      board.push({ userId: user.userId, name: user.name, wins: won ? 1 : 0, total: 1 });
+    }
+  }
+  board.sort((a, b) => b.wins - a.wins || b.total - a.total);
+  await kv.put(key, JSON.stringify(board.slice(0, 20)));
+}
+
 async function sendGroupStreakMention(
   kv: KVNamespace,
   token: string,
@@ -523,13 +546,15 @@ async function finishGame(
 
   const isRanked = session.ranked ?? false;
 
-  // Pre-fetch lifetimes + donator tiers in one batch
-  const [hostLifetime, opponentLifetime, hostDonator, opponentDonator] = await Promise.all([
+  // Pre-fetch lifetimes + donator tiers + group chat in one batch
+  const [hostLifetime, opponentLifetime, hostDonator, opponentDonator, groupChatIdStr] = await Promise.all([
     kv.get<UserStats>(`stats:${session.hostUserId}`, 'json'),
     kv.get<UserStats>(`stats:${session.opponentUserId!}`, 'json'),
     kv.get<{ tier: string; expiry: number }>(`donator:${session.hostUserId}`, 'json'),
     kv.get<{ tier: string; expiry: number }>(`donator:${session.opponentUserId!}`, 'json'),
+    kv.get(`group:game:${session.gameId}`),
   ]);
+  const groupChatId = groupChatIdStr ? parseInt(groupChatIdStr) : null;
   const hostRating = hostLifetime?.rating ?? 1000;
   const opponentRating = opponentLifetime?.rating ?? 1000;
   const now = Date.now();
@@ -563,6 +588,12 @@ async function finishGame(
         matchOutcome
       ),
     ] : []),
+    ...(groupChatId && !isNaN(groupChatId) ? [updateGroupLeaderboard(
+      kv, groupChatId,
+      { userId: session.hostUserId, name: session.hostName },
+      { userId: session.opponentUserId!, name: session.opponentName! },
+      matchOutcome
+    )] : []),
   ]);
 
   const hostStats = hostResult.stats;

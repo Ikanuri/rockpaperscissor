@@ -794,6 +794,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env): Promise<void>
       await sendMessage(token, chatId,
         `👋 Halo semua! Ketik <code>@${env.BOT_USERNAME}</code> di chat untuk main Rock Paper Scissors! 🎮\n\n` +
         `/leaderboard — Papan skor global\n` +
+        `/groupstats — Statistik khusus grup ini\n` +
         `/announce — Umumkan game berikutmu di grup ini\n\n` +
         `<i>Ketik /start untuk info lebih lanjut.</i>`
       );
@@ -854,6 +855,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env): Promise<void>
       `• <code>RANKED</code> — mode ranked dengan ELO\n` +
       `• <code>@username</code> — private challenge\n\n` +
       `/leaderboard — Papan skor global\n` +
+      `/groupstats — Statistik khusus grup ini\n` +
       `/announce — Umumkan game berikutmu di grup ini`
     );
     return;
@@ -864,6 +866,24 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env): Promise<void>
     await sendMessage(token, chatId,
       `✅ Siap ${escHtml(msg.from.first_name)}! Game inline berikutnya yang kamu buat akan diumumkan di sini.\n` +
       `<i>Berlaku 5 menit atau sampai satu game dibuat.</i>`
+    );
+    return;
+  }
+
+  if (cmd === '/groupstats') {
+    await sendChatAction(token, chatId, 'typing');
+    const board = (await kv.get<LeaderboardEntry[]>(`group:score:${chatId}`, 'json')) ?? [];
+    if (board.length === 0) {
+      await sendMessage(token, chatId,
+        `📊 Belum ada statistik untuk grup ini.\nGunakan /announce lalu main game inline untuk mulai mencatat!`
+      );
+      return;
+    }
+    const lines = board.slice(0, 10).map((e, i) =>
+      `${i + 1}. ${escHtml(e.name)} — ${e.wins}W / ${e.total - e.wins}L (${e.total} game)`
+    );
+    await sendMessage(token, chatId,
+      `🏟️ <b>Statistik Grup</b>\n━━━━━━━━━━━━━━\n${lines.join('\n')}`
     );
     return;
   }

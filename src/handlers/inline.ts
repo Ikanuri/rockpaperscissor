@@ -72,9 +72,13 @@ async function maybeAnnounceGame(
   const key = `group:announce:${session.hostUserId}`;
   const chatIdStr = await kv.get(key);
   if (!chatIdStr) return;
-  await kv.delete(key);
   const chatId = parseInt(chatIdStr);
   if (isNaN(chatId)) return;
+  // Delete announce key + persist group association for this game (for per-group stats)
+  await Promise.all([
+    kv.delete(key),
+    kv.put(`group:game:${session.gameId}`, String(chatId), { expirationTtl: 600 }),
+  ]);
   const joinCode = session.chainId ?? session.gameId;
   const extras: string[] = [];
   if (session.ranked) extras.push('🏆 Ranked');

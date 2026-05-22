@@ -183,3 +183,22 @@ export async function sendDice(
   const data = await res.json<{ result?: { dice?: { value?: number } } }>();
   return data.result?.dice?.value ?? 0;
 }
+
+export async function getChatMember(
+  token: string,
+  chatId: number,
+  userId: number
+): Promise<{ status: string } | null> {
+  try {
+    const res = await fetch(`${API}${token}/getChatMember`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, user_id: userId }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json<{ ok: boolean; result?: { status: string } }>();
+    return data.ok ? (data.result ?? null) : null;
+  } catch {
+    return null;
+  }
+}
