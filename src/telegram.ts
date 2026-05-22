@@ -97,6 +97,14 @@ export function answerPreCheckoutQuery(
   });
 }
 
+export function setMyCommands(
+  token: string,
+  commands: Array<{ command: string; description: string }>,
+  scope: Record<string, unknown>
+): Promise<void> {
+  return call(token, 'setMyCommands', { commands, scope });
+}
+
 export function sendInvoice(
   token: string,
   chatId: number,

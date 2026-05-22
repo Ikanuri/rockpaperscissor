@@ -1,5 +1,5 @@
 import type { Choice, Env, GameSession, PendingConfig, TelegramMessage, UserStats } from '../types';
-import { editInlineMessage, sendMessage } from '../telegram';
+import { editInlineMessage, sendMessage, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
   loadConfig,
@@ -519,6 +519,58 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     if (isNaN(targetId)) { await reply(token, msg.chat.id, '❌ Invalid user ID.'); return; }
     await kv.delete(`donator:${targetId}`);
     await reply(token, msg.chat.id, `✅ Donator record removed for ${targetId}.`);
+    return;
+  }
+
+  if (cmd === '/activatetier' && parts.length >= 3) {
+    const targetId = parseInt(parts[1]);
+    const tier = parts[2].toLowerCase() as 'basic' | 'premium';
+    if (isNaN(targetId) || !['basic', 'premium'].includes(tier)) {
+      await reply(token, msg.chat.id, '❌ Usage: /activatetier &lt;userId&gt; [basic|premium]');
+      return;
+    }
+    await activateTier(kv, targetId, tier, 'stars');
+    await reply(token, msg.chat.id, `✅ <b>${TIER_PERKS[tier].label}</b> activated for ${targetId} (30 days).`);
+    return;
+  }
+
+  if (cmd === '/setupcommands') {
+    const userCommands = [
+      { command: 'setemoji', description: 'Set custom emoji untuk reveal (rock/paper/scissors)' },
+      { command: 'setsticker', description: 'Set popup stiker untuk pilihan' },
+      { command: 'setthumb', description: 'Set thumbnail artikel inline (url/gif/sticker)' },
+      { command: 'delthumb', description: 'Hapus thumbnail untuk pilihan' },
+      { command: 'myconfig', description: 'Lihat konfigurasi aktif kamu' },
+      { command: 'reset', description: 'Reset config ke default/global' },
+      { command: 'donate', description: 'Upgrade ke Basic atau Premium tier' },
+      { command: 'cancel', description: 'Batalkan aksi pending (setemoji dll)' },
+      { command: 'clearhost', description: 'Batalkan semua game yang sedang kamu host' },
+    ];
+    const ownerCommands = [
+      ...userCommands,
+      { command: 'setglobal', description: 'Set config global (emoji/sticker/thumb)' },
+      { command: 'globalconfig', description: 'Lihat config global saat ini' },
+      { command: 'resetglobal', description: 'Reset config global' },
+      { command: 'betaadd', description: 'Tambah user ke beta allowlist' },
+      { command: 'betaremove', description: 'Hapus user dari beta allowlist' },
+      { command: 'betalist', description: 'Lihat beta allowlist' },
+      { command: 'activatetier', description: 'Aktifkan tier donator manual (QRIS dll)' },
+      { command: 'adddonator', description: 'Alias activatetier (legacy)' },
+      { command: 'removedonator', description: 'Hapus record donator' },
+      { command: 'setprice', description: 'Set harga tier (stars/stripe)' },
+      { command: 'prices', description: 'Lihat harga tier saat ini' },
+      { command: 'setupcommands', description: 'Register command list ke Telegram (owner only)' },
+    ];
+    const ownerId = parseInt(env.BOT_OWNER_ID);
+    await Promise.all([
+      setMyCommands(token, userCommands, { type: 'default' }),
+      setMyCommands(token, ownerCommands, { type: 'chat', chat_id: ownerId }),
+    ]);
+    await reply(token, msg.chat.id,
+      `✅ Commands registered.\n` +
+      `👤 Default: ${userCommands.length} commands\n` +
+      `👑 Owner (chat ${ownerId}): ${ownerCommands.length} commands`
+    );
     return;
   }
 
