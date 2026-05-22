@@ -43,14 +43,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   // ── Pending config state (handles sticker/animation/emoji messages) ──
   const pending = await kv.get<PendingConfig>(`pending:config:${msg.from.id}`, 'json');
   if (pending) {
-    // DEBUG SEMENTARA — hapus setelah confirmed working
-    await reply(token, msg.chat.id,
-      `[debug] pending: ${pending.action}/${pending.choice}\n` +
-      `sticker=${!!msg.sticker} type=${msg.sticker?.type ?? '-'} ceid=${msg.sticker?.custom_emoji_id ?? '-'}\n` +
-      `animation=${!!msg.animation} text=${JSON.stringify(msg.text ?? null)}\n` +
-      `entities=${JSON.stringify(msg.entities ?? null)}`
-    );
-
     const stickerActions: PendingConfig['action'][] = ['setsticker', 'setglobal_sticker', 'setthumb_sticker', 'setglobal_thumb_sticker'];
     const gifActions: PendingConfig['action'][] = ['setthumb_gif', 'setglobal_thumb_gif'];
     const emojiActions: PendingConfig['action'][] = ['setemoji_reveal', 'setglobal_emoji_reveal'];
@@ -75,21 +67,23 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
         return;
       }
       if (emojiActions.includes(pending.action)) {
-        // Custom emoji dikirim sebagai sticker dengan type 'custom_emoji'
         if (msg.sticker.type === 'custom_emoji' && msg.sticker.custom_emoji_id) {
           await kv.delete(`pending:config:${msg.from.id}`);
           const val = msg.sticker.custom_emoji_id;
-          if (pending.action === 'setemoji_reveal') {
-            await setUserConfig(kv, msg.from.id, { reveal: { [pending.choice]: val } as Record<Choice, string> });
-          } else {
-            await setGlobalConfig(kv, { reveal: { [pending.choice]: val } as Record<Choice, string> });
+          try {
+            if (pending.action === 'setemoji_reveal') {
+              await setUserConfig(kv, msg.from.id, { reveal: { [pending.choice]: val } as Record<Choice, string> });
+            } else {
+              await setGlobalConfig(kv, { reveal: { [pending.choice]: val } as Record<Choice, string> });
+            }
+            await reply(token, msg.chat.id, `✅ Reveal emoji (animasi) untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+          } catch (e) {
+            await reply(token, msg.chat.id, `❌ Gagal simpan: ${String(e)}`);
           }
-          await reply(token, msg.chat.id, `✅ Reveal emoji (animasi) untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
         } else {
           await reply(token, msg.chat.id,
-            `⚠️ Ini adalah stiker, bukan emoji.\n\n` +
-            `Untuk reveal emoji, kirim emoji dari keyboard (bisa plain emoji atau custom emoji animasi dari emoji picker).\n` +
-            `Kalau mau set popup stiker, gunakan /setsticker ${pending.choice}.`
+            `⚠️ Ini stiker biasa, bukan custom emoji.\n` +
+            `Kirim custom emoji dari emoji picker, atau /setsticker ${pending.choice} untuk set popup stiker.`
           );
         }
         return;
@@ -109,16 +103,20 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       return;
     }
 
-    if (msg.text && !msg.text.startsWith('/') && emojiActions.includes(pending.action)) {
+    if (msg.text && emojiActions.includes(pending.action) && !msg.text.trimStart().startsWith('/')) {
       await kv.delete(`pending:config:${msg.from.id}`);
       const customEmoji = msg.entities?.find(e => e.type === 'custom_emoji');
       const val = customEmoji?.custom_emoji_id ?? msg.text.trim();
-      if (pending.action === 'setemoji_reveal') {
-        await setUserConfig(kv, msg.from.id, { reveal: { [pending.choice]: val } as Record<Choice, string> });
-        await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset ke: ${val}`);
-      } else {
-        await setGlobalConfig(kv, { reveal: { [pending.choice]: val } as Record<Choice, string> });
-        await reply(token, msg.chat.id, `✅ Global reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset.`);
+      try {
+        if (pending.action === 'setemoji_reveal') {
+          await setUserConfig(kv, msg.from.id, { reveal: { [pending.choice]: val } as Record<Choice, string> });
+          await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset ke: ${val}`);
+        } else {
+          await setGlobalConfig(kv, { reveal: { [pending.choice]: val } as Record<Choice, string> });
+          await reply(token, msg.chat.id, `✅ Global reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset.`);
+        }
+      } catch (e) {
+        await reply(token, msg.chat.id, `❌ Gagal simpan: ${String(e)}`);
       }
       return;
     }
