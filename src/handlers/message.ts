@@ -1,5 +1,5 @@
 import type { Choice, Env, GameSession, PendingConfig, TelegramMessage, UserStats } from '../types';
-import { editInlineMessage, sendMessage, setMyCommands } from '../telegram';
+import { editInlineMessage, getChatInfo, sendMessage, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
   loadConfig,
@@ -16,6 +16,23 @@ import { escHtml, fmtEmoji, getWeekKey } from '../game';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
+
+async function resolveUserDisplay(
+  kv: KVNamespace,
+  token: string,
+  uid: number
+): Promise<string> {
+  let info = await kv.get<{ name: string; username: string | null }>(`user:info:${uid}`, 'json');
+  if (!info) {
+    const chat = await getChatInfo(token, uid);
+    if (chat?.first_name) {
+      info = { name: chat.first_name, username: chat.username ?? null };
+      kv.put(`user:info:${uid}`, JSON.stringify(info));
+    }
+  }
+  if (!info) return `(${uid})`;
+  return `${escHtml(info.name)}${info.username ? ` @${info.username}` : ''} (${uid})`;
+}
 
 function isOwner(msg: TelegramMessage, env: Env): boolean {
   return String(msg.from!.id) === env.BOT_OWNER_ID;
@@ -553,18 +570,16 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       return;
     }
     const records = await Promise.all(idList.map(uid => kv.get<{ tier: string; expiry: number; method: string }>(`donator:${uid}`, 'json')));
-    const infos = await Promise.all(idList.map(uid => kv.get<{ name: string; username: string | null }>(`user:info:${uid}`, 'json')));
     const now = Date.now();
-    const lines = idList.map((uid, i) => {
+    const lines = await Promise.all(idList.map(async (uid, i) => {
       const rec = records[i];
-      const info = infos[i];
-      const display = info ? `${escHtml(info.name)}${info.username ? ` @${info.username}` : ''}` : `${uid}`;
-      if (!rec || now > rec.expiry) return `  ❌ ${display} (${uid}) — expired`;
+      const display = await resolveUserDisplay(kv, token, uid);
+      if (!rec || now > rec.expiry) return `  ❌ ${display} — expired`;
       const expiryWib = new Date(rec.expiry + 7 * 3600 * 1000);
       const expiryStr = expiryWib.toISOString().slice(0, 10);
       const badge = rec.tier === 'premium' ? '💎' : '✨';
-      return `  ${badge} ${display} (${uid})\n     until ${expiryStr} WIB`;
-    });
+      return `  ${badge} ${display}\n     until ${expiryStr} WIB`;
+    }));
     await reply(token, msg.chat.id,
       `📋 <b>Donator list (${idList.length}):</b>\n` + lines.join('\n')
     );
@@ -605,12 +620,9 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       ? `${expiryUtc.toISOString().slice(0, 16).replace('T', ' ')} UTC · ${expiryWib.toISOString().slice(11, 16)} WIB`
       : `${expiryUtc.toISOString().slice(0, 10)} · ${expiryWib.toISOString().slice(0, 10)} WIB`;
 
-    const infos = await Promise.all(userIds.map(uid => kv.get<{ name: string; username: string | null }>(`user:info:${uid}`, 'json')));
-    const userLines = userIds.map((uid, i) => {
-      const info = infos[i];
-      const display = info ? `${escHtml(info.name)}${info.username ? ` @${info.username}` : ''}` : `${uid}`;
-      return `  • ${display} (${uid})`;
-    }).join('\n');
+    const userLines = (await Promise.all(
+      userIds.map(async uid => `  • ${await resolveUserDisplay(kv, token, uid)}`)
+    )).join('\n');
 
     await reply(token, msg.chat.id,
       `✅ <b>${TIER_PERKS[activeTier].label}</b> activated · ${durationLabel}\n` +

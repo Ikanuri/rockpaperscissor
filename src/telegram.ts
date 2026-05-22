@@ -97,6 +97,24 @@ export function answerPreCheckoutQuery(
   });
 }
 
+export async function getChatInfo(
+  token: string,
+  chatId: number
+): Promise<{ first_name?: string; username?: string } | null> {
+  try {
+    const res = await fetch(`${API}${token}/getChat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json<{ ok: boolean; result?: { first_name?: string; username?: string } }>();
+    return data.ok ? (data.result ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function setMyCommands(
   token: string,
   commands: Array<{ command: string; description: string }>,
