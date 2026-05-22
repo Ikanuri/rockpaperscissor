@@ -577,7 +577,14 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       if (!rec || now > rec.expiry) return `  ❌ ${display} — expired`;
       const expiryWib = new Date(rec.expiry + 7 * 3600 * 1000);
       const expiryStr = expiryWib.toISOString().slice(0, 10);
-      const badge = rec.tier === 'premium' ? '💎' : '✨';
+      let badge: string;
+      if (rec.tier === 'premium') {
+        const userCfg = await getUserConfigRaw(kv, uid);
+        const customId = userCfg?.reveal?.rock;
+        badge = customId ? fmtEmoji(customId, '✊') : '(✊)';
+      } else {
+        badge = '(✊)';
+      }
       return `  ${badge} ${display}\n     until ${expiryStr} WIB`;
     }));
     await reply(token, msg.chat.id,
