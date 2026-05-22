@@ -69,7 +69,7 @@ async function handlePick(
   await answerCallbackQuery(token, query.id, '🔒 Choice locked!');
 
   if (updated.hostChoice && updated.opponentChoice) {
-    ctx.waitUntil(runRevealAndResult(token, env.GAME_SESSIONS, updated, env));
+    ctx.waitUntil(runRevealAndResult(token, env.GAME_SESSIONS, updated, env, ctx));
   } else {
     const waitMsg = nextRoundText(updated) + '\n\n✅ One player is ready...';
     const keyboard = pickKeyboard(gameId);

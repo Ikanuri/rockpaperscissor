@@ -11,7 +11,7 @@ import type {
   TelegramUser,
   UserStats,
 } from './types';
-import { editInlineMessage } from './telegram';
+import { editInlineMessage, sendMessage } from './telegram';
 import { loadConfig, RELEASE_DATE } from './config';
 import { hasFeature } from './feature';
 
@@ -26,6 +26,26 @@ export const LABEL: Record<Choice, string> = {
   paper: '✋ Paper',
   scissors: '✌️ Scissors',
 };
+
+export const STREAK_MILESTONES = [5, 10, 20, 50, 100];
+
+interface AchievementDef {
+  id: string;
+  label: string;
+  check: (s: UserStats) => boolean;
+}
+
+const ACHIEVEMENT_DEFS: AchievementDef[] = [
+  { id: 'first_win',  label: '🏆 Kemenangan pertama!',    check: s => s.wins >= 1 },
+  { id: 'wins_10',    label: '🔟 10 kemenangan!',          check: s => s.wins >= 10 },
+  { id: 'wins_50',    label: '🥇 50 kemenangan!',          check: s => s.wins >= 50 },
+  { id: 'wins_100',   label: '💯 100 kemenangan!',         check: s => s.wins >= 100 },
+  { id: 'total_10',   label: '🎮 10 game dimainkan',       check: s => s.total >= 10 },
+  { id: 'total_100',  label: '🎮 100 game dimainkan',      check: s => s.total >= 100 },
+  { id: 'streak_5',   label: '🔥 Streak 5x beruntun!',    check: s => (s.longestStreak ?? 0) >= 5 },
+  { id: 'streak_10',  label: '🔥 Streak 10x beruntun!',   check: s => (s.longestStreak ?? 0) >= 10 },
+  { id: 'streak_20',  label: '🔥 Streak 20x beruntun!',   check: s => (s.longestStreak ?? 0) >= 20 },
+];
 
 export function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -110,10 +130,13 @@ export function waitingText(
   now = Date.now()
 ): string {
   const remaining = Math.max(1, Math.ceil((session.createdAt + 600_000 - now) / 60_000));
-  const modeTag = session.mode !== 'single' ? ` 🏆 ${MODE_LABEL[session.mode]}` : '';
+  const modeStr = session.mode !== 'single' ? ` · ${MODE_LABEL[session.mode]}` : '';
+  const gameTag = session.ranked
+    ? ` 🏆 Ranked${modeStr}`
+    : (session.mode !== 'single' ? ` 🏆 ${MODE_LABEL[session.mode]}` : '');
   const lockLine = session.lockedToUsername ? `\n🔒 For @${session.lockedToUsername} only` : '';
   return (
-    `🟢 ${escHtml(session.hostName)} is ready!${modeTag}${lockLine}\n` +
+    `🟢 ${escHtml(session.hostName)} is ready!${gameTag}${lockLine}\n` +
     `⏰ ${remaining} min remaining`
   );
 }
@@ -265,6 +288,12 @@ interface VsStats {
   longestStreak?: number;
 }
 
+interface UpdateStatsResult {
+  stats: UserStats;
+  notifyStreak?: number;
+  newAchievements: string[];
+}
+
 async function updateStats(
   kv: KVNamespace,
   userId: number,
@@ -273,8 +302,10 @@ async function updateStats(
   opponentId: number,
   opponentName: string,
   opponentRating: number,
+  isRanked: boolean,
+  isPremium: boolean,
   preloadedLifetime?: UserStats | null
-): Promise<UserStats> {
+): Promise<UpdateStatsResult> {
   const now = Date.now();
   const curDay = getDayIndex(now);
   const curWeek = getWeekIndex(now);
@@ -297,7 +328,7 @@ async function updateStats(
   s.choices = s.choices ?? { rock: 0, paper: 0, scissors: 0 };
   s.choices[choice]++;
 
-  // Overall streak
+  // Overall streak — shield absorbs one loss per day for Premium players
   if (outcome === 'win') {
     s.currentStreak = (s.currentStreak ?? 0) + 1;
     if (s.currentStreak > (s.longestStreak ?? 0)) {
@@ -305,7 +336,12 @@ async function updateStats(
       s.longestStreakOpponent = opponentName;
     }
   } else if (outcome === 'loss') {
-    s.currentStreak = 0;
+    const shieldAvailable = isPremium && (s.shieldUsedDayIndex ?? -1) !== curDay && (s.currentStreak ?? 0) > 0;
+    if (shieldAvailable) {
+      s.shieldUsedDayIndex = curDay;
+    } else {
+      s.currentStreak = 0;
+    }
   }
 
   // Day period
@@ -376,19 +412,43 @@ async function updateStats(
     s.longestVsOpponentName = opponentName;
   }
 
-  // ELO rating
-  const K = 16;
-  const myRating = s.rating ?? 1000;
-  const expected = 1 / (1 + Math.pow(10, (opponentRating - myRating) / 400));
-  const score = outcome === 'win' ? 1 : outcome === 'loss' ? 0 : 0.5;
-  s.rating = Math.round(myRating + K * (score - expected));
+  // ELO rating — only updated for ranked games
+  if (isRanked) {
+    const K = 16;
+    const myRating = s.rating ?? 1000;
+    const expected = 1 / (1 + Math.pow(10, (opponentRating - myRating) / 400));
+    const scoreVal = outcome === 'win' ? 1 : outcome === 'loss' ? 0 : 0.5;
+    s.rating = Math.round(myRating + K * (scoreVal - expected));
+  }
+
+  // Streak milestone notification check (win only)
+  let notifyStreak: number | undefined;
+  if (outcome === 'win') {
+    const cur = s.currentStreak ?? 0;
+    const lastNotified = s.lastNotifiedStreak ?? 0;
+    const milestone = STREAK_MILESTONES.filter(m => m <= cur && m > lastNotified).pop();
+    if (milestone) {
+      s.lastNotifiedStreak = milestone;
+      notifyStreak = milestone;
+    }
+  }
+
+  // Achievement unlock check
+  const newAchievements: string[] = [];
+  for (const ach of ACHIEVEMENT_DEFS) {
+    if (!(s.achievements?.[ach.id]) && ach.check(s)) {
+      s.achievements = s.achievements ?? {};
+      s.achievements[ach.id] = now;
+      newAchievements.push(ach.label);
+    }
+  }
 
   await Promise.all([
     kv.put(`stats:${userId}`, JSON.stringify(s)),
     kv.put(`stats:${userId}:vs:${opponentId}`, JSON.stringify(v)),
   ]);
 
-  return s;
+  return { stats: s, notifyStreak, newAchievements };
 }
 
 async function updateLeaderboard(
@@ -418,6 +478,7 @@ async function finishGame(
   session: GameSession,
   matchOutcome: 'a' | 'b' | 'draw',
   env: Env,
+  ctx: ExecutionContext,
   hostConfig?: GameConfig | null,
   opponentConfig?: GameConfig | null
 ): Promise<void> {
@@ -425,27 +486,33 @@ async function finishGame(
 
   await kv.put(`game:${session.gameId}`, JSON.stringify(done), { expirationTtl: 600 });
 
-  // Pre-fetch both lifetimes so updateStats can reuse them (avoids redundant reads)
-  // and so each side gets the correct pre-game opponent rating for ELO
-  const [hostLifetime, opponentLifetime] = await Promise.all([
+  const isRanked = session.ranked ?? false;
+
+  // Pre-fetch lifetimes + donator tiers in one batch
+  const [hostLifetime, opponentLifetime, hostDonator, opponentDonator] = await Promise.all([
     kv.get<UserStats>(`stats:${session.hostUserId}`, 'json'),
     kv.get<UserStats>(`stats:${session.opponentUserId!}`, 'json'),
+    kv.get<{ tier: string; expiry: number }>(`donator:${session.hostUserId}`, 'json'),
+    kv.get<{ tier: string; expiry: number }>(`donator:${session.opponentUserId!}`, 'json'),
   ]);
   const hostRating = hostLifetime?.rating ?? 1000;
   const opponentRating = opponentLifetime?.rating ?? 1000;
+  const now = Date.now();
+  const hostIsPremium = hostDonator?.tier === 'premium' && now <= hostDonator.expiry;
+  const opponentIsPremium = opponentDonator?.tier === 'premium' && now <= opponentDonator.expiry;
 
-  const [hostStats, opponentStats] = await Promise.all([
+  const [hostResult, opponentResult] = await Promise.all([
     updateStats(
       kv, session.hostUserId,
       matchOutcome === 'a' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
       session.hostChoice!, session.opponentUserId!, session.opponentName!,
-      opponentRating, hostLifetime
+      opponentRating, isRanked, hostIsPremium, hostLifetime
     ),
     updateStats(
       kv, session.opponentUserId!,
       matchOutcome === 'b' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
       session.opponentChoice!, session.hostUserId, session.hostName,
-      hostRating, opponentLifetime
+      hostRating, isRanked, opponentIsPremium, opponentLifetime
     ),
     ...(hasFeature(env, 'leaderboard') ? [updateLeaderboard(
       kv,
@@ -454,6 +521,29 @@ async function finishGame(
       matchOutcome
     )] : []),
   ]);
+
+  const hostStats = hostResult.stats;
+  const opponentStats = opponentResult.stats;
+
+  // Streak milestone DMs (fire-and-forget)
+  if (hostResult.notifyStreak) {
+    ctx.waitUntil(sendMessage(token, session.hostUserId,
+      `🔥 Streak <b>${hostResult.notifyStreak}x</b> beruntun! Luar biasa! 🏆`
+    ));
+  }
+  if (opponentResult.notifyStreak) {
+    ctx.waitUntil(sendMessage(token, session.opponentUserId!,
+      `🔥 Streak <b>${opponentResult.notifyStreak}x</b> beruntun! Luar biasa! 🏆`
+    ));
+  }
+
+  // Achievement DMs (fire-and-forget)
+  for (const label of hostResult.newAchievements) {
+    ctx.waitUntil(sendMessage(token, session.hostUserId, `🏅 Achievement unlocked: ${label}`));
+  }
+  for (const label of opponentResult.newAchievements) {
+    ctx.waitUntil(sendMessage(token, session.opponentUserId!, `🏅 Achievement unlocked: ${label}`));
+  }
 
   // Always track chain history so rematch #1 already has game 1 on record
   const chainCode = session.chainId ?? `R${session.gameId}`;
@@ -478,6 +568,7 @@ async function finishGame(
     hostUserId: existingMeta?.hostUserId ?? session.hostUserId,
     opponentUserId: existingMeta?.opponentUserId ?? session.opponentUserId!,
     mode: session.mode,
+    ranked: isRanked || (existingMeta?.ranked ?? false),
   };
 
   await Promise.all([
@@ -502,7 +593,8 @@ export async function runRevealAndResult(
   token: string,
   kv: KVNamespace,
   session: GameSession,
-  env: Env
+  env: Env,
+  ctx: ExecutionContext
 ): Promise<void> {
   const h = session.hostInlineMessageId;
   const o = session.opponentInlineMessageId!;
@@ -525,7 +617,7 @@ export async function runRevealAndResult(
   const roundOutcome = determineWinner(session.hostChoice!, session.opponentChoice!);
 
   if (session.mode === 'single') {
-    await finishGame(token, kv, session, roundOutcome, env, hostConfig, opponentConfig);
+    await finishGame(token, kv, session, roundOutcome, env, ctx, hostConfig, opponentConfig);
     return;
   }
 
@@ -544,7 +636,7 @@ export async function runRevealAndResult(
     const matchOutcome: 'a' | 'b' | 'draw' =
       updated.hostScore > updated.opponentScore ? 'a' :
       updated.hostScore < updated.opponentScore ? 'b' : 'draw';
-    await finishGame(token, kv, updated, matchOutcome, env, hostConfig, opponentConfig);
+    await finishGame(token, kv, updated, matchOutcome, env, ctx, hostConfig, opponentConfig);
     return;
   }
 

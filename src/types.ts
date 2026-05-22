@@ -26,6 +26,7 @@ export interface GameSession {
   createdAt: number;
   chainId?: string;
   lockedToUsername?: string;
+  ranked?: boolean;
 }
 
 export interface UserStats {
@@ -69,8 +70,11 @@ export interface UserStats {
   longestVsOpponentId?: number;
   longestVsOpponentName?: string;
 
-  // ELO rating (default 1000)
+  // ELO rating — only set/updated for ranked games
   rating?: number;
+  achievements?: Record<string, number>;
+  shieldUsedDayIndex?: number;
+  lastNotifiedStreak?: number;
 }
 
 export interface ChainEntry {
@@ -87,6 +91,7 @@ export interface ChainMeta {
   hostUserId: number;
   opponentUserId: number;
   mode: GameMode;
+  ranked?: boolean;
 }
 
 export interface Env {

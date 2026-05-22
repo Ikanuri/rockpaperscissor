@@ -30,9 +30,11 @@ const GAME_ID_RE = /^[A-Z2-9]{6}$/;
 const CHAIN_CODE_RE = /^R[A-Z2-9]{6}$/;
 // @USERNAME or @USERNAME BO3/BO5/BO7 — private challenge
 const PRIVATE_RE = /^@(\w{1,32})(?:\s+(BO[357]))?$/;
+// Ranked mode: RANKED [BO3/BO5/BO7]
+const RANKED_RE = /^RANKED(?:\s+(BO[357]))?$/;
 // Custom game code: 2–20 alphanumeric chars (must not match other patterns)
 const CUSTOM_CODE_RE = /^[A-Z0-9]{2,20}$/;
-const RESERVED_CODES = new Set(['TOP', 'STATS', 'CLEARHOST', 'SYNCSTATS', 'BO3', 'BO5', 'BO7', 'START', 'HELP']);
+const RESERVED_CODES = new Set(['TOP', 'STATS', 'CLEARHOST', 'SYNCSTATS', 'BO3', 'BO5', 'BO7', 'START', 'HELP', 'RANKED']);
 
 function parseMode(s: string): GameMode {
   if (s === 'BO3') return 'best_of_3';
@@ -177,6 +179,9 @@ function statsResult(stats: UserStats): InlineResult {
 
   const eloLine = stats.rating !== undefined ? `\n⚡ ELO: ${stats.rating}` : '';
 
+  const achCount = Object.keys(stats.achievements ?? {}).length;
+  const achLine = achCount > 0 ? `\n\n🏅 ${achCount} achievement${achCount > 1 ? 's' : ''} dibuka` : '';
+
   return {
     type: 'article',
     id: 'stats',
@@ -186,7 +191,7 @@ function statsResult(stats: UserStats): InlineResult {
       message_text:
         `📊 <b>My RPS Stats</b>\n━━━━━━━━━━━━━━\n` +
         `🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}${favLine}${eloLine}` +
-        streakBlock + vsLine + weekLine,
+        streakBlock + vsLine + weekLine + achLine,
       parse_mode: 'HTML',
     },
   };
@@ -256,6 +261,25 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   if (q === 'STATS') {
     const s = (await kv.get<UserStats>(`stats:${from.id}`, 'json')) ?? { wins: 0, losses: 0, draws: 0, total: 0 };
     await answerInlineQuery(token, query.id, [statsResult(s)]);
+    return;
+  }
+
+  // Ranked mode: RANKED [BO3/BO5/BO7]
+  const rankedQueryMatch = RANKED_RE.exec(q);
+  if (rankedQueryMatch) {
+    const rateKeyR = `ratelimit:${from.id}`;
+    const activeR = parseInt(await kv.get(rateKeyR) ?? '0');
+    if (activeR >= 3) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'err', title: '⏳ Too many active games',
+        description: 'You already have 3 active games. Finish them first!',
+        input_message_content: { message_text: '⏳ Too many active games.' },
+      }]);
+      return;
+    }
+    const configR = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const modeLabelR = rankedQueryMatch[1] ? ` ${rankedQueryMatch[1]}` : '';
+    await answerInlineQuery(token, query.id, buildChoiceResults(`🏆 Ranked${modeLabelR}`, env, configR));
     return;
   }
 
@@ -359,8 +383,39 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
-  // Custom game code (Premium)
+  // Custom game code — check KV first so non-Premium can join existing codes
   if (isCustomCode(q)) {
+    const existingC = await kv.get<GameSession>(`game:${q}`, 'json');
+    if (existingC && existingC.status === 'waiting' && existingC.hostUserId !== from.id) {
+      // Joinable existing game — no Premium gate
+      if (existingC.lockedToUsername &&
+          from.username?.toLowerCase() !== existingC.lockedToUsername.toLowerCase()) {
+        await answerInlineQuery(token, query.id, [{
+          type: 'article', id: 'err', title: '🔒 Private game',
+          description: `Only @${existingC.lockedToUsername} can join.`,
+          input_message_content: { message_text: `❌ This game is for @${existingC.lockedToUsername} only.` },
+        }]);
+        return;
+      }
+      if (Date.now() - existingC.createdAt > 9 * 60 * 1000) {
+        await editInlineMessage(token, existingC.hostInlineMessageId,
+          waitingText(existingC, env.BOT_USERNAME, Date.now()),
+          waitingKeyboard(existingC.gameId)
+        );
+      }
+      const configCJ = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+      await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Challenge accepted!', env, configCJ));
+      return;
+    }
+    if (existingC) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'err', title: '❌ Game already started',
+        description: 'This game is in progress or has ended.',
+        input_message_content: { message_text: '❌ Game already started.' },
+      }]);
+      return;
+    }
+    // No existing game — Premium required to create custom code
     const tier = await loadDonatorTier(kv, from.id);
     const ownerMode = String(from.id) === env.BOT_OWNER_ID;
     if (tier !== 'premium' && !ownerMode) {
@@ -369,16 +424,6 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
         title: '🔒 Custom code — Premium only',
         description: 'Upgrade ke Premium untuk pakai kode game sendiri',
         input_message_content: { message_text: '🔒 Custom game code butuh Premium. /donate untuk upgrade.' },
-      }]);
-      return;
-    }
-    const existing = await kv.get(`game:${q}`);
-    if (existing) {
-      await answerInlineQuery(token, query.id, [{
-        type: 'article', id: 'code_taken',
-        title: `❌ Kode "${q}" sudah dipakai`,
-        description: 'Coba kode lain',
-        input_message_content: { message_text: `❌ Kode game "${q}" sedang dipakai. Tunggu game selesai atau pakai kode lain.` },
       }]);
       return;
     }
@@ -538,7 +583,7 @@ export async function handleChosenInlineResult(
         kv.put(`game:${activeGameId}`, JSON.stringify(updated), { expirationTtl: 120 }),
         kv.delete(`chain:${chainCode}:active`),
       ]);
-      ctx.waitUntil(runRevealAndResult(token, kv, updated, env));
+      ctx.waitUntil(runRevealAndResult(token, kv, updated, env, ctx));
     }
     return;
   }
@@ -588,6 +633,48 @@ export async function handleChosenInlineResult(
     return;
   }
 
+  // Ranked mode — must come before GAME_ID_RE since "RANKED" is a valid 6-char ID
+  const rankedResultMatch = RANKED_RE.exec(q);
+  if (rankedResultMatch) {
+    const mode: GameMode = rankedResultMatch[1] ? parseMode(rankedResultMatch[1]) : 'single';
+    const gameId = generateId();
+    const rateKeyR = `ratelimit:${result.from.id}`;
+    const countR = parseInt(await kv.get(rateKeyR) ?? '0');
+    if (countR >= 3) {
+      await editInlineMessage(token, result.inline_message_id, '⏳ Too many active games.');
+      return;
+    }
+    const rankedSession: GameSession = {
+      gameId,
+      hostUserId: result.from.id,
+      hostName: formatUser(result.from),
+      hostChoice: choice,
+      opponentUserId: null,
+      opponentName: null,
+      opponentChoice: null,
+      hostInlineMessageId: result.inline_message_id,
+      opponentInlineMessageId: null,
+      status: 'waiting',
+      mode,
+      currentRound: 1,
+      hostScore: 0,
+      opponentScore: 0,
+      rounds: [],
+      createdAt: Date.now(),
+      ranked: true,
+    };
+    await Promise.all([
+      kv.put(`game:${gameId}`, JSON.stringify(rankedSession), { expirationTtl: 600 }),
+      trackHostedGame(kv, result.from.id, gameId),
+    ]);
+    await kv.put(rateKeyR, String(countR + 1), { expirationTtl: 600 });
+    await editInlineMessage(token, result.inline_message_id,
+      waitingText(rankedSession, env.BOT_USERNAME),
+      waitingKeyboard(gameId)
+    );
+    return;
+  }
+
   // Regular game join by code
   if (GAME_ID_RE.test(q)) {
     const session = await kv.get<GameSession>(`game:${q}`, 'json');
@@ -618,21 +705,51 @@ export async function handleChosenInlineResult(
     const cur = parseInt(await kv.get(rateKey) ?? '1');
     if (cur > 0) await kv.put(rateKey, String(cur - 1), { expirationTtl: 600 });
 
-    ctx.waitUntil(runRevealAndResult(token, kv, updated, env));
+    ctx.waitUntil(runRevealAndResult(token, kv, updated, env, ctx));
     return;
   }
 
-  // Custom game code (Premium) — must come before default new-game path
+  // Custom game code — check KV first so non-Premium can join existing codes
   if (isCustomCode(q)) {
+    const existingCustom = await kv.get<GameSession>(`game:${q}`, 'json');
+
+    // Joinable existing game — no Premium gate for joining
+    if (existingCustom && existingCustom.status === 'waiting' && existingCustom.hostUserId !== result.from.id) {
+      if (existingCustom.lockedToUsername &&
+          result.from.username?.toLowerCase() !== existingCustom.lockedToUsername.toLowerCase()) {
+        await editInlineMessage(token, result.inline_message_id, `❌ This game is for @${existingCustom.lockedToUsername} only.`);
+        return;
+      }
+      const updatedCustom: GameSession = {
+        ...existingCustom,
+        opponentUserId: result.from.id,
+        opponentName: formatUser(result.from),
+        opponentChoice: choice,
+        opponentInlineMessageId: result.inline_message_id,
+        status: 'playing',
+      };
+      await Promise.all([
+        kv.put(`game:${q}`, JSON.stringify(updatedCustom), { expirationTtl: 120 }),
+        ...(existingCustom.chainId ? [kv.delete(`chain:${existingCustom.chainId}:active`)] : []),
+      ]);
+      const rateKeyHost = `ratelimit:${existingCustom.hostUserId}`;
+      const curHost = parseInt(await kv.get(rateKeyHost) ?? '1');
+      if (curHost > 0) await kv.put(rateKeyHost, String(curHost - 1), { expirationTtl: 600 });
+      ctx.waitUntil(runRevealAndResult(token, kv, updatedCustom, env, ctx));
+      return;
+    }
+
+    // Game exists but not joinable
+    if (existingCustom) {
+      await editInlineMessage(token, result.inline_message_id, `❌ Kode "${q}" sudah dipakai. Coba kode lain.`);
+      return;
+    }
+
+    // No existing game — Premium required to create custom code
     const tier = await loadDonatorTier(kv, result.from.id);
     const ownerMode = String(result.from.id) === env.BOT_OWNER_ID;
     if (tier !== 'premium' && !ownerMode) {
       await editInlineMessage(token, result.inline_message_id, '🔒 Custom game code butuh Premium. /donate untuk upgrade.');
-      return;
-    }
-    const existingCustom = await kv.get(`game:${q}`);
-    if (existingCustom) {
-      await editInlineMessage(token, result.inline_message_id, `❌ Kode "${q}" sudah dipakai. Coba kode lain.`);
       return;
     }
     const customSession: GameSession = {
