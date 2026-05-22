@@ -126,6 +126,16 @@ function revealEmoji(choice: Choice, env: Env, config?: GameConfig | null): stri
   return fmtEmoji(envAny[`CUSTOM_EMOJI_${choice.toUpperCase()}`], EMOJI[choice]);
 }
 
+function choiceDisplay(choice: Choice, env: Env, config?: GameConfig | null): string {
+  const customId = config?.reveal[choice]
+    ?? (env as unknown as Record<string, string>)[`CUSTOM_EMOJI_${choice.toUpperCase()}`];
+  const rendered = revealEmoji(choice, env, config);
+  if (customId && /^\d{10,}$/.test(customId)) {
+    return `${rendered} (${EMOJI[choice]})`;
+  }
+  return rendered;
+}
+
 export function getWeekKey(now = Date.now()): string {
   const d = new Date(now);
   const day = d.getUTCDay() || 7;
@@ -187,10 +197,11 @@ function resultText(
   session: GameSession,
   env: Env,
   history?: ChainEntry[],
-  config?: GameConfig | null
+  hostConfig?: GameConfig | null,
+  opponentConfig?: GameConfig | null
 ): string {
-  const hE = revealEmoji(session.hostChoice!, env, config);
-  const oE = revealEmoji(session.opponentChoice!, env, config);
+  const hE = choiceDisplay(session.hostChoice!, env, hostConfig);
+  const oE = choiceDisplay(session.opponentChoice!, env, opponentConfig);
   const hName = escHtml(session.hostName);
   const oName = escHtml(session.opponentName!);
 
@@ -331,12 +342,11 @@ async function finishGame(
   ]);
 
   const keyboard = rematchKeyboard(chainCode);
-  const hostText = resultText(matchOutcome, done, env, history, hostConfig);
-  const opponentText = resultText(matchOutcome, done, env, history, opponentConfig);
+  const text = resultText(matchOutcome, done, env, history, hostConfig, opponentConfig);
 
   await Promise.all([
-    editInlineMessage(token, session.hostInlineMessageId, hostText, keyboard),
-    editInlineMessage(token, session.opponentInlineMessageId!, opponentText, keyboard),
+    editInlineMessage(token, session.hostInlineMessageId, text, keyboard),
+    editInlineMessage(token, session.opponentInlineMessageId!, text, keyboard),
   ]);
 }
 
