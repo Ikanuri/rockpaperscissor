@@ -81,7 +81,25 @@ export interface TelegramMessage {
   from?: TelegramUser;
   chat: { id: number; type: string };
   text?: string;
+  sticker?: { file_id: string; file_unique_id: string };
+  animation?: { file_id: string; file_unique_id: string };
+  entities?: Array<{ type: string; offset: number; length: number; custom_emoji_id?: string }>;
   successful_payment?: SuccessfulPayment;
+}
+
+export type PendingAction =
+  | 'setsticker'
+  | 'setemoji_reveal'
+  | 'setthumb_gif'
+  | 'setthumb_sticker'
+  | 'setglobal_sticker'
+  | 'setglobal_emoji_reveal'
+  | 'setglobal_thumb_gif'
+  | 'setglobal_thumb_sticker';
+
+export interface PendingConfig {
+  action: PendingAction;
+  choice: Choice;
 }
 
 export interface TelegramUpdate {

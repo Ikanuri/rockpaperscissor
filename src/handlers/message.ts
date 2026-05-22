@@ -1,4 +1,4 @@
-import type { Choice, Env, GameSession, TelegramMessage, UserStats } from '../types';
+import type { Choice, Env, GameSession, PendingConfig, TelegramMessage, UserStats } from '../types';
 import { editInlineMessage, sendMessage } from '../telegram';
 import { hasFeature } from '../feature';
 import {
@@ -40,12 +40,73 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     return;
   }
 
+  // ── Pending config state (handles sticker/animation/emoji messages) ──
+  const pending = await kv.get<PendingConfig>(`pending:config:${msg.from.id}`, 'json');
+  if (pending) {
+    const stickerActions: PendingConfig['action'][] = ['setsticker', 'setglobal_sticker', 'setthumb_sticker', 'setglobal_thumb_sticker'];
+    const gifActions: PendingConfig['action'][] = ['setthumb_gif', 'setglobal_thumb_gif'];
+    const emojiActions: PendingConfig['action'][] = ['setemoji_reveal', 'setglobal_emoji_reveal'];
+
+    if (msg.sticker && stickerActions.includes(pending.action)) {
+      await kv.delete(`pending:config:${msg.from.id}`);
+      const fileId = msg.sticker.file_id;
+      if (pending.action === 'setsticker') {
+        await setUserConfig(kv, msg.from.id, { sticker: { [pending.choice]: fileId } });
+        await reply(token, msg.chat.id, `✅ Popup sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+      } else if (pending.action === 'setglobal_sticker') {
+        await setGlobalConfig(kv, { sticker: { [pending.choice]: fileId } });
+        await reply(token, msg.chat.id, `✅ Global sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+      } else if (pending.action === 'setthumb_sticker') {
+        await setUserConfig(kv, msg.from.id, { thumb: { [pending.choice]: { type: 'sticker', value: fileId } } });
+        await reply(token, msg.chat.id, `✅ Thumbnail sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+      } else if (pending.action === 'setglobal_thumb_sticker') {
+        await setGlobalConfig(kv, { thumb: { [pending.choice]: { type: 'sticker', value: fileId } } });
+        await reply(token, msg.chat.id, `✅ Global thumbnail sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+      }
+      return;
+    }
+
+    if (msg.animation && gifActions.includes(pending.action)) {
+      await kv.delete(`pending:config:${msg.from.id}`);
+      const fileId = msg.animation.file_id;
+      if (pending.action === 'setthumb_gif') {
+        await setUserConfig(kv, msg.from.id, { thumb: { [pending.choice]: { type: 'gif', value: fileId } } });
+        await reply(token, msg.chat.id, `✅ Thumbnail GIF untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+      } else {
+        await setGlobalConfig(kv, { thumb: { [pending.choice]: { type: 'gif', value: fileId } } });
+        await reply(token, msg.chat.id, `✅ Global thumbnail GIF untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+      }
+      return;
+    }
+
+    if (msg.text && !msg.text.startsWith('/') && emojiActions.includes(pending.action)) {
+      await kv.delete(`pending:config:${msg.from.id}`);
+      const customEmoji = msg.entities?.find(e => e.type === 'custom_emoji');
+      const val = customEmoji?.custom_emoji_id ?? msg.text.trim();
+      if (pending.action === 'setemoji_reveal') {
+        await setUserConfig(kv, msg.from.id, { reveal: { [pending.choice]: val } as Record<Choice, string> });
+        await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset ke: ${val}`);
+      } else {
+        await setGlobalConfig(kv, { reveal: { [pending.choice]: val } as Record<Choice, string> });
+        await reply(token, msg.chat.id, `✅ Global reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset.`);
+      }
+      return;
+    }
+  }
+
   if (!msg.text) return;
 
   const parts = msg.text.trim().split(/\s+/);
   const cmd = parts[0].toLowerCase();
 
   // ── Available to all users ───────────────────────────────────────────
+  if (cmd === '/cancel') {
+    const had = await kv.get(`pending:config:${msg.from.id}`);
+    await kv.delete(`pending:config:${msg.from.id}`);
+    await reply(token, msg.chat.id, had ? '❌ Dibatalkan.' : '❌ Tidak ada yang perlu dibatalkan.');
+    return;
+  }
+
   if (cmd === '/syncstats') {
     const weekKey = getWeekKey();
     const lifetime = await kv.get<UserStats>(`stats:${msg.from.id}`, 'json');
@@ -102,19 +163,26 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   // ── Per-user config commands ─────────────────────────────────────────
   if (cmd === '/setemoji') {
     if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
-    if (parts[1]?.toLowerCase() === 'reveal' && parts.length >= 4) {
+    if (parts[1]?.toLowerCase() === 'reveal' && parts.length >= 3) {
       const choice = parts[2].toLowerCase() as Choice;
       if (!CHOICES.includes(choice)) {
-        await reply(token, msg.chat.id, '❌ Usage: /setemoji reveal [rock|paper|scissors] &lt;emoji_or_id&gt;');
+        await reply(token, msg.chat.id, '❌ Usage: /setemoji reveal [rock|paper|scissors]');
         return;
       }
-      const val = parts[3];
-      await setUserConfig(kv, msg.from.id, { reveal: { [choice]: val } as Record<Choice, string> });
-      await reply(token, msg.chat.id, `✅ Reveal emoji for <b>${choice}</b> set to: ${val}`);
+      if (parts[3]) {
+        await setUserConfig(kv, msg.from.id, { reveal: { [choice]: parts[3] } as Record<Choice, string> });
+        await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> diset ke: ${parts[3]}`);
+        return;
+      }
+      await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action: 'setemoji_reveal', choice }), { expirationTtl: 300 });
+      await reply(token, msg.chat.id,
+        `📌 Sekarang kirim emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b>.\n` +
+        `Bisa emoji biasa atau custom emoji animasi.\n<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
+      );
     } else {
       await reply(token, msg.chat.id,
         '<b>/setemoji usage:</b>\n' +
-        '/setemoji reveal [rock|paper|scissors] &lt;emoji_or_custom_id&gt;'
+        '/setemoji reveal [rock|paper|scissors]'
       );
     }
     return;
@@ -122,35 +190,53 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
 
   if (cmd === '/setsticker') {
     if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
-    if (parts.length >= 3) {
-      const choice = parts[1].toLowerCase() as Choice;
-      if (!CHOICES.includes(choice)) {
-        await reply(token, msg.chat.id, '❌ Usage: /setsticker [rock|paper|scissors] &lt;file_id&gt;');
-        return;
-      }
-      await setUserConfig(kv, msg.from.id, { sticker: { [choice]: parts[2] } });
-      await reply(token, msg.chat.id, `✅ Popup sticker for <b>${choice}</b> set.`);
-    } else {
-      await reply(token, msg.chat.id, '❌ Usage: /setsticker [rock|paper|scissors] &lt;file_id&gt;');
+    const choice = parts[1]?.toLowerCase() as Choice;
+    if (!choice || !CHOICES.includes(choice)) {
+      await reply(token, msg.chat.id, '❌ Usage: /setsticker [rock|paper|scissors]');
+      return;
     }
+    if (parts[2]) {
+      await setUserConfig(kv, msg.from.id, { sticker: { [choice]: parts[2] } });
+      await reply(token, msg.chat.id, `✅ Popup sticker untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> tersimpan.`);
+      return;
+    }
+    await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action: 'setsticker', choice }), { expirationTtl: 300 });
+    await reply(token, msg.chat.id,
+      `📌 Sekarang kirim stiker untuk popup ${CHOICE_EMOJI[choice]} <b>${choice}</b>.\n` +
+      `<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
+    );
     return;
   }
 
   if (cmd === '/setthumb') {
     if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
-    if (parts.length >= 4) {
-      const choice = parts[1].toLowerCase() as Choice;
-      const type = parts[2].toLowerCase() as 'url' | 'gif' | 'sticker';
-      const value = parts[3];
-      if (!CHOICES.includes(choice) || !['url', 'gif', 'sticker'].includes(type)) {
-        await reply(token, msg.chat.id, '❌ Usage: /setthumb [rock|paper|scissors] [url|gif|sticker] &lt;value&gt;');
+    const choice = parts[1]?.toLowerCase() as Choice;
+    const type = parts[2]?.toLowerCase() as 'url' | 'gif' | 'sticker';
+    if (!choice || !CHOICES.includes(choice) || !type || !['url', 'gif', 'sticker'].includes(type)) {
+      await reply(token, msg.chat.id, '❌ Usage: /setthumb [rock|paper|scissors] [url|gif|sticker]');
+      return;
+    }
+    if (type === 'url') {
+      if (!parts[3]) {
+        await reply(token, msg.chat.id, '❌ Usage: /setthumb rock url &lt;url&gt;');
         return;
       }
-      await setUserConfig(kv, msg.from.id, { thumb: { [choice]: { type, value } } });
-      await reply(token, msg.chat.id, `✅ Thumbnail for <b>${choice}</b> set (${type}).`);
-    } else {
-      await reply(token, msg.chat.id, '❌ Usage: /setthumb [rock|paper|scissors] [url|gif|sticker] &lt;value&gt;');
+      await setUserConfig(kv, msg.from.id, { thumb: { [choice]: { type: 'url', value: parts[3] } } });
+      await reply(token, msg.chat.id, `✅ Thumbnail URL untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> tersimpan.`);
+      return;
     }
+    if (parts[3]) {
+      await setUserConfig(kv, msg.from.id, { thumb: { [choice]: { type, value: parts[3] } } });
+      await reply(token, msg.chat.id, `✅ Thumbnail untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> tersimpan (${type}).`);
+      return;
+    }
+    const action = type === 'gif' ? 'setthumb_gif' : 'setthumb_sticker';
+    const prompt = type === 'gif' ? 'kirim GIF' : 'kirim stiker';
+    await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action, choice }), { expirationTtl: 300 });
+    await reply(token, msg.chat.id,
+      `📌 Sekarang ${prompt} untuk thumbnail ${CHOICE_EMOJI[choice]} <b>${choice}</b>.\n` +
+      `<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
+    );
     return;
   }
 
@@ -216,31 +302,63 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
 
   if (cmd === '/setglobal') {
     const sub = parts[1]?.toLowerCase();
-    if (sub === 'emoji' && parts[2]?.toLowerCase() === 'reveal' && parts.length >= 5) {
+    if (sub === 'emoji' && parts[2]?.toLowerCase() === 'reveal' && parts.length >= 4) {
       const choice = parts[3].toLowerCase() as Choice;
       if (!CHOICES.includes(choice)) { await reply(token, msg.chat.id, '❌ Invalid choice.'); return; }
-      await setGlobalConfig(kv, { reveal: { [choice]: parts[4] } as Record<Choice, string> });
-      await reply(token, msg.chat.id, `✅ Global reveal emoji for <b>${choice}</b> set.`);
-    } else if (sub === 'sticker' && parts.length >= 4) {
+      if (parts[4]) {
+        await setGlobalConfig(kv, { reveal: { [choice]: parts[4] } as Record<Choice, string> });
+        await reply(token, msg.chat.id, `✅ Global reveal emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> diset.`);
+        return;
+      }
+      await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action: 'setglobal_emoji_reveal', choice }), { expirationTtl: 300 });
+      await reply(token, msg.chat.id,
+        `📌 Sekarang kirim emoji untuk global reveal ${CHOICE_EMOJI[choice]} <b>${choice}</b>.\n` +
+        `<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
+      );
+    } else if (sub === 'sticker' && parts.length >= 3) {
       const choice = parts[2].toLowerCase() as Choice;
       if (!CHOICES.includes(choice)) { await reply(token, msg.chat.id, '❌ Invalid choice.'); return; }
-      await setGlobalConfig(kv, { sticker: { [choice]: parts[3] } });
-      await reply(token, msg.chat.id, `✅ Global sticker for <b>${choice}</b> set.`);
-    } else if (sub === 'thumb' && parts.length >= 5) {
+      if (parts[3]) {
+        await setGlobalConfig(kv, { sticker: { [choice]: parts[3] } });
+        await reply(token, msg.chat.id, `✅ Global sticker untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> tersimpan.`);
+        return;
+      }
+      await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action: 'setglobal_sticker', choice }), { expirationTtl: 300 });
+      await reply(token, msg.chat.id,
+        `📌 Sekarang kirim stiker untuk global popup ${CHOICE_EMOJI[choice]} <b>${choice}</b>.\n` +
+        `<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
+      );
+    } else if (sub === 'thumb' && parts.length >= 4) {
       const choice = parts[2].toLowerCase() as Choice;
       const type = parts[3].toLowerCase() as 'url' | 'gif' | 'sticker';
       if (!CHOICES.includes(choice) || !['url', 'gif', 'sticker'].includes(type)) {
         await reply(token, msg.chat.id, '❌ Invalid choice or type.');
         return;
       }
-      await setGlobalConfig(kv, { thumb: { [choice]: { type, value: parts[4] } } });
-      await reply(token, msg.chat.id, `✅ Global thumb for <b>${choice}</b> set (${type}).`);
+      if (type === 'url') {
+        if (!parts[4]) { await reply(token, msg.chat.id, '❌ Usage: /setglobal thumb rock url &lt;url&gt;'); return; }
+        await setGlobalConfig(kv, { thumb: { [choice]: { type: 'url', value: parts[4] } } });
+        await reply(token, msg.chat.id, `✅ Global thumbnail URL untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> tersimpan.`);
+        return;
+      }
+      if (parts[4]) {
+        await setGlobalConfig(kv, { thumb: { [choice]: { type, value: parts[4] } } });
+        await reply(token, msg.chat.id, `✅ Global thumbnail untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> tersimpan (${type}).`);
+        return;
+      }
+      const action = type === 'gif' ? 'setglobal_thumb_gif' : 'setglobal_thumb_sticker';
+      const prompt = type === 'gif' ? 'kirim GIF' : 'kirim stiker';
+      await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action, choice }), { expirationTtl: 300 });
+      await reply(token, msg.chat.id,
+        `📌 Sekarang ${prompt} untuk global thumbnail ${CHOICE_EMOJI[choice]} <b>${choice}</b>.\n` +
+        `<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
+      );
     } else {
       await reply(token, msg.chat.id,
         '<b>/setglobal usage:</b>\n' +
-        '/setglobal emoji reveal [rock|paper|scissors] &lt;val&gt;\n' +
-        '/setglobal sticker [rock|paper|scissors] &lt;file_id&gt;\n' +
-        '/setglobal thumb [rock|paper|scissors] [url|gif|sticker] &lt;value&gt;'
+        '/setglobal emoji reveal [rock|paper|scissors]\n' +
+        '/setglobal sticker [rock|paper|scissors]\n' +
+        '/setglobal thumb [rock|paper|scissors] [url|gif|sticker]'
       );
     }
     return;
@@ -349,9 +467,9 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     `/setprice [basic|premium] [stars|stripe] &lt;amount&gt; · /prices\n` +
     `/adddonator &lt;id&gt; [basic|premium] · /removedonator &lt;id&gt;\n\n` +
     `<b>User Commands (with beta_config flag):</b>\n` +
-    `/setemoji reveal [rock|paper|scissors] &lt;emoji&gt;\n` +
-    `/setsticker [rock|paper|scissors] &lt;file_id&gt;\n` +
-    `/setthumb [rock|paper|scissors] [url|gif|sticker] &lt;value&gt;\n` +
+    `/setemoji reveal [rock|paper|scissors] — lalu kirim emoji\n` +
+    `/setsticker [rock|paper|scissors] — lalu kirim stiker\n` +
+    `/setthumb [rock|paper|scissors] [url|gif|sticker] — lalu kirim media\n` +
     `/delthumb [rock|paper|scissors] · /myconfig · /reset\n` +
     `/donate\n\n` +
     `<b>All Users:</b>\n` +
