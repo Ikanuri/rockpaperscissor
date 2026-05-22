@@ -12,11 +12,16 @@ import type {
   LmsPlayer,
   LmsRoundRecord,
   LmsSession,
+  TeamPlayer,
+  TeamSession,
   TelegramUser,
+  TournamentMatch,
+  TournamentPlayer,
+  TournamentSession,
   UserStats,
   VsStats,
 } from './types';
-import { editInlineMessage, sendMessage } from './telegram';
+import { editInlineMessage, sendDice, sendMessage } from './telegram';
 import { loadConfig, RELEASE_DATE } from './config';
 import { hasFeature } from './feature';
 
@@ -491,6 +496,273 @@ async function updateDailyLeaderboard(
   await kv.put(key, JSON.stringify(board.slice(0, 20)), { expirationTtl: 86400 * 3 });
 }
 
+// ── Team Mode ────────────────────────────────────────────────────────────────
+
+export function teamPickKeyboard(gameId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [[
+      { text: '✊ Rock', callback_data: `tpick:${gameId}:rock` },
+      { text: '✋ Paper', callback_data: `tpick:${gameId}:paper` },
+      { text: '✌️ Scissors', callback_data: `tpick:${gameId}:scissors` },
+    ]],
+  };
+}
+
+export function teamWaitingKeyboard(gameId: string, slotsA: number, slotsB: number): InlineKeyboardMarkup {
+  const joinRow: Array<{ text: string; switch_inline_query_current_chat: string }> = [];
+  if (slotsA > 0) joinRow.push({ text: `🤝 Tim A (${slotsA})`, switch_inline_query_current_chat: `TJOIN ${gameId} A` });
+  if (slotsB > 0) joinRow.push({ text: `⚔️ Tim B (${slotsB})`, switch_inline_query_current_chat: `TJOIN ${gameId} B` });
+  const rows: InlineKeyboardMarkup['inline_keyboard'] = [];
+  if (joinRow.length) rows.push(joinRow);
+  rows.push([{ text: '❌ Batal', callback_data: `tcancel:${gameId}` }]);
+  return { inline_keyboard: rows };
+}
+
+export function teamWaitingText(session: TeamSession): string {
+  const modeLabel = session.mode === 'single' ? ''
+    : session.mode === 'best_of_3' ? ' · BO3'
+    : session.mode === 'best_of_5' ? ' · BO5' : ' · BO7';
+  const slotLine = (team: TeamPlayer[], label: string) => {
+    const slots = Array.from({ length: session.teamSize }, (_, i) =>
+      team[i] ? escHtml(team[i].name) : '❓'
+    ).join(' · ');
+    return `${label}: ${slots}`;
+  };
+  return (
+    `⚔️ <b>Team ${session.teamSize}v${session.teamSize}${modeLabel}</b> · <code>${session.gameId}</code>\n` +
+    `${slotLine(session.teamA, '🔵 Tim A')}\n` +
+    `${slotLine(session.teamB, '🔴 Tim B')}\n\n` +
+    `👇 Bergabung untuk main!`
+  );
+}
+
+async function resolveTeamChoice(
+  team: TeamPlayer[],
+  chatId: number,
+  token: string
+): Promise<{ choice: Choice; notes: string[] }> {
+  const votes: Record<Choice, TeamPlayer[]> = { rock: [], paper: [], scissors: [] };
+  for (const p of team) if (p.choice) votes[p.choice].push(p);
+  const sorted = (['rock', 'paper', 'scissors'] as Choice[])
+    .filter(c => votes[c].length > 0)
+    .sort((a, b) => votes[b].length - votes[a].length);
+  if (sorted.length === 0) return { choice: 'rock', notes: [] };
+  // Unambiguous majority
+  if (sorted.length === 1 || votes[sorted[0]].length > votes[sorted[1]].length) {
+    return {
+      choice: sorted[0],
+      notes: sorted.slice(1).flatMap(c => votes[c].map(p => `${escHtml(p.name)} ${EMOJI[c]} tidak dipakai`)),
+    };
+  }
+  // Tie — dice for each tied player
+  const topCount = votes[sorted[0]].length;
+  const tiedEntries = sorted
+    .filter(c => votes[c].length === topCount)
+    .flatMap(c => votes[c].map(p => ({ player: p, choice: c as Choice })));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const rolls = await Promise.all(tiedEntries.map(async e => ({ ...e, roll: await sendDice(token, chatId) })));
+    const maxRoll = Math.max(...rolls.map(r => r.roll));
+    const winners = rolls.filter(r => r.roll === maxRoll);
+    if (winners.length === 1) {
+      const w = winners[0];
+      return {
+        choice: w.choice,
+        notes: rolls.filter(r => r.player.userId !== w.player.userId)
+          .map(r => `${escHtml(r.player.name)} 🎲${r.roll} ${EMOJI[r.choice]} tidak dipakai`),
+      };
+    }
+  }
+  // 3-tie fallback — random
+  const fallback = tiedEntries[Math.floor(Math.random() * tiedEntries.length)];
+  return { choice: fallback.choice, notes: ['Dadu seri 3x — pilihan acak'] };
+}
+
+export async function runTeamRound(
+  token: string,
+  kv: KVNamespace,
+  session: TeamSession,
+  env: Env,
+  ctx: ExecutionContext
+): Promise<void> {
+  const [resA, resB] = await Promise.all([
+    resolveTeamChoice(session.teamA, session.chatId, token),
+    resolveTeamChoice(session.teamB, session.chatId, token),
+  ]);
+  const choiceA = resA.choice;
+  const choiceB = resB.choice;
+  const roundOutcome = determineWinner(choiceA, choiceB);
+  const newScoreA = session.scoreA + (roundOutcome === 'a' ? 1 : 0);
+  const newScoreB = session.scoreB + (roundOutcome === 'b' ? 1 : 0);
+  const maxWins = getMaxWins(session.mode);
+  const isDone = roundOutcome !== 'draw' && (newScoreA >= maxWins || newScoreB >= maxWins);
+  const allPlayers = [...session.teamA, ...session.teamB];
+  const teamALine = `🔵 Tim A ${EMOJI[choiceA]}: ${session.teamA.map(p => `${escHtml(p.name)} ${EMOJI[p.choice!]}`).join(', ')}`;
+  const teamBLine = `🔴 Tim B ${EMOJI[choiceB]}: ${session.teamB.map(p => `${escHtml(p.name)} ${EMOJI[p.choice!]}`).join(', ')}`;
+  const notesText = [...resA.notes, ...resB.notes].map(n => `<i>${n}</i>`).join('\n');
+
+  if (isDone) {
+    const winner = newScoreA > newScoreB ? 'A' : 'B';
+    const finalText = `🏆 <b>Tim ${winner} menang!</b>\n${teamALine}\n${teamBLine}` +
+      (notesText ? `\n${notesText}` : '');
+    await Promise.allSettled(allPlayers.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
+    await sendMessage(token, session.chatId, finalText);
+    const winTeam = winner === 'A' ? session.teamA : session.teamB;
+    const loseTeam = winner === 'A' ? session.teamB : session.teamA;
+    for (const p of winTeam) {
+      ctx.waitUntil(updateStats(kv, p.userId, 'win', p.choice!, loseTeam[0].userId, loseTeam[0].name, 1000, false, false));
+    }
+    for (const p of loseTeam) {
+      ctx.waitUntil(updateStats(kv, p.userId, 'loss', p.choice!, winTeam[0].userId, winTeam[0].name, 1000, false, false));
+    }
+    await kv.put(`team:${session.gameId}`, JSON.stringify({ ...session, status: 'done', scoreA: newScoreA, scoreB: newScoreB }), { expirationTtl: 300 });
+  } else {
+    const outcomeText = roundOutcome === 'a' ? '🔵 Tim A menang round ini!'
+      : roundOutcome === 'b' ? '🔴 Tim B menang round ini!' : '🤝 Draw!';
+    const nextSession: TeamSession = {
+      ...session,
+      scoreA: newScoreA,
+      scoreB: newScoreB,
+      currentRound: session.currentRound + 1,
+      teamA: session.teamA.map(p => ({ ...p, choice: null })),
+      teamB: session.teamB.map(p => ({ ...p, choice: null })),
+    };
+    await kv.put(`team:${session.gameId}`, JSON.stringify(nextSession), { expirationTtl: 300 });
+    const roundText =
+      `Round ${session.currentRound}: ${outcomeText}\n${teamALine}\n${teamBLine}` +
+      (notesText ? `\n${notesText}` : '') +
+      `\n\nScore: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}:`;
+    const pickKb = teamPickKeyboard(session.gameId);
+    await Promise.allSettled(allPlayers.map(p => editInlineMessage(token, p.inlineMessageId, roundText, pickKb)));
+  }
+}
+
+// ── Tournament ────────────────────────────────────────────────────────────────
+
+function shuffleArr<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function formatTournamentRound(
+  matches: TournamentMatch[],
+  roundNum: number,
+  botUsername: string
+): string {
+  const lines = matches.map((m, i) => {
+    const code = m.gameCode ? `\n  📋 Kode: <code>@${botUsername} ${m.gameCode}</code>` : '';
+    const result = m.winner ? `\n  ✅ ${escHtml(m.winner.name)} menang` : '';
+    return `Match ${i + 1}: <b>${escHtml(m.p1.name)}</b> vs <b>${escHtml(m.p2.name)}</b>${code}${result}`;
+  });
+  return `🏆 <b>Round ${roundNum}</b>\n━━━━━━━━━━━━━━\n${lines.join('\n\n')}`;
+}
+
+export function tournamentSignupText(tournament: TournamentSession): string {
+  const playerList = tournament.players.length > 0
+    ? '\n' + tournament.players.map((p, i) => `${i + 1}. ${escHtml(p.name)}`).join('\n')
+    : '';
+  return (
+    `🏆 <b>Turnamen RPS</b> · ${tournament.maxPlayers} pemain\n` +
+    `Host: ${escHtml(tournament.players[0]?.name ?? 'Menunggu...')}\n` +
+    `Pendaftar: ${tournament.players.length}/${tournament.maxPlayers}` +
+    playerList
+  );
+}
+
+export function tournamentSignupKeyboard(tournamentId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: '🤝 Daftar', callback_data: `tourjoin:${tournamentId}` },
+        { text: '🚀 Mulai sekarang', callback_data: `tourstart:${tournamentId}` },
+      ],
+    ],
+  };
+}
+
+export async function startTournamentBracket(
+  token: string,
+  kv: KVNamespace,
+  tournament: TournamentSession,
+  botUsername: string
+): Promise<void> {
+  const shuffled = shuffleArr(tournament.players);
+  const round0: TournamentMatch[] = [];
+  for (let i = 0; i < shuffled.length; i += 2) {
+    const code = generateId();
+    round0.push({
+      matchId: `r0m${i / 2}`,
+      p1: shuffled[i],
+      p2: shuffled[i + 1],
+      winner: null,
+      gameCode: code,
+    });
+    await kv.put(`tournament:matchgame:${code}`, JSON.stringify({
+      tournamentId: tournament.tournamentId,
+      matchId: `r0m${i / 2}`,
+    }), { expirationTtl: 600 });
+  }
+  const updated: TournamentSession = { ...tournament, status: 'active', currentRound: 0, rounds: [round0] };
+  await kv.put(`tournament:${tournament.tournamentId}`, JSON.stringify(updated), { expirationTtl: 7200 });
+  await sendMessage(token, tournament.chatId, formatTournamentRound(round0, 1, botUsername));
+}
+
+export async function advanceTournament(
+  token: string,
+  kv: KVNamespace,
+  tournamentId: string,
+  matchId: string,
+  winner: TournamentPlayer,
+  loser: TournamentPlayer,
+  isDraw: boolean,
+  botUsername: string
+): Promise<void> {
+  const tournament = await kv.get<TournamentSession>(`tournament:${tournamentId}`, 'json');
+  if (!tournament || tournament.status !== 'active') return;
+  const roundIdx = tournament.currentRound;
+  const round = tournament.rounds[roundIdx];
+  const matchIdx = round.findIndex(m => m.matchId === matchId);
+  if (matchIdx < 0) return;
+  const updatedRound = round.map((m, i) => i === matchIdx ? { ...m, winner } : m);
+  const updatedRounds = [...tournament.rounds];
+  updatedRounds[roundIdx] = updatedRound;
+  const roundDone = updatedRound.every(m => m.winner !== null);
+  if (!roundDone) {
+    await kv.put(`tournament:${tournamentId}`, JSON.stringify({ ...tournament, rounds: updatedRounds }), { expirationTtl: 7200 });
+    const drawNote = isDraw ? ' (menang undi)' : '';
+    await sendMessage(token, tournament.chatId,
+      `✅ <b>${escHtml(winner.name)}</b> menang${drawNote} vs ${escHtml(loser.name)}! Menunggu match lain...`
+    );
+    return;
+  }
+  const winners = updatedRound.map(m => m.winner!);
+  if (winners.length === 1) {
+    const finalWinner = winners[0];
+    await kv.put(`tournament:${tournamentId}`,
+      JSON.stringify({ ...tournament, rounds: updatedRounds, status: 'done', winner: finalWinner }),
+      { expirationTtl: 3600 }
+    );
+    await sendMessage(token, tournament.chatId,
+      `🏆 <b>Juara Tournament: ${escHtml(finalWinner.name)}!</b>\nSelamat! 🎉`
+    );
+    return;
+  }
+  // Next round
+  const nextRoundIdx = roundIdx + 1;
+  const nextMatches: TournamentMatch[] = [];
+  for (let i = 0; i < winners.length; i += 2) {
+    const code = generateId();
+    nextMatches.push({ matchId: `r${nextRoundIdx}m${i / 2}`, p1: winners[i], p2: winners[i + 1], winner: null, gameCode: code });
+    await kv.put(`tournament:matchgame:${code}`, JSON.stringify({ tournamentId, matchId: `r${nextRoundIdx}m${i / 2}` }), { expirationTtl: 600 });
+  }
+  const updated: TournamentSession = { ...tournament, rounds: [...updatedRounds, nextMatches], currentRound: nextRoundIdx };
+  await kv.put(`tournament:${tournamentId}`, JSON.stringify(updated), { expirationTtl: 7200 });
+  await sendMessage(token, tournament.chatId, formatTournamentRound(nextMatches, nextRoundIdx + 1, botUsername));
+}
+
 async function updateGroupLeaderboard(
   kv: KVNamespace,
   chatId: number,
@@ -681,6 +953,17 @@ async function finishGame(
     editInlineMessage(token, session.hostInlineMessageId, text, keyboard),
     editInlineMessage(token, session.opponentInlineMessageId!, text, keyboard),
   ]);
+
+  if (session.tournamentId && session.tournamentMatchId) {
+    const isHostWinner = matchOutcome === 'a' || (matchOutcome === 'draw' && Math.random() < 0.5);
+    const tWinner = isHostWinner
+      ? { userId: session.hostUserId, name: session.hostName }
+      : { userId: session.opponentUserId!, name: session.opponentName! };
+    const tLoser = isHostWinner
+      ? { userId: session.opponentUserId!, name: session.opponentName! }
+      : { userId: session.hostUserId, name: session.hostName };
+    ctx.waitUntil(advanceTournament(token, kv, session.tournamentId, session.tournamentMatchId, tWinner, tLoser, matchOutcome === 'draw', env.BOT_USERNAME));
+  }
 }
 
 // Low cap keeps both messages in sync even if one hits a 429

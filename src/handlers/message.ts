@@ -1,5 +1,5 @@
-import type { Choice, Env, GameSession, LeaderboardEntry, PendingConfig, TelegramMessage, UserStats } from '../types';
-import { editInlineMessage, getChatInfo, sendChatAction, sendDice, sendMessage, sendPoll, setMyCommands } from '../telegram';
+import type { Choice, Env, GameSession, LeaderboardEntry, PendingConfig, TelegramMessage, TournamentSession, UserStats } from '../types';
+import { editInlineMessage, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendPoll, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
   loadConfig,
@@ -12,7 +12,7 @@ import {
 } from '../config';
 import { activateTier, loadDonatorTier, parseDuration, TIER_PERKS, tierBadge } from '../donator';
 import { handleDonate, handleSuccessfulPayment } from './payment';
-import { escHtml, fmtEmoji } from '../game';
+import { escHtml, fmtEmoji, generateId, tournamentSignupKeyboard, tournamentSignupText } from '../game';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
@@ -918,6 +918,44 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env): Promise<void>
       statsText += `\n📅 Minggu ini: ${weekWins}W · ${weekLosses}L · ${weekDraws}D`;
     }
     await sendMessage(token, chatId, statsText);
+    return;
+  }
+
+  // /team NvN [BO3] — register group for team mode, then go inline
+  if (cmd === '/team') {
+    await kv.put(`team_chat:${msg.from.id}`, String(chatId), { expirationTtl: 300 });
+    const args = msg.text.trim().split(/\s+/).slice(1).join(' ').toUpperCase() || '2V2';
+    await sendMessage(token, chatId,
+      `✅ <b>${escHtml(msg.from.first_name)}</b> siap buat team game di grup ini!\n` +
+      `Ketik <code>@${env.BOT_USERNAME} TEAM ${args}</code> sekarang (berlaku 5 menit).`
+    );
+    return;
+  }
+
+  // /tournament [4|8] — create tournament signup in group
+  if (cmd === '/tournament') {
+    const parts = msg.text.trim().split(/\s+/);
+    const maxPlayers = parts[1] ? Math.min(8, Math.max(2, parseInt(parts[1]) || 4)) : 4;
+    // Ensure even number for bracket pairing
+    const slots = maxPlayers % 2 !== 0 ? maxPlayers + 1 : maxPlayers;
+    const tournamentId = generateId();
+    const tournament: TournamentSession = {
+      tournamentId,
+      chatId,
+      hostUserId: msg.from.id,
+      players: [{ userId: msg.from.id, name: msg.from.first_name }],
+      maxPlayers: slots,
+      status: 'joining',
+      currentRound: 0,
+      rounds: [],
+      winner: null,
+      signupMessageId: null,
+      createdAt: Date.now(),
+    };
+    const kb = tournamentSignupKeyboard(tournamentId);
+    const msgId = await sendMessageForId(token, chatId, tournamentSignupText(tournament), kb);
+    const withMsgId: TournamentSession = { ...tournament, signupMessageId: msgId };
+    await kv.put(`tournament:${tournamentId}`, JSON.stringify(withMsgId), { expirationTtl: 3600 });
     return;
   }
 }

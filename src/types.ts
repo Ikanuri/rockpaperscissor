@@ -27,6 +27,8 @@ export interface GameSession {
   chainId?: string;
   lockedToUsername?: string;
   ranked?: boolean;
+  tournamentId?: string;
+  tournamentMatchId?: string;
 }
 
 export interface UserStats {
@@ -142,6 +144,55 @@ export interface LmsSession {
   status: 'waiting' | 'playing' | 'done';
   currentRound: number;
   roundHistory: LmsRoundRecord[];
+  createdAt: number;
+}
+
+export interface TeamPlayer {
+  userId: number;
+  name: string;
+  choice: Choice | null;
+  inlineMessageId: string;
+}
+
+export interface TeamSession {
+  gameId: string;       // T + 6 chars
+  chatId: number;       // group chat for dice tiebreaker
+  teamSize: number;     // players per team
+  teamA: TeamPlayer[];
+  teamB: TeamPlayer[];
+  status: 'waiting' | 'playing' | 'done';
+  currentRound: number;
+  scoreA: number;
+  scoreB: number;
+  mode: GameMode;
+  hostUserId: number;
+  createdAt: number;
+}
+
+export interface TournamentPlayer {
+  userId: number;
+  name: string;
+}
+
+export interface TournamentMatch {
+  matchId: string;
+  p1: TournamentPlayer;
+  p2: TournamentPlayer;
+  winner: TournamentPlayer | null;
+  gameCode: string | null;
+}
+
+export interface TournamentSession {
+  tournamentId: string;
+  chatId: number;
+  hostUserId: number;
+  players: TournamentPlayer[];
+  maxPlayers: number;
+  status: 'joining' | 'active' | 'done';
+  currentRound: number;
+  rounds: TournamentMatch[][];
+  winner: TournamentPlayer | null;
+  signupMessageId: number | null;
   createdAt: number;
 }
 

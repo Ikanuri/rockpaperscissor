@@ -184,6 +184,47 @@ export async function sendDice(
   return data.result?.dice?.value ?? 0;
 }
 
+export async function sendMessageForId(
+  token: string,
+  chatId: number,
+  text: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<number | null> {
+  try {
+    const res = await fetch(`${API}${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        ...(replyMarkup && { reply_markup: replyMarkup }),
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json<{ ok: boolean; result?: { message_id: number } }>();
+    return data.ok ? (data.result?.message_id ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function editMessage(
+  token: string,
+  chatId: number,
+  messageId: number,
+  text: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<void> {
+  return call(token, 'editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    parse_mode: 'HTML',
+    ...(replyMarkup && { reply_markup: replyMarkup }),
+  });
+}
+
 export async function getChatMember(
   token: string,
   chatId: number,

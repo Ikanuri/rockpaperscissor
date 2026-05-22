@@ -13,6 +13,8 @@ import type {
   LmsPlayer,
   LmsSession,
   OpenChallenge,
+  TeamPlayer,
+  TeamSession,
   UserStats,
   VsStats,
 } from '../types';
@@ -26,6 +28,9 @@ import {
   lmsWaitingText,
   runLmsRound,
   runRevealAndResult,
+  runTeamRound,
+  teamWaitingKeyboard,
+  teamWaitingText,
   trackHostedGame,
   updateStats,
   waitingKeyboard,
@@ -37,19 +42,25 @@ import { loadDonatorTier } from '../donator';
 
 const GAME_ID_RE = /^[A-Z2-9]{6}$/;
 const CHAIN_CODE_RE = /^R[A-Z2-9]{6}$/;
-// LMS game codes: L + 6 random chars = 7 chars (distinct from 6-char GAME_ID)
+// LMS game codes: L + 6 random chars = 7 chars
 const LMS_CODE_RE = /^L[A-Z2-9]{6}$/;
+// Team game codes: T + 6 random chars = 7 chars
+const TEAM_CODE_RE = /^T[A-Z2-9]{6}$/;
 // @USERNAME or @USERNAME BO3/BO5/BO7 — private challenge
 const PRIVATE_RE = /^@(\w{1,32})(?:\s+(BO[357]))?$/;
 // Ranked mode: RANKED [BO3/BO5/BO7]
 const RANKED_RE = /^RANKED(?:\s+(BO[357]))?$/;
 // LMS creation: LMS or LMS N (3–8 players)
 const LMS_RE = /^LMS(?:\s+(\d+))?$/;
+// Team creation: TEAM NvN [BO3/BO5/BO7]
+const TEAM_RE = /^TEAM\s+(\d+)V(\d+)(?:\s+(BO[357]))?$/;
+// Team join: TJOIN <T+6char> A|B
+const TJOIN_RE = /^TJOIN\s+(T[A-Z2-9]{6})\s+([AB])$/;
 // Head-to-head: VS @username
 const VS_RE = /^VS\s+@(\w{1,32})$/;
 // Custom game code: 2–20 alphanumeric chars (must not match other patterns)
 const CUSTOM_CODE_RE = /^[A-Z0-9]{2,20}$/;
-const RESERVED_CODES = new Set(['TOP', 'STATS', 'CLEARHOST', 'SYNCSTATS', 'BO3', 'BO5', 'BO7', 'START', 'HELP', 'RANKED', 'LAST', 'BOT', 'VS', 'LMS', 'OPEN']);
+const RESERVED_CODES = new Set(['TOP', 'STATS', 'CLEARHOST', 'SYNCSTATS', 'BO3', 'BO5', 'BO7', 'START', 'HELP', 'RANKED', 'LAST', 'BOT', 'VS', 'LMS', 'OPEN', 'TEAM', 'TJOIN']);
 
 function parseMode(s: string): GameMode {
   if (s === 'BO3') return 'best_of_3';
@@ -59,8 +70,10 @@ function parseMode(s: string): GameMode {
 }
 
 function isCustomCode(q: string): boolean {
-  // LMS join codes (L+6char) look like custom codes but are checked via KV — don't short-circuit
-  return CUSTOM_CODE_RE.test(q) && !RESERVED_CODES.has(q) && !GAME_ID_RE.test(q) && !CHAIN_CODE_RE.test(q);
+  // LMS/Team join codes look like custom codes but are routed via KV — exclude by prefix pattern
+  return CUSTOM_CODE_RE.test(q) && !RESERVED_CODES.has(q)
+    && !GAME_ID_RE.test(q) && !CHAIN_CODE_RE.test(q)
+    && !TEAM_CODE_RE.test(q);
 }
 
 async function maybeAnnounceGame(
@@ -385,6 +398,62 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
+  // Team creation: TEAM NvN [BO3]
+  const teamQueryMatch = TEAM_RE.exec(q);
+  if (teamQueryMatch) {
+    const chatIdStr = await kv.get(`team_chat:${from.id}`);
+    if (!chatIdStr) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'err',
+        title: '⚠️ Setup dulu di grup',
+        description: 'Ketik /team NvN di grup yang ingin digunakan, lalu coba lagi.',
+        input_message_content: { message_text: 'Ketik /team NvN di grup dulu, lalu buka @botname TEAM NvN.' },
+      }]);
+      return;
+    }
+    const n = Math.min(4, Math.max(1, parseInt(teamQueryMatch[1])));
+    const modeLabel = teamQueryMatch[3] ? ` ${teamQueryMatch[3]}` : '';
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    await answerInlineQuery(token, query.id, buildChoiceResults(`⚔️ Team ${n}v${n}${modeLabel}`, env, config));
+    return;
+  }
+
+  // Team join: TJOIN <gameId> A|B
+  const tjoinMatch = TJOIN_RE.exec(q);
+  if (tjoinMatch) {
+    const gameId = tjoinMatch[1];
+    const teamSess = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+    if (!teamSess || teamSess.status !== 'waiting') {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'err', title: '❌ Game tidak ditemukan',
+        description: 'Team game sudah penuh atau tidak ada.',
+        input_message_content: { message_text: '❌ Team game tidak ditemukan atau sudah penuh.' },
+      }]);
+      return;
+    }
+    const team = tjoinMatch[2] as 'A' | 'B';
+    const targetTeam = team === 'A' ? teamSess.teamA : teamSess.teamB;
+    if (targetTeam.length >= teamSess.teamSize) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'err', title: `❌ Tim ${team} sudah penuh`,
+        description: 'Coba tim yang lain.',
+        input_message_content: { message_text: `❌ Tim ${team} sudah penuh.` },
+      }]);
+      return;
+    }
+    if ([...teamSess.teamA, ...teamSess.teamB].some(p => p.userId === from.id)) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'already', title: '✅ Sudah bergabung',
+        description: 'Kamu sudah ada di game ini.',
+        input_message_content: { message_text: '✅ Kamu sudah bergabung di game ini.' },
+      }]);
+      return;
+    }
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    await answerInlineQuery(token, query.id, buildChoiceResults(`🤝 Join Tim ${team}`, env, config));
+    return;
+  }
+
   // LMS creation: LMS or LMS N
   const lmsQueryMatch = LMS_RE.exec(q);
   if (lmsQueryMatch) {
@@ -506,6 +575,13 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     const session = await kv.get<GameSession>(`game:${q}`, 'json');
 
     if (!session) {
+      // Check if this is a tournament match code
+      const tmInfo = await kv.get<{ tournamentId: string; matchId: string }>(`tournament:matchgame:${q}`, 'json');
+      if (tmInfo) {
+        const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+        await answerInlineQuery(token, query.id, buildChoiceResults('🏆 Tournament Match', env, config));
+        return;
+      }
       await answerInlineQuery(token, query.id, [{
         type: 'article', id: 'err', title: '❌ Game not found',
         description: 'This game does not exist or has expired.',
@@ -822,6 +898,80 @@ export async function handleChosenInlineResult(
     // lms:${q} not found — fall through to custom code / new game path
   }
 
+  // Team creation: TEAM NvN [BO3]
+  const teamResultMatch = TEAM_RE.exec(q);
+  if (teamResultMatch) {
+    const chatIdStr = await kv.get(`team_chat:${result.from.id}`);
+    if (!chatIdStr) {
+      await editInlineMessage(token, result.inline_message_id, '⚠️ Setup /team di grup dulu.');
+      return;
+    }
+    const chatId = parseInt(chatIdStr);
+    if (isNaN(chatId)) { await editInlineMessage(token, result.inline_message_id, '❌ chatId tidak valid.'); return; }
+    const teamSize = Math.min(4, Math.max(1, parseInt(teamResultMatch[1])));
+    const mode: GameMode = teamResultMatch[3] ? parseMode(teamResultMatch[3]) : 'single';
+    const gameId = `T${generateId()}`;
+    const rateKeyT = `ratelimit:${result.from.id}`;
+    const countT = parseInt(await kv.get(rateKeyT) ?? '0');
+    if (countT >= 3) { await editInlineMessage(token, result.inline_message_id, '⏳ Too many active games.'); return; }
+    const hostPlayer: TeamPlayer = { userId: result.from.id, name: formatUser(result.from), choice, inlineMessageId: result.inline_message_id };
+    const teamSession: TeamSession = {
+      gameId, chatId, teamSize,
+      teamA: [hostPlayer], teamB: [],
+      status: 'waiting', currentRound: 1, scoreA: 0, scoreB: 0,
+      mode, hostUserId: result.from.id, createdAt: Date.now(),
+    };
+    await Promise.all([
+      kv.put(`team:${gameId}`, JSON.stringify(teamSession), { expirationTtl: 600 }),
+      kv.put(rateKeyT, String(countT + 1), { expirationTtl: 600 }),
+      kv.delete(`team_chat:${result.from.id}`),
+    ]);
+    const slotsA = teamSize - 1;
+    const slotsB = teamSize;
+    await editInlineMessage(token, result.inline_message_id, teamWaitingText(teamSession), teamWaitingKeyboard(gameId, slotsA, slotsB));
+    return;
+  }
+
+  // Team join: TJOIN <gameId> A|B
+  const tjoinResultMatch = TJOIN_RE.exec(q);
+  if (tjoinResultMatch) {
+    const gameId = tjoinResultMatch[1];
+    const teamLabel = tjoinResultMatch[2] as 'A' | 'B';
+    const teamSess = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+    if (!teamSess || teamSess.status !== 'waiting') {
+      await editInlineMessage(token, result.inline_message_id, '❌ Team game tidak ditemukan.');
+      return;
+    }
+    const alreadyIn = [...teamSess.teamA, ...teamSess.teamB].some(p => p.userId === result.from.id);
+    if (alreadyIn) {
+      await editInlineMessage(token, result.inline_message_id, teamWaitingText(teamSess));
+      return;
+    }
+    const newPlayer: TeamPlayer = { userId: result.from.id, name: formatUser(result.from), choice, inlineMessageId: result.inline_message_id };
+    const updatedA = teamLabel === 'A' ? [...teamSess.teamA, newPlayer] : teamSess.teamA;
+    const updatedB = teamLabel === 'B' ? [...teamSess.teamB, newPlayer] : teamSess.teamB;
+    if ((teamLabel === 'A' && updatedA.length > teamSess.teamSize) ||
+        (teamLabel === 'B' && updatedB.length > teamSess.teamSize)) {
+      await editInlineMessage(token, result.inline_message_id, `❌ Tim ${teamLabel} sudah penuh.`);
+      return;
+    }
+    const isFull = updatedA.length === teamSess.teamSize && updatedB.length === teamSess.teamSize;
+    const updated: TeamSession = { ...teamSess, teamA: updatedA, teamB: updatedB, status: isFull ? 'playing' : 'waiting' };
+    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: isFull ? 300 : 600 });
+    if (isFull) {
+      ctx.waitUntil(runTeamRound(token, kv, updated, env, ctx));
+    } else {
+      const slotsA = teamSess.teamSize - updatedA.length;
+      const slotsB = teamSess.teamSize - updatedB.length;
+      const kb = teamWaitingKeyboard(gameId, slotsA, slotsB);
+      const waitText = teamWaitingText(updated);
+      await Promise.allSettled([...updatedA, ...updatedB].map(p =>
+        editInlineMessage(token, p.inlineMessageId, waitText, kb)
+      ));
+    }
+    return;
+  }
+
   // Open Challenge
   if (q === 'OPEN') {
     if (result.result_id.startsWith('open_join_')) {
@@ -1037,10 +1187,38 @@ export async function handleChosenInlineResult(
     return;
   }
 
-  // Regular game join by code
+  // Regular game join by code (also handles tournament match codes)
   if (GAME_ID_RE.test(q)) {
-    const session = await kv.get<GameSession>(`game:${q}`, 'json');
-    if (!session || session.status !== 'waiting' || session.hostUserId === result.from.id) return;
+    let session = await kv.get<GameSession>(`game:${q}`, 'json');
+
+    // Tournament match — first player creates the session
+    if (!session) {
+      const tmInfo = await kv.get<{ tournamentId: string; matchId: string }>(`tournament:matchgame:${q}`, 'json');
+      if (tmInfo) {
+        const tmSession: GameSession = {
+          gameId: q,
+          hostUserId: result.from.id,
+          hostName: formatUser(result.from),
+          hostChoice: choice,
+          opponentUserId: null, opponentName: null, opponentChoice: null,
+          hostInlineMessageId: result.inline_message_id,
+          opponentInlineMessageId: null,
+          status: 'waiting', mode: 'single',
+          currentRound: 1, hostScore: 0, opponentScore: 0, rounds: [],
+          createdAt: Date.now(),
+          tournamentId: tmInfo.tournamentId,
+          tournamentMatchId: tmInfo.matchId,
+        };
+        await kv.put(`game:${q}`, JSON.stringify(tmSession), { expirationTtl: 600 });
+        await editInlineMessage(token, result.inline_message_id,
+          `🏆 Tournament Match\n⏳ Menunggu lawan...\n\nKode: <code>${q}</code>`
+        );
+        return;
+      }
+      return;
+    }
+
+    if (session.status !== 'waiting' || session.hostUserId === result.from.id) return;
 
     if (session.lockedToUsername &&
         result.from.username?.toLowerCase() !== session.lockedToUsername.toLowerCase()) {
