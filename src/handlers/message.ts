@@ -47,23 +47,45 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     const gifActions: PendingConfig['action'][] = ['setthumb_gif', 'setglobal_thumb_gif'];
     const emojiActions: PendingConfig['action'][] = ['setemoji_reveal', 'setglobal_emoji_reveal'];
 
-    if (msg.sticker && stickerActions.includes(pending.action)) {
-      await kv.delete(`pending:config:${msg.from.id}`);
-      const fileId = msg.sticker.file_id;
-      if (pending.action === 'setsticker') {
-        await setUserConfig(kv, msg.from.id, { sticker: { [pending.choice]: fileId } });
-        await reply(token, msg.chat.id, `✅ Popup sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
-      } else if (pending.action === 'setglobal_sticker') {
-        await setGlobalConfig(kv, { sticker: { [pending.choice]: fileId } });
-        await reply(token, msg.chat.id, `✅ Global sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
-      } else if (pending.action === 'setthumb_sticker') {
-        await setUserConfig(kv, msg.from.id, { thumb: { [pending.choice]: { type: 'sticker', value: fileId } } });
-        await reply(token, msg.chat.id, `✅ Thumbnail sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
-      } else if (pending.action === 'setglobal_thumb_sticker') {
-        await setGlobalConfig(kv, { thumb: { [pending.choice]: { type: 'sticker', value: fileId } } });
-        await reply(token, msg.chat.id, `✅ Global thumbnail sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+    if (msg.sticker) {
+      if (stickerActions.includes(pending.action)) {
+        await kv.delete(`pending:config:${msg.from.id}`);
+        const fileId = msg.sticker.file_id;
+        if (pending.action === 'setsticker') {
+          await setUserConfig(kv, msg.from.id, { sticker: { [pending.choice]: fileId } });
+          await reply(token, msg.chat.id, `✅ Popup sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+        } else if (pending.action === 'setglobal_sticker') {
+          await setGlobalConfig(kv, { sticker: { [pending.choice]: fileId } });
+          await reply(token, msg.chat.id, `✅ Global sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+        } else if (pending.action === 'setthumb_sticker') {
+          await setUserConfig(kv, msg.from.id, { thumb: { [pending.choice]: { type: 'sticker', value: fileId } } });
+          await reply(token, msg.chat.id, `✅ Thumbnail sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+        } else if (pending.action === 'setglobal_thumb_sticker') {
+          await setGlobalConfig(kv, { thumb: { [pending.choice]: { type: 'sticker', value: fileId } } });
+          await reply(token, msg.chat.id, `✅ Global thumbnail sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+        }
+        return;
       }
-      return;
+      if (emojiActions.includes(pending.action)) {
+        // Custom emoji dikirim sebagai sticker dengan type 'custom_emoji'
+        if (msg.sticker.type === 'custom_emoji' && msg.sticker.custom_emoji_id) {
+          await kv.delete(`pending:config:${msg.from.id}`);
+          const val = msg.sticker.custom_emoji_id;
+          if (pending.action === 'setemoji_reveal') {
+            await setUserConfig(kv, msg.from.id, { reveal: { [pending.choice]: val } as Record<Choice, string> });
+          } else {
+            await setGlobalConfig(kv, { reveal: { [pending.choice]: val } as Record<Choice, string> });
+          }
+          await reply(token, msg.chat.id, `✅ Reveal emoji (animasi) untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+        } else {
+          await reply(token, msg.chat.id,
+            `⚠️ Ini adalah stiker, bukan emoji.\n\n` +
+            `Untuk reveal emoji, kirim emoji dari keyboard (bisa plain emoji atau custom emoji animasi dari emoji picker).\n` +
+            `Kalau mau set popup stiker, gunakan /setsticker ${pending.choice}.`
+          );
+        }
+        return;
+      }
     }
 
     if (msg.animation && gifActions.includes(pending.action)) {
@@ -90,6 +112,15 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
         await setGlobalConfig(kv, { reveal: { [pending.choice]: val } as Record<Choice, string> });
         await reply(token, msg.chat.id, `✅ Global reveal emoji untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> diset.`);
       }
+      return;
+    }
+
+    // Message type tidak cocok dengan pending yang diharapkan — kasih feedback
+    if (!msg.text) {
+      const expected = stickerActions.includes(pending.action) ? 'stiker'
+        : gifActions.includes(pending.action) ? 'GIF'
+        : 'emoji';
+      await reply(token, msg.chat.id, `⚠️ Kirim ${expected} ya, bukan tipe file lain. Atau /cancel untuk batal.`);
       return;
     }
   }
