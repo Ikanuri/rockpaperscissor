@@ -43,6 +43,14 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   // ── Pending config state (handles sticker/animation/emoji messages) ──
   const pending = await kv.get<PendingConfig>(`pending:config:${msg.from.id}`, 'json');
   if (pending) {
+    // DEBUG SEMENTARA — hapus setelah confirmed working
+    await reply(token, msg.chat.id,
+      `[debug] pending: ${pending.action}/${pending.choice}\n` +
+      `sticker=${!!msg.sticker} type=${msg.sticker?.type ?? '-'} ceid=${msg.sticker?.custom_emoji_id ?? '-'}\n` +
+      `animation=${!!msg.animation} text=${JSON.stringify(msg.text ?? null)}\n` +
+      `entities=${JSON.stringify(msg.entities ?? null)}`
+    );
+
     const stickerActions: PendingConfig['action'][] = ['setsticker', 'setglobal_sticker', 'setthumb_sticker', 'setglobal_thumb_sticker'];
     const gifActions: PendingConfig['action'][] = ['setthumb_gif', 'setglobal_thumb_gif'];
     const emojiActions: PendingConfig['action'][] = ['setemoji_reveal', 'setglobal_emoji_reveal'];
