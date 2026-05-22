@@ -113,6 +113,38 @@ export interface LastGameRecord {
   at: number;
 }
 
+export interface OpenChallenge {
+  gameId: string;
+  hostName: string;
+  hostUserId: number;
+  createdAt: number;
+}
+
+export interface LmsPlayer {
+  userId: number;
+  name: string;
+  choice: Choice | null;
+  inlineMessageId: string;
+  active: boolean;
+}
+
+export interface LmsRoundRecord {
+  choices: Array<{ userId: number; choice: Choice }>;
+  eliminated: number[];
+  isChaos: boolean;
+}
+
+export interface LmsSession {
+  gameId: string;
+  hostUserId: number;
+  maxPlayers: number;
+  players: LmsPlayer[];
+  status: 'waiting' | 'playing' | 'done';
+  currentRound: number;
+  roundHistory: LmsRoundRecord[];
+  createdAt: number;
+}
+
 export interface Env {
   GAME_SESSIONS: KVNamespace;
   BOT_TOKEN: string;

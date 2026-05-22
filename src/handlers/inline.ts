@@ -10,6 +10,9 @@ import type {
   InlineResult,
   LastGameRecord,
   LeaderboardEntry,
+  LmsPlayer,
+  LmsSession,
+  OpenChallenge,
   UserStats,
   VsStats,
 } from '../types';
@@ -20,6 +23,8 @@ import {
   escHtml,
   formatUser,
   generateId,
+  lmsWaitingText,
+  runLmsRound,
   runRevealAndResult,
   trackHostedGame,
   updateStats,
@@ -32,15 +37,19 @@ import { loadDonatorTier } from '../donator';
 
 const GAME_ID_RE = /^[A-Z2-9]{6}$/;
 const CHAIN_CODE_RE = /^R[A-Z2-9]{6}$/;
+// LMS game codes: L + 6 random chars = 7 chars (distinct from 6-char GAME_ID)
+const LMS_CODE_RE = /^L[A-Z2-9]{6}$/;
 // @USERNAME or @USERNAME BO3/BO5/BO7 — private challenge
 const PRIVATE_RE = /^@(\w{1,32})(?:\s+(BO[357]))?$/;
 // Ranked mode: RANKED [BO3/BO5/BO7]
 const RANKED_RE = /^RANKED(?:\s+(BO[357]))?$/;
+// LMS creation: LMS or LMS N (3–8 players)
+const LMS_RE = /^LMS(?:\s+(\d+))?$/;
 // Head-to-head: VS @username
 const VS_RE = /^VS\s+@(\w{1,32})$/;
 // Custom game code: 2–20 alphanumeric chars (must not match other patterns)
 const CUSTOM_CODE_RE = /^[A-Z0-9]{2,20}$/;
-const RESERVED_CODES = new Set(['TOP', 'STATS', 'CLEARHOST', 'SYNCSTATS', 'BO3', 'BO5', 'BO7', 'START', 'HELP', 'RANKED', 'LAST', 'BOT', 'VS']);
+const RESERVED_CODES = new Set(['TOP', 'STATS', 'CLEARHOST', 'SYNCSTATS', 'BO3', 'BO5', 'BO7', 'START', 'HELP', 'RANKED', 'LAST', 'BOT', 'VS', 'LMS', 'OPEN']);
 
 function parseMode(s: string): GameMode {
   if (s === 'BO3') return 'best_of_3';
@@ -50,6 +59,7 @@ function parseMode(s: string): GameMode {
 }
 
 function isCustomCode(q: string): boolean {
+  // LMS join codes (L+6char) look like custom codes but are checked via KV — don't short-circuit
   return CUSTOM_CODE_RE.test(q) && !RESERVED_CODES.has(q) && !GAME_ID_RE.test(q) && !CHAIN_CODE_RE.test(q);
 }
 
@@ -371,6 +381,79 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
+  // LMS creation: LMS or LMS N
+  const lmsQueryMatch = LMS_RE.exec(q);
+  if (lmsQueryMatch) {
+    const rateKeyLq = `ratelimit:${from.id}`;
+    const activeLq = parseInt(await kv.get(rateKeyLq) ?? '0');
+    if (activeLq >= 3) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'err', title: '⏳ Too many active games',
+        description: 'You already have 3 active games. Finish them first!',
+        input_message_content: { message_text: '⏳ Too many active games.' },
+      }]);
+      return;
+    }
+    const n = lmsQueryMatch[1] ? Math.min(8, Math.max(3, parseInt(lmsQueryMatch[1]))) : 4;
+    const configLq = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    await answerInlineQuery(token, query.id, buildChoiceResults(`⚔️ LMS (${n} players)`, env, configLq));
+    return;
+  }
+
+  // LMS join by code
+  if (LMS_CODE_RE.test(q)) {
+    const lmsQ = await kv.get<LmsSession>(`lms:${q}`, 'json');
+    if (lmsQ && lmsQ.status === 'waiting') {
+      if (lmsQ.players.some(p => p.userId === from.id)) {
+        await answerInlineQuery(token, query.id, [{
+          type: 'article', id: 'already', title: '✅ Already in this game',
+          description: 'You already joined this LMS game.',
+          input_message_content: { message_text: '✅ Already joined. Waiting for others...' },
+        }]);
+        return;
+      }
+      if (lmsQ.players.length >= lmsQ.maxPlayers) {
+        await answerInlineQuery(token, query.id, [{
+          type: 'article', id: 'err', title: '❌ Game is full',
+          description: `${lmsQ.maxPlayers}/${lmsQ.maxPlayers} players joined.`,
+          input_message_content: { message_text: '❌ LMS game is full.' },
+        }]);
+        return;
+      }
+      const configLqJ = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+      await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Join LMS!', env, configLqJ));
+      return;
+    }
+    // LMS game not found or not waiting — fall through to custom code / new game
+  }
+
+  // Open Challenge
+  if (q === 'OPEN') {
+    const openList = ((await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [])
+      .filter(c => c.hostUserId !== from.id && Date.now() - c.createdAt < 9 * 60 * 1000);
+    const configOq = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const createResults = buildChoiceResults('🌐 Open Challenge', env, configOq);
+    if (openList.length === 0) {
+      await answerInlineQuery(token, query.id, createResults);
+      return;
+    }
+    const joinArticles: InlineResult[] = openList.slice(0, 4).map(c => ({
+      type: 'article' as const,
+      id: `open_join_${c.gameId}`,
+      title: `⚔️ Join ${escHtml(c.hostName)}`,
+      description: `Open challenge · ${Math.floor((Date.now() - c.createdAt) / 60000)}m ago`,
+      input_message_content: { message_text: `⚔️ Joining ${escHtml(c.hostName)}'s open challenge...` },
+      reply_markup: {
+        inline_keyboard: [[{
+          text: '⚔️ Join',
+          switch_inline_query_current_chat: c.gameId,
+        }]],
+      },
+    }));
+    await answerInlineQuery(token, query.id, [...joinArticles, ...createResults]);
+    return;
+  }
+
   // Ranked mode: RANKED [BO3/BO5/BO7]
   const rankedQueryMatch = RANKED_RE.exec(q);
   if (rankedQueryMatch) {
@@ -657,6 +740,129 @@ export async function handleChosenInlineResult(
     if (botUpdateResult.notifyStreak) {
       ctx.waitUntil(sendMessage(token, result.from.id, `🔥 Streak <b>${botUpdateResult.notifyStreak}x</b> beruntun! Luar biasa! 🏆`));
     }
+    return;
+  }
+
+  // LMS creation
+  const lmsResultMatch = LMS_RE.exec(q);
+  if (lmsResultMatch) {
+    const maxPlayers = lmsResultMatch[1] ? Math.min(8, Math.max(3, parseInt(lmsResultMatch[1]))) : 4;
+    const lmsGameId = `L${generateId()}`;
+    const rateKeyLR = `ratelimit:${result.from.id}`;
+    const countLR = parseInt(await kv.get(rateKeyLR) ?? '0');
+    if (countLR >= 3) {
+      await editInlineMessage(token, result.inline_message_id, '⏳ Too many active games.');
+      return;
+    }
+    const lmsSession: LmsSession = {
+      gameId: lmsGameId,
+      hostUserId: result.from.id,
+      maxPlayers,
+      players: [{ userId: result.from.id, name: formatUser(result.from), choice, inlineMessageId: result.inline_message_id, active: true }],
+      status: 'waiting',
+      currentRound: 1,
+      roundHistory: [],
+      createdAt: Date.now(),
+    };
+    await Promise.all([
+      kv.put(`lms:${lmsGameId}`, JSON.stringify(lmsSession), { expirationTtl: 600 }),
+      kv.put(rateKeyLR, String(countLR + 1), { expirationTtl: 600 }),
+    ]);
+    const slotsLeft = maxPlayers - 1;
+    await editInlineMessage(token, result.inline_message_id, lmsWaitingText(lmsSession), {
+      inline_keyboard: [[{ text: `⚔️ Join (${slotsLeft} slot${slotsLeft !== 1 ? 's' : ''} left)`, switch_inline_query_current_chat: lmsGameId }]],
+    });
+    return;
+  }
+
+  // LMS join — check KV to distinguish from custom codes starting with L
+  if (LMS_CODE_RE.test(q)) {
+    const lmsJoin = await kv.get<LmsSession>(`lms:${q}`, 'json');
+    if (lmsJoin) {
+      if (lmsJoin.status !== 'waiting') {
+        await editInlineMessage(token, result.inline_message_id, '❌ LMS game not found or already started.');
+        return;
+      }
+      if (lmsJoin.players.some(p => p.userId === result.from.id)) {
+        await editInlineMessage(token, result.inline_message_id, lmsWaitingText(lmsJoin));
+        return;
+      }
+      if (lmsJoin.players.length >= lmsJoin.maxPlayers) {
+        await editInlineMessage(token, result.inline_message_id, '❌ LMS game is full.');
+        return;
+      }
+      const newLmsPlayer: LmsPlayer = {
+        userId: result.from.id,
+        name: formatUser(result.from),
+        choice,
+        inlineMessageId: result.inline_message_id,
+        active: true,
+      };
+      const updatedLmsPlayers = [...lmsJoin.players, newLmsPlayer];
+      const lmsIsFull = updatedLmsPlayers.length >= lmsJoin.maxPlayers;
+      const updatedLms: LmsSession = { ...lmsJoin, players: updatedLmsPlayers, status: lmsIsFull ? 'playing' : 'waiting' };
+      await kv.put(`lms:${q}`, JSON.stringify(updatedLms), { expirationTtl: lmsIsFull ? 300 : 600 });
+      if (lmsIsFull) {
+        ctx.waitUntil(runLmsRound(token, kv, updatedLms, ctx));
+      } else {
+        const slotsLeft = lmsJoin.maxPlayers - updatedLmsPlayers.length;
+        const joinBtn = {
+          inline_keyboard: [[{ text: `⚔️ Join (${slotsLeft} slot${slotsLeft !== 1 ? 's' : ''} left)`, switch_inline_query_current_chat: q }]],
+        };
+        await Promise.allSettled(
+          updatedLmsPlayers.map(p => editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updatedLms), joinBtn))
+        );
+      }
+      return;
+    }
+    // lms:${q} not found — fall through to custom code / new game path
+  }
+
+  // Open Challenge
+  if (q === 'OPEN') {
+    if (result.result_id.startsWith('open_join_')) {
+      // User tapped a join article — message already shows join text + Switch button
+      return;
+    }
+    // Create new open challenge
+    const openGameId = generateId();
+    const openSession: GameSession = {
+      gameId: openGameId,
+      hostUserId: result.from.id,
+      hostName: formatUser(result.from),
+      hostChoice: choice,
+      opponentUserId: null,
+      opponentName: null,
+      opponentChoice: null,
+      hostInlineMessageId: result.inline_message_id,
+      opponentInlineMessageId: null,
+      status: 'waiting',
+      mode: 'single',
+      currentRound: 1,
+      hostScore: 0,
+      opponentScore: 0,
+      rounds: [],
+      createdAt: Date.now(),
+    };
+    const rawOpenList = (await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [];
+    const newOpenEntry: OpenChallenge = { gameId: openGameId, hostName: formatUser(result.from), hostUserId: result.from.id, createdAt: Date.now() };
+    const updatedOpenList = [...rawOpenList.filter(c => Date.now() - c.createdAt < 9 * 60 * 1000), newOpenEntry];
+    const rateKeyOp = `ratelimit:${result.from.id}`;
+    const countOp = parseInt(await kv.get(rateKeyOp) ?? '0');
+    if (countOp >= 3) {
+      await editInlineMessage(token, result.inline_message_id, '⏳ Too many active games.');
+      return;
+    }
+    await Promise.all([
+      kv.put(`game:${openGameId}`, JSON.stringify(openSession), { expirationTtl: 600 }),
+      kv.put('open:list', JSON.stringify(updatedOpenList), { expirationTtl: 600 }),
+      trackHostedGame(kv, result.from.id, openGameId),
+      kv.put(rateKeyOp, String(countOp + 1), { expirationTtl: 600 }),
+    ]);
+    await editInlineMessage(token, result.inline_message_id,
+      waitingText(openSession, env.BOT_USERNAME), waitingKeyboard(openGameId)
+    );
+    ctx.waitUntil(maybeAnnounceGame(token, kv, openSession, env.BOT_USERNAME));
     return;
   }
 

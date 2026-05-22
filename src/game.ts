@@ -9,6 +9,9 @@ import type {
   InlineKeyboardMarkup,
   LastGameRecord,
   LeaderboardEntry,
+  LmsPlayer,
+  LmsRoundRecord,
+  LmsSession,
   TelegramUser,
   UserStats,
   VsStats,
@@ -669,6 +672,147 @@ export async function runRevealAndResult(
   await Promise.all([
     editInlineMessage(token, h, nextMsg, keyboard),
     editInlineMessage(token, o, nextMsg, keyboard),
+  ]);
+}
+
+// ─── Last Man Standing ───────────────────────────────────────────────────────
+
+export function runLmsElimination(activePlayers: LmsPlayer[]): {
+  survivors: LmsPlayer[];
+  eliminated: LmsPlayer[];
+  isChaos: boolean;
+} {
+  const choices = activePlayers.map(p => p.choice!);
+  const unique = [...new Set(choices)] as Choice[];
+
+  if (unique.length !== 2) {
+    // All same or all 3 present → chaos round, no elimination
+    return { survivors: activePlayers, eliminated: [], isChaos: true };
+  }
+
+  const [a, b] = unique;
+  const losingChoice = determineWinner(a, b) === 'a' ? b : a;
+  return {
+    survivors: activePlayers.filter(p => p.choice !== losingChoice),
+    eliminated: activePlayers.filter(p => p.choice === losingChoice),
+    isChaos: false,
+  };
+}
+
+export function lmsPickKeyboard(gameId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [[
+      { text: '✊', callback_data: `lmspick:${gameId}:rock` },
+      { text: '✋', callback_data: `lmspick:${gameId}:paper` },
+      { text: '✌️', callback_data: `lmspick:${gameId}:scissors` },
+    ]],
+  };
+}
+
+export function lmsWaitingText(session: LmsSession): string {
+  const slots = session.maxPlayers - session.players.length;
+  const list = session.players.map(p => `• ${escHtml(p.name)}`).join('\n');
+  return `⚔️ <b>Last Man Standing</b> (${session.maxPlayers} players)\n\n${list}\n\n` +
+    (slots > 0 ? `⏳ Waiting for ${slots} more player${slots > 1 ? 's' : ''}...` : '🚀 Starting!');
+}
+
+export async function runLmsRound(
+  token: string,
+  kv: KVNamespace,
+  session: LmsSession,
+  ctx: ExecutionContext
+): Promise<void> {
+  const activePlayers = session.players.filter(p => p.active);
+  if (activePlayers.length <= 1) return;
+
+  const { survivors, eliminated, isChaos } = runLmsElimination(activePlayers);
+
+  const roundRecord: LmsRoundRecord = {
+    choices: activePlayers.map(p => ({ userId: p.userId, choice: p.choice! })),
+    eliminated: eliminated.map(p => p.userId),
+    isChaos,
+  };
+
+  const eliminatedIds = new Set(eliminated.map(p => p.userId));
+
+  if (!isChaos && survivors.length === 1) {
+    // ── Game over ──
+    const winner = survivors[0];
+    const allLines = session.players.map(p => {
+      const isOut = !p.active || eliminatedIds.has(p.userId);
+      return `${escHtml(p.name)}: ${EMOJI[p.choice!]}${isOut ? ' ❌' : ' 🏆'}`;
+    }).join('\n');
+    const winText = `🏆 <b>${escHtml(winner.name)} wins Last Man Standing!</b>\n━━━━━━━━━━━━━━\n${allLines}`;
+
+    const doneSession: LmsSession = {
+      ...session,
+      players: session.players.map(p => ({
+        ...p,
+        active: p.userId === winner.userId,
+      })),
+      status: 'done',
+      roundHistory: [...session.roundHistory, roundRecord],
+    };
+    await kv.put(`lms:${session.gameId}`, JSON.stringify(doneSession), { expirationTtl: 600 });
+    await Promise.allSettled(
+      session.players.map(p => editInlineMessage(token, p.inlineMessageId, winText))
+    );
+    // Stats: 1 win for winner, 1 loss for each loser
+    ctx.waitUntil(updateStats(kv, winner.userId, 'win', winner.choice!, 0, 'LMS', 1000, false, false));
+    for (const loser of session.players.filter(p => p.userId !== winner.userId)) {
+      ctx.waitUntil(updateStats(kv, loser.userId, 'loss', loser.choice!, winner.userId, winner.name, 1000, false, false));
+    }
+    return;
+  }
+
+  // ── Show round result, set up next round ──
+  const allLines = session.players.map(p => {
+    if (!p.active) return `${escHtml(p.name)}: ❌`;
+    const isNowElim = eliminatedIds.has(p.userId);
+    return `${escHtml(p.name)}: ${EMOJI[p.choice!]}${isNowElim ? ' ❌' : ''}`;
+  }).join('\n');
+
+  const header = isChaos
+    ? `😱 <b>Chaos! Round ${session.currentRound}</b> — No elimination`
+    : `🔥 <b>Round ${session.currentRound}</b>`;
+  const roundText = `${header}\n${allLines}`;
+
+  const nextRound = session.currentRound + 1;
+  const updatedPlayers = session.players.map(p => ({
+    ...p,
+    active: p.active && !eliminatedIds.has(p.userId),
+    choice: (p.active && !eliminatedIds.has(p.userId)) ? null : p.choice,
+  }));
+  const updatedSession: LmsSession = {
+    ...session,
+    players: updatedPlayers,
+    status: 'playing',
+    currentRound: nextRound,
+    roundHistory: [...session.roundHistory, roundRecord],
+  };
+  await kv.put(`lms:${session.gameId}`, JSON.stringify(updatedSession), { expirationTtl: 300 });
+
+  // Brief pause showing round result
+  const pauseKb: InlineKeyboardMarkup = { inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]] };
+  await Promise.allSettled(
+    session.players.map(p => editInlineMessage(token, p.inlineMessageId, roundText, pauseKb))
+  );
+  await sleep(3000);
+
+  // Prompt active players to pick; show elim message to newly eliminated
+  const pickText = `⚔️ <b>Round ${nextRound}</b>\n` +
+    updatedPlayers.filter(p => p.active).map(p => `• ${escHtml(p.name)}: ❓`).join('\n') +
+    '\n\nPick your move!';
+  const pickKb = lmsPickKeyboard(session.gameId);
+  const elimText = `❌ You were eliminated in Round ${session.currentRound}. Watching the rest...`;
+
+  await Promise.allSettled([
+    ...updatedPlayers.filter(p => p.active).map(p =>
+      editInlineMessage(token, p.inlineMessageId, pickText, pickKb)
+    ),
+    ...session.players.filter(p => eliminatedIds.has(p.userId)).map(p =>
+      editInlineMessage(token, p.inlineMessageId, elimText)
+    ),
   ]);
 }
 

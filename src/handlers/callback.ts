@@ -1,8 +1,12 @@
-import type { CallbackQuery, Choice, Env, GameSession } from '../types';
+import type { CallbackQuery, Choice, Env, GameSession, LmsSession } from '../types';
 import { answerCallbackQuery, editInlineMessage } from '../telegram';
 import {
+  EMOJI,
+  escHtml,
+  lmsPickKeyboard,
   nextRoundText,
   pickKeyboard,
+  runLmsRound,
   runRevealAndResult,
 } from '../game';
 import { hasFeature } from '../feature';
@@ -20,6 +24,8 @@ export async function handleCallbackQuery(
 
   if (action === 'pick' && parts.length === 3) {
     await handlePick(query, env, ctx, parts[1], parts[2] as Choice);
+  } else if (action === 'lmspick' && parts.length === 3) {
+    await handleLmsPick(query, env, ctx, parts[1], parts[2] as Choice);
   } else if (action === 'cancel' && parts.length === 2) {
     await handleCancel(query, env, parts[1]);
   } else if (action === 'donate' && hasFeature(env, 'donator')) {
@@ -77,6 +83,61 @@ async function handlePick(
       editInlineMessage(token, session.hostInlineMessageId, waitMsg, keyboard),
       editInlineMessage(token, session.opponentInlineMessageId!, waitMsg, keyboard),
     ]);
+  }
+}
+
+async function handleLmsPick(
+  query: CallbackQuery,
+  env: Env,
+  ctx: ExecutionContext,
+  gameId: string,
+  choice: Choice
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+
+  if (!session || session.status === 'done') {
+    await answerCallbackQuery(token, query.id, '❌ Game sudah selesai.', true);
+    return;
+  }
+
+  const player = session.players.find(p => p.userId === query.from.id);
+  if (!player || !player.active) {
+    await answerCallbackQuery(token, query.id, '❌ Kamu sudah eliminasi.', true);
+    return;
+  }
+  if (player.choice !== null) {
+    await answerCallbackQuery(token, query.id, '✅ Sudah pilih! Tunggu yang lain.', true);
+    return;
+  }
+
+  const updatedPlayers = session.players.map(p =>
+    p.userId === query.from.id ? { ...p, choice } : p
+  );
+  const updatedSession: LmsSession = { ...session, players: updatedPlayers };
+  const activePlayers = updatedPlayers.filter(p => p.active);
+  const allPicked = activePlayers.every(p => p.choice !== null);
+
+  await kv.put(`lms:${gameId}`, JSON.stringify(updatedSession), { expirationTtl: 300 });
+  await answerCallbackQuery(token, query.id, `🔒 ${EMOJI[choice]} dikunci!`);
+
+  if (allPicked) {
+    ctx.waitUntil(runLmsRound(token, kv, updatedSession, ctx));
+  } else {
+    const waitCount = activePlayers.filter(p => p.choice === null).length;
+    const pickText = `⚔️ <b>Round ${session.currentRound}</b>\n` +
+      activePlayers.map(p => {
+        const up = updatedPlayers.find(u => u.userId === p.userId)!;
+        return `• ${escHtml(up.name)}: ${up.choice ? '🔒' : '❓'}`;
+      }).join('\n') +
+      `\n\nMenunggu ${waitCount} pemain lagi...`;
+    const pickKb = lmsPickKeyboard(gameId);
+    await Promise.allSettled(
+      activePlayers.map(p =>
+        editInlineMessage(token, p.inlineMessageId, pickText, pickKb)
+      )
+    );
   }
 }
 
