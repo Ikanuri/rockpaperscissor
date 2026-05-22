@@ -1,5 +1,5 @@
 export type Choice = 'rock' | 'paper' | 'scissors';
-export type GameMode = 'single' | 'best_of_3';
+export type GameMode = 'single' | 'best_of_3' | 'best_of_5' | 'best_of_7';
 export type GameStatus = 'waiting' | 'playing' | 'done';
 
 export interface RoundRecord {
@@ -68,6 +68,9 @@ export interface UserStats {
   longestVsStreak?: number;
   longestVsOpponentId?: number;
   longestVsOpponentName?: string;
+
+  // ELO rating (default 1000)
+  rating?: number;
 }
 
 export interface ChainEntry {

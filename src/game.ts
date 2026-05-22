@@ -90,11 +90,18 @@ export function rematchKeyboard(chainCode: string): InlineKeyboardMarkup {
   };
 }
 
+const MODE_LABEL: Record<GameMode, string> = {
+  single: '',
+  best_of_3: 'Best of 3',
+  best_of_5: 'Best of 5',
+  best_of_7: 'Best of 7',
+};
+
 function gameHeader(session: GameSession): string {
-  if (session.mode === 'best_of_3') {
-    return `🏆 <b>Best of 3</b> • ${session.hostScore}-${session.opponentScore} • Round ${session.currentRound}/3`;
-  }
-  return '';
+  if (session.mode === 'single') return '';
+  const label = MODE_LABEL[session.mode];
+  const maxRounds = getMaxRounds(session.mode);
+  return `🏆 <b>${label}</b> • ${session.hostScore}-${session.opponentScore} • Round ${session.currentRound}/${maxRounds}`;
 }
 
 export function waitingText(
@@ -103,7 +110,7 @@ export function waitingText(
   now = Date.now()
 ): string {
   const remaining = Math.max(1, Math.ceil((session.createdAt + 600_000 - now) / 60_000));
-  const modeTag = session.mode === 'best_of_3' ? ' 🏆 Best of 3' : '';
+  const modeTag = session.mode !== 'single' ? ` 🏆 ${MODE_LABEL[session.mode]}` : '';
   const lockLine = session.lockedToUsername ? `\n🔒 For @${session.lockedToUsername} only` : '';
   return (
     `🟢 ${escHtml(session.hostName)} is ready!${modeTag}${lockLine}\n` +
@@ -134,6 +141,20 @@ function choiceDisplay(choice: Choice, env: Env, config?: GameConfig | null): st
     return `${rendered} (${EMOJI[choice]})`;
   }
   return rendered;
+}
+
+export function getMaxRounds(mode: GameMode): number {
+  if (mode === 'best_of_7') return 7;
+  if (mode === 'best_of_5') return 5;
+  if (mode === 'best_of_3') return 3;
+  return 1;
+}
+
+export function getMaxWins(mode: GameMode): number {
+  if (mode === 'best_of_7') return 4;
+  if (mode === 'best_of_5') return 3;
+  if (mode === 'best_of_3') return 2;
+  return 1;
 }
 
 export function getDayIndex(now = Date.now()): number {
@@ -250,7 +271,9 @@ async function updateStats(
   outcome: 'win' | 'loss' | 'draw',
   choice: Choice,
   opponentId: number,
-  opponentName: string
+  opponentName: string,
+  opponentRating: number,
+  preloadedLifetime?: UserStats | null
 ): Promise<UserStats> {
   const now = Date.now();
   const curDay = getDayIndex(now);
@@ -258,7 +281,7 @@ async function updateStats(
   const curMonth = getMonthIndex(now);
 
   const [lifetime, vsOpp] = await Promise.all([
-    kv.get<UserStats>(`stats:${userId}`, 'json'),
+    preloadedLifetime !== undefined ? Promise.resolve(preloadedLifetime) : kv.get<UserStats>(`stats:${userId}`, 'json'),
     kv.get<VsStats>(`stats:${userId}:vs:${opponentId}`, 'json'),
   ]);
 
@@ -353,6 +376,13 @@ async function updateStats(
     s.longestVsOpponentName = opponentName;
   }
 
+  // ELO rating
+  const K = 16;
+  const myRating = s.rating ?? 1000;
+  const expected = 1 / (1 + Math.pow(10, (opponentRating - myRating) / 400));
+  const score = outcome === 'win' ? 1 : outcome === 'loss' ? 0 : 0.5;
+  s.rating = Math.round(myRating + K * (score - expected));
+
   await Promise.all([
     kv.put(`stats:${userId}`, JSON.stringify(s)),
     kv.put(`stats:${userId}:vs:${opponentId}`, JSON.stringify(v)),
@@ -395,16 +425,27 @@ async function finishGame(
 
   await kv.put(`game:${session.gameId}`, JSON.stringify(done), { expirationTtl: 600 });
 
+  // Pre-fetch both lifetimes so updateStats can reuse them (avoids redundant reads)
+  // and so each side gets the correct pre-game opponent rating for ELO
+  const [hostLifetime, opponentLifetime] = await Promise.all([
+    kv.get<UserStats>(`stats:${session.hostUserId}`, 'json'),
+    kv.get<UserStats>(`stats:${session.opponentUserId!}`, 'json'),
+  ]);
+  const hostRating = hostLifetime?.rating ?? 1000;
+  const opponentRating = opponentLifetime?.rating ?? 1000;
+
   const [hostStats, opponentStats] = await Promise.all([
     updateStats(
       kv, session.hostUserId,
       matchOutcome === 'a' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
-      session.hostChoice!, session.opponentUserId!, session.opponentName!
+      session.hostChoice!, session.opponentUserId!, session.opponentName!,
+      opponentRating, hostLifetime
     ),
     updateStats(
       kv, session.opponentUserId!,
       matchOutcome === 'b' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
-      session.opponentChoice!, session.hostUserId, session.hostName
+      session.opponentChoice!, session.hostUserId, session.hostName,
+      hostRating, opponentLifetime
     ),
     ...(hasFeature(env, 'leaderboard') ? [updateLeaderboard(
       kv,
@@ -495,7 +536,9 @@ export async function runRevealAndResult(
     opponentScore: session.opponentScore + (roundOutcome === 'b' ? 1 : 0),
   };
 
-  const matchOver = updated.hostScore >= 2 || updated.opponentScore >= 2 || updated.currentRound >= 3;
+  const maxWins = getMaxWins(session.mode);
+  const maxRounds = getMaxRounds(session.mode);
+  const matchOver = updated.hostScore >= maxWins || updated.opponentScore >= maxWins || updated.currentRound >= maxRounds;
 
   if (matchOver) {
     const matchOutcome: 'a' | 'b' | 'draw' =

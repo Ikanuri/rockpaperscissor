@@ -4,6 +4,7 @@ import type {
   ChosenInlineResult,
   Env,
   GameConfig,
+  GameMode,
   GameSession,
   InlineQuery,
   InlineResult,
@@ -23,11 +24,26 @@ import {
 } from '../game';
 import { hasFeature } from '../feature';
 import { loadConfig } from '../config';
+import { loadDonatorTier } from '../donator';
 
 const GAME_ID_RE = /^[A-Z2-9]{6}$/;
 const CHAIN_CODE_RE = /^R[A-Z2-9]{6}$/;
-// @USERNAME or @USERNAME BO3 — private challenge
-const PRIVATE_RE = /^@(\w{1,32})(?:\s+(BO3))?$/;
+// @USERNAME or @USERNAME BO3/BO5/BO7 — private challenge
+const PRIVATE_RE = /^@(\w{1,32})(?:\s+(BO[357]))?$/;
+// Custom game code: 2–20 alphanumeric chars (must not match other patterns)
+const CUSTOM_CODE_RE = /^[A-Z0-9]{2,20}$/;
+const RESERVED_CODES = new Set(['TOP', 'STATS', 'CLEARHOST', 'SYNCSTATS', 'BO3', 'BO5', 'BO7', 'START', 'HELP']);
+
+function parseMode(s: string): GameMode {
+  if (s === 'BO3') return 'best_of_3';
+  if (s === 'BO5') return 'best_of_5';
+  if (s === 'BO7') return 'best_of_7';
+  return 'single';
+}
+
+function isCustomCode(q: string): boolean {
+  return CUSTOM_CODE_RE.test(q) && !RESERVED_CODES.has(q) && !GAME_ID_RE.test(q) && !CHAIN_CODE_RE.test(q);
+}
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 
 const PLACEHOLDER_KEYBOARD = {
@@ -159,6 +175,8 @@ function statsResult(stats: UserStats): InlineResult {
 
   const streakTitle = currentStreak >= 2 ? ` 🔥${currentStreak}` : '';
 
+  const eloLine = stats.rating !== undefined ? `\n⚡ ELO: ${stats.rating}` : '';
+
   return {
     type: 'article',
     id: 'stats',
@@ -167,7 +185,7 @@ function statsResult(stats: UserStats): InlineResult {
     input_message_content: {
       message_text:
         `📊 <b>My RPS Stats</b>\n━━━━━━━━━━━━━━\n` +
-        `🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}${favLine}` +
+        `🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}${favLine}${eloLine}` +
         streakBlock + vsLine + weekLine,
       parse_mode: 'HTML',
     },
@@ -335,9 +353,47 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       return;
     }
     const targetUsername = privateMatch[1];
-    const modeLabel = privateMatch[2] === 'BO3' ? ' BO3' : '';
+    const modeLabel = privateMatch[2] ? ` ${privateMatch[2]}` : '';
     const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults(`🔒 Private challenge for @${targetUsername}${modeLabel}`, env, config));
+    return;
+  }
+
+  // Custom game code (Premium)
+  if (isCustomCode(q)) {
+    const tier = await loadDonatorTier(kv, from.id);
+    const ownerMode = String(from.id) === env.BOT_OWNER_ID;
+    if (tier !== 'premium' && !ownerMode) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'premium_required',
+        title: '🔒 Custom code — Premium only',
+        description: 'Upgrade ke Premium untuk pakai kode game sendiri',
+        input_message_content: { message_text: '🔒 Custom game code butuh Premium. /donate untuk upgrade.' },
+      }]);
+      return;
+    }
+    const existing = await kv.get(`game:${q}`);
+    if (existing) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'code_taken',
+        title: `❌ Kode "${q}" sudah dipakai`,
+        description: 'Coba kode lain',
+        input_message_content: { message_text: `❌ Kode game "${q}" sedang dipakai. Tunggu game selesai atau pakai kode lain.` },
+      }]);
+      return;
+    }
+    const rateKeyC = `ratelimit:${from.id}`;
+    const activeC = parseInt(await kv.get(rateKeyC) ?? '0');
+    if (activeC >= 3) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article', id: 'err', title: '⏳ Too many active games',
+        description: 'You already have 3 active games. Finish them first!',
+        input_message_content: { message_text: '⏳ Too many active games.' },
+      }]);
+      return;
+    }
+    const configC = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    await answerInlineQuery(token, query.id, buildChoiceResults(`🎮 Game: ${q}`, env, configC));
     return;
   }
 
@@ -487,11 +543,11 @@ export async function handleChosenInlineResult(
     return;
   }
 
-  // Private challenge: @USERNAME [BO3]
+  // Private challenge: @USERNAME [BO3/BO5/BO7]
   const privateMatch = PRIVATE_RE.exec(q);
   if (privateMatch) {
     const lockedToUsername = privateMatch[1].toLowerCase();
-    const mode = privateMatch[2] === 'BO3' ? 'best_of_3' : 'single';
+    const mode: GameMode = privateMatch[2] ? parseMode(privateMatch[2]) : 'single';
     const gameId = generateId();
 
     const session: GameSession = {
@@ -566,8 +622,53 @@ export async function handleChosenInlineResult(
     return;
   }
 
-  // New game
-  const mode = q === 'BO3' ? 'best_of_3' : 'single';
+  // Custom game code (Premium) — must come before default new-game path
+  if (isCustomCode(q)) {
+    const tier = await loadDonatorTier(kv, result.from.id);
+    const ownerMode = String(result.from.id) === env.BOT_OWNER_ID;
+    if (tier !== 'premium' && !ownerMode) {
+      await editInlineMessage(token, result.inline_message_id, '🔒 Custom game code butuh Premium. /donate untuk upgrade.');
+      return;
+    }
+    const existingCustom = await kv.get(`game:${q}`);
+    if (existingCustom) {
+      await editInlineMessage(token, result.inline_message_id, `❌ Kode "${q}" sudah dipakai. Coba kode lain.`);
+      return;
+    }
+    const customSession: GameSession = {
+      gameId: q,
+      hostUserId: result.from.id,
+      hostName: formatUser(result.from),
+      hostChoice: choice,
+      opponentUserId: null,
+      opponentName: null,
+      opponentChoice: null,
+      hostInlineMessageId: result.inline_message_id,
+      opponentInlineMessageId: null,
+      status: 'waiting',
+      mode: 'single',
+      currentRound: 1,
+      hostScore: 0,
+      opponentScore: 0,
+      rounds: [],
+      createdAt: Date.now(),
+    };
+    await Promise.all([
+      kv.put(`game:${q}`, JSON.stringify(customSession), { expirationTtl: 600 }),
+      trackHostedGame(kv, result.from.id, q),
+    ]);
+    const rateKeyCustom = `ratelimit:${result.from.id}`;
+    const countCustom = parseInt(await kv.get(rateKeyCustom) ?? '0');
+    await kv.put(rateKeyCustom, String(countCustom + 1), { expirationTtl: 600 });
+    await editInlineMessage(token, result.inline_message_id,
+      waitingText(customSession, env.BOT_USERNAME),
+      waitingKeyboard(q)
+    );
+    return;
+  }
+
+  // New game (single / BO3 / BO5 / BO7)
+  const mode: GameMode = parseMode(q);
   const gameId = generateId();
 
   const session: GameSession = {
