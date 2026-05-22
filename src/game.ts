@@ -274,7 +274,8 @@ async function finishGame(
   session: GameSession,
   matchOutcome: 'a' | 'b' | 'draw',
   env: Env,
-  config?: GameConfig | null
+  hostConfig?: GameConfig | null,
+  opponentConfig?: GameConfig | null
 ): Promise<void> {
   const done = { ...session, status: 'done' as const };
 
@@ -330,11 +331,12 @@ async function finishGame(
   ]);
 
   const keyboard = rematchKeyboard(chainCode);
-  const text = resultText(matchOutcome, done, env, history, config);
+  const hostText = resultText(matchOutcome, done, env, history, hostConfig);
+  const opponentText = resultText(matchOutcome, done, env, history, opponentConfig);
 
   await Promise.all([
-    editInlineMessage(token, session.hostInlineMessageId, text, keyboard),
-    editInlineMessage(token, session.opponentInlineMessageId!, text, keyboard),
+    editInlineMessage(token, session.hostInlineMessageId, hostText, keyboard),
+    editInlineMessage(token, session.opponentInlineMessageId!, opponentText, keyboard),
   ]);
 }
 
@@ -350,12 +352,15 @@ export async function runRevealAndResult(
   const h = session.hostInlineMessageId;
   const o = session.opponentInlineMessageId!;
 
-  const config = await loadConfig(kv, session.hostUserId, env);
+  const [hostConfig, opponentConfig] = await Promise.all([
+    loadConfig(kv, session.hostUserId, env),
+    loadConfig(kv, session.opponentUserId!, env),
+  ]);
 
-  const hE = revealEmoji(session.hostChoice!, env, config);
-  const oE = revealEmoji(session.opponentChoice!, env, config);
+  const hE = revealEmoji(session.hostChoice!, env, hostConfig);
+  const oE = revealEmoji(session.opponentChoice!, env, opponentConfig);
 
-  // Each player sees their own choice emoji for 5s before result
+  // Each player sees their own choice emoji (rendered with their own config) for 5s before result
   await Promise.all([
     editInlineMessage(token, h, hE, undefined, REALTIME_RETRY_MS),
     editInlineMessage(token, o, oE, undefined, REALTIME_RETRY_MS),
@@ -365,7 +370,7 @@ export async function runRevealAndResult(
   const roundOutcome = determineWinner(session.hostChoice!, session.opponentChoice!);
 
   if (session.mode === 'single') {
-    await finishGame(token, kv, session, roundOutcome, env, config);
+    await finishGame(token, kv, session, roundOutcome, env, hostConfig, opponentConfig);
     return;
   }
 
@@ -382,7 +387,7 @@ export async function runRevealAndResult(
     const matchOutcome: 'a' | 'b' | 'draw' =
       updated.hostScore > updated.opponentScore ? 'a' :
       updated.hostScore < updated.opponentScore ? 'b' : 'draw';
-    await finishGame(token, kv, updated, matchOutcome, env, config);
+    await finishGame(token, kv, updated, matchOutcome, env, hostConfig, opponentConfig);
     return;
   }
 
