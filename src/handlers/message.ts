@@ -30,8 +30,8 @@ async function resolveUserDisplay(
       kv.put(`user:info:${uid}`, JSON.stringify(info));
     }
   }
-  if (!info) return `(${uid})`;
-  return `${escHtml(info.name)}${info.username ? ` @${info.username}` : ''} (${uid})`;
+  if (!info) return `<code>${uid}</code>`;
+  return `${escHtml(info.name)}${info.username ? ` @${info.username}` : ''} (<code>${uid}</code>)`;
 }
 
 function isOwner(msg: TelegramMessage, env: Env): boolean {
