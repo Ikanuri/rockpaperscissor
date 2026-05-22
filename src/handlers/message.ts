@@ -32,7 +32,8 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   const kv = env.GAME_SESSIONS;
   const owner = isOwner(msg, env);
   const betaUser = await isBetaUser(kv, msg.from.id, env.BOT_OWNER_ID);
-  const canConfig = owner || betaUser || hasFeature(env, 'beta_config');
+  const tier = await loadDonatorTier(kv, msg.from.id);
+  const canConfig = owner || betaUser || tier !== 'free' || hasFeature(env, 'beta_config');
   const canDonate = owner || betaUser || hasFeature(env, 'donator');
 
   // Successful payment (no text field)
@@ -105,9 +106,17 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     }
 
     if (msg.text && emojiActions.includes(pending.action) && !msg.text.trimStart().startsWith('/')) {
-      await kv.delete(`pending:config:${msg.from.id}`);
       const customEmoji = msg.entities?.find(e => e.type === 'custom_emoji');
       const val = customEmoji?.custom_emoji_id ?? msg.text.trim();
+      const isAnimated = /^\d{10,}$/.test(val);
+      if (isAnimated && tier !== 'premium' && !owner && !betaUser) {
+        await reply(token, msg.chat.id,
+          `🔒 Animated emoji butuh <b>Premium</b> tier.\n` +
+          `/donate untuk upgrade.`
+        );
+        return;
+      }
+      await kv.delete(`pending:config:${msg.from.id}`);
       try {
         const fallbackChar = msg.text?.trim() ?? '?';
         if (pending.action === 'setemoji_reveal') {
@@ -201,7 +210,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
 
   // ── Per-user config commands ─────────────────────────────────────────
   if (cmd === '/setemoji') {
-    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
+    if (!canConfig) { await reply(token, msg.chat.id, '🔒 Fitur ini butuh <b>Basic</b> tier.\n/donate untuk upgrade.'); return; }
     // Accept both: /setemoji rock  AND  /setemoji reveal rock
     const rawChoice = parts[1]?.toLowerCase() === 'reveal' ? parts[2]?.toLowerCase() : parts[1]?.toLowerCase();
     const rawValue  = parts[1]?.toLowerCase() === 'reveal' ? parts[3] : parts[2];
@@ -215,17 +224,24 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       return;
     }
     if (rawValue) {
-      // Kalau emoji custom ditulis inline dalam command, ambil custom_emoji_id dari entities
       const inlineCE = msg.entities?.find(e => e.type === 'custom_emoji');
       const val = inlineCE?.custom_emoji_id ?? rawValue;
+      const isAnimated = /^\d{10,}$/.test(val);
+      if (isAnimated && tier !== 'premium' && !owner && !betaUser) {
+        await reply(token, msg.chat.id, `🔒 Animated emoji butuh <b>Premium</b> tier.\n/donate untuk upgrade.`);
+        return;
+      }
       await setUserConfig(kv, msg.from.id, { reveal: { [choice]: val } as Record<Choice, string> });
       await reply(token, msg.chat.id, `✅ Reveal emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b> diset ke: ${fmtEmoji(val, rawValue)}`);
       return;
     }
+    const tierHint = (tier === 'basic' && !owner && !betaUser)
+      ? `\nEmoji biasa saja — animated emoji butuh Premium.`
+      : `\nBisa emoji biasa atau custom emoji animasi.`;
     await kv.put(`pending:config:${msg.from.id}`, JSON.stringify({ action: 'setemoji_reveal', choice }), { expirationTtl: 300 });
     await reply(token, msg.chat.id,
-      `📌 Sekarang kirim emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b>.\n` +
-      `Bisa emoji biasa atau custom emoji animasi.\n<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
+      `📌 Sekarang kirim emoji untuk ${CHOICE_EMOJI[choice]} <b>${choice}</b>.${tierHint}\n` +
+      `<i>Batas waktu 5 menit · /cancel untuk batal.</i>`
     );
     return;
   }
@@ -515,22 +531,40 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   }
 
   if (cmd === '/removedonator' && parts.length >= 2) {
-    const targetId = parseInt(parts[1]);
-    if (isNaN(targetId)) { await reply(token, msg.chat.id, '❌ Invalid user ID.'); return; }
-    await kv.delete(`donator:${targetId}`);
-    await reply(token, msg.chat.id, `✅ Donator record removed for ${targetId}.`);
+    const userIds = parts.slice(1).map(s => parseInt(s)).filter(n => !isNaN(n));
+    if (userIds.length === 0) { await reply(token, msg.chat.id, '❌ Invalid user ID(s).'); return; }
+    await Promise.all(userIds.map(uid => kv.delete(`donator:${uid}`)));
+    await reply(token, msg.chat.id, `✅ Donator record removed for ${userIds.length} user(s): ${userIds.join(', ')}`);
     return;
   }
 
   if (cmd === '/activatetier' && parts.length >= 3) {
-    const targetId = parseInt(parts[1]);
-    const tier = parts[2].toLowerCase() as 'basic' | 'premium';
-    if (isNaN(targetId) || !['basic', 'premium'].includes(tier)) {
-      await reply(token, msg.chat.id, '❌ Usage: /activatetier &lt;userId&gt; [basic|premium]');
+    // Usage: /activatetier [basic|premium] [days] userId1 userId2 ...
+    const tierArg = parts[1].toLowerCase();
+    if (!['basic', 'premium'].includes(tierArg)) {
+      await reply(token, msg.chat.id, '❌ Usage: /activatetier [basic|premium] [days] &lt;userId&gt; [userId2 ...]');
       return;
     }
-    await activateTier(kv, targetId, tier, 'stars');
-    await reply(token, msg.chat.id, `✅ <b>${TIER_PERKS[tier].label}</b> activated for ${targetId} (30 days).`);
+    const activeTier = tierArg as 'basic' | 'premium';
+    let daysArg = 30;
+    let idStart = 2;
+    const maybeDays = parseInt(parts[2]);
+    if (!isNaN(maybeDays) && maybeDays > 0 && maybeDays <= 3650) {
+      daysArg = maybeDays;
+      idStart = 3;
+    }
+    const userIds = parts.slice(idStart).map(s => parseInt(s)).filter(n => !isNaN(n));
+    if (userIds.length === 0) {
+      await reply(token, msg.chat.id, '❌ Tidak ada userId valid.');
+      return;
+    }
+    await Promise.all(userIds.map(uid => activateTier(kv, uid, activeTier, 'stars', daysArg)));
+    const expiry = new Date(Date.now() + daysArg * 86_400_000);
+    const expiryStr = expiry.toISOString().slice(0, 10);
+    await reply(token, msg.chat.id,
+      `✅ <b>${TIER_PERKS[activeTier].label}</b> activated for ${userIds.length} user(s) · ${daysArg} days (until ${expiryStr}):\n` +
+      userIds.join(', ')
+    );
     return;
   }
 

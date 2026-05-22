@@ -38,13 +38,15 @@ export async function activateTier(
   kv: KVNamespace,
   userId: number,
   tier: Exclude<DonatorTier, 'free'>,
-  method: 'stars' | 'stripe'
+  method: 'stars' | 'stripe',
+  days?: number
 ): Promise<void> {
   const existing = await kv.get<DonatorRecord>(`donator:${userId}`, 'json');
   const baseTime = existing && Date.now() < existing.expiry ? existing.expiry : Date.now();
+  const actualDays = days ?? TIER_DAYS[tier];
   const record: DonatorRecord = {
     tier,
-    expiry: baseTime + TIER_DAYS[tier] * 24 * 3600 * 1000,
+    expiry: baseTime + actualDays * 24 * 3600 * 1000,
     method,
   };
   await kv.put(`donator:${userId}`, JSON.stringify(record));
