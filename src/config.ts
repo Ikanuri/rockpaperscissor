@@ -19,9 +19,18 @@ function overlayEnv(config: GameConfig, env: Env): void {
 }
 
 function overlayPatch(target: GameConfig, patch: Partial<GameConfig>): void {
-  if (patch.reveal) Object.assign(target.reveal, patch.reveal);
-  if (patch.sticker) Object.assign(target.sticker, patch.sticker);
-  if (patch.thumb) Object.assign(target.thumb, patch.thumb);
+  if (patch.reveal) {
+    if (!target.reveal) target.reveal = { ...DEFAULTS.reveal };
+    Object.assign(target.reveal, patch.reveal);
+  }
+  if (patch.sticker) {
+    if (!target.sticker) target.sticker = {};
+    Object.assign(target.sticker, patch.sticker);
+  }
+  if (patch.thumb) {
+    if (!target.thumb) target.thumb = {};
+    Object.assign(target.thumb, patch.thumb);
+  }
 }
 
 export async function loadConfig(kv: KVNamespace, hostUserId: number, env: Env): Promise<GameConfig> {
