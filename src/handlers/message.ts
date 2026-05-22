@@ -631,14 +631,10 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       ? `${expiryUtc.toISOString().slice(0, 16).replace('T', ' ')} UTC · ${expiryWib.toISOString().slice(11, 16)} WIB`
       : `${expiryUtc.toISOString().slice(0, 10)} · ${expiryWib.toISOString().slice(0, 10)} WIB`;
 
-    // Teks expiry untuk notif user — relatif jika < 24 jam, tanggal jika >= 1 hari
-    const userExpiryStr = durationMs < 60_000
-      ? `dalam kurang dari 1 menit`
-      : durationMs < 3_600_000
-        ? `dalam ${Math.round(durationMs / 60_000)} menit`
-        : durationMs < 86_400_000
-          ? `dalam ${Math.round(durationMs / 3_600_000)} jam`
-          : `hingga ${expiryUtc.toISOString().slice(0, 10)}`;
+    // Teks expiry untuk notif user — UTC selalu, tambah tanggal WIB jika >= 1 hari
+    const userExpiryStr = durationMs < 86_400_000
+      ? `${expiryUtc.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+      : `${expiryUtc.toISOString().slice(0, 10)} (UTC)`;
 
     // Notifikasi ke tiap user
     const expiryDateOnly = userExpiryStr;
