@@ -10,7 +10,7 @@ import {
   resetUserConfig,
   resetGlobalConfig,
 } from '../config';
-import { activateTier, loadDonatorTier, TIER_PERKS, tierBadge } from '../donator';
+import { activateTier, loadDonatorTier, parseDuration, TIER_PERKS, tierBadge } from '../donator';
 import { handleDonate, handleSuccessfulPayment } from './payment';
 import { escHtml, fmtEmoji, getWeekKey } from '../game';
 
@@ -546,23 +546,25 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
       return;
     }
     const activeTier = tierArg as 'basic' | 'premium';
-    let daysArg = 30;
+    let durationMs = 30 * 24 * 3600 * 1000;
+    let durationLabel = '30d';
     let idStart = 2;
-    const maybeDays = parseInt(parts[2]);
-    if (!isNaN(maybeDays) && maybeDays > 0 && maybeDays <= 3650) {
-      daysArg = maybeDays;
-      idStart = 3;
+    if (parts[2] && /^\d+[md]?$/i.test(parts[2])) {
+      const parsed = parseDuration(parts[2]);
+      if (parsed) { durationMs = parsed; durationLabel = parts[2]; idStart = 3; }
     }
     const userIds = parts.slice(idStart).map(s => parseInt(s)).filter(n => !isNaN(n));
     if (userIds.length === 0) {
-      await reply(token, msg.chat.id, '❌ Tidak ada userId valid.');
+      await reply(token, msg.chat.id, '❌ Tidak ada userId valid.\nUsage: /activatetier [basic|premium] [durasi: 30 / 60m / 7d] &lt;userId&gt; [userId2 ...]');
       return;
     }
-    await Promise.all(userIds.map(uid => activateTier(kv, uid, activeTier, 'stars', daysArg)));
-    const expiry = new Date(Date.now() + daysArg * 86_400_000);
-    const expiryStr = expiry.toISOString().slice(0, 10);
+    await Promise.all(userIds.map(uid => activateTier(kv, uid, activeTier, 'stars', durationMs)));
+    const expiry = new Date(Date.now() + durationMs);
+    const expiryStr = durationMs < 3_600_000
+      ? expiry.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+      : expiry.toISOString().slice(0, 10);
     await reply(token, msg.chat.id,
-      `✅ <b>${TIER_PERKS[activeTier].label}</b> activated for ${userIds.length} user(s) · ${daysArg} days (until ${expiryStr}):\n` +
+      `✅ <b>${TIER_PERKS[activeTier].label}</b> activated for ${userIds.length} user(s) · ${durationLabel} (until ${expiryStr}):\n` +
       userIds.join(', ')
     );
     return;

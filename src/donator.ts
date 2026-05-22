@@ -39,17 +39,31 @@ export async function activateTier(
   userId: number,
   tier: Exclude<DonatorTier, 'free'>,
   method: 'stars' | 'stripe',
-  days?: number
+  durationMs?: number
 ): Promise<void> {
   const existing = await kv.get<DonatorRecord>(`donator:${userId}`, 'json');
   const baseTime = existing && Date.now() < existing.expiry ? existing.expiry : Date.now();
-  const actualDays = days ?? TIER_DAYS[tier];
+  const actualMs = durationMs ?? TIER_DAYS[tier] * 24 * 3600 * 1000;
   const record: DonatorRecord = {
     tier,
-    expiry: baseTime + actualDays * 24 * 3600 * 1000,
+    expiry: baseTime + actualMs,
     method,
   };
   await kv.put(`donator:${userId}`, JSON.stringify(record));
+}
+
+export function parseDuration(s: string): number | null {
+  const lower = s.toLowerCase();
+  if (lower.endsWith('m')) {
+    const n = parseInt(lower);
+    return isNaN(n) || n <= 0 ? null : n * 60 * 1000;
+  }
+  if (lower.endsWith('d')) {
+    const n = parseInt(lower);
+    return isNaN(n) || n <= 0 ? null : n * 24 * 3600 * 1000;
+  }
+  const n = parseInt(lower);
+  return isNaN(n) || n <= 0 ? null : n * 24 * 3600 * 1000;
 }
 
 export function tierBadge(tier: DonatorTier): string {
