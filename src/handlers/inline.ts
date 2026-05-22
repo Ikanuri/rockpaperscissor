@@ -117,7 +117,7 @@ function resolveChoice(resultId: string): Choice {
 }
 
 function statsResult(
-  stats: { wins: number; losses: number; draws: number; total: number; choices?: Record<string, number> },
+  stats: { wins: number; losses: number; draws: number; total: number; choices?: Record<string, number>; currentStreak?: number; longestStreak?: number; longestStreakOpponent?: string },
   weekly: { wins: number; losses: number; draws: number; total: number }
 ): InlineResult {
   const choiceEntries = Object.entries(stats.choices ?? {}).sort(([, a], [, b]) => b - a);
@@ -125,15 +125,28 @@ function statsResult(
     ? `\n🎯 Fav: ${EMOJI[choiceEntries[0][0] as Choice]} (${choiceEntries[0][1]}x)`
     : '';
 
+  const currentStreak = stats.currentStreak ?? 0;
+  const longestStreak = stats.longestStreak ?? 0;
+  const streakLines = currentStreak >= 2
+    ? `\n\n🔥 <b>Streak</b>\n` +
+      `Sekarang: ${currentStreak} win beruntun\n` +
+      (longestStreak > 0 ? `Terpanjang: ${longestStreak}x${stats.longestStreakOpponent ? ` (vs ${escHtml(stats.longestStreakOpponent)})` : ''}` : '')
+    : longestStreak > 0
+      ? `\n\n🏅 <b>Streak terpanjang:</b> ${longestStreak}x${stats.longestStreakOpponent ? ` (vs ${escHtml(stats.longestStreakOpponent)})` : ''}`
+      : '';
+
+  const streakTitle = currentStreak >= 2 ? ` 🔥${currentStreak}` : '';
+
   return {
     type: 'article',
     id: 'stats',
-    title: `📊 ${stats.wins}W / ${stats.losses}L / ${stats.draws}D — ${stats.total} games`,
+    title: `📊 ${stats.wins}W / ${stats.losses}L / ${stats.draws}D — ${stats.total} games${streakTitle}`,
     description: `This week: ${weekly.wins}W ${weekly.losses}L ${weekly.draws}D`,
     input_message_content: {
       message_text:
         `📊 <b>My RPS Stats</b>\n━━━━━━━━━━━━━━\n` +
-        `🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}${favLine}\n\n` +
+        `🏆 Wins: ${stats.wins}\n😔 Losses: ${stats.losses}\n🤝 Draws: ${stats.draws}\n📈 Total: ${stats.total}${favLine}` +
+        streakLines + '\n\n' +
         `📅 <b>This week</b>\n` +
         `🏆 ${weekly.wins}W · 😔 ${weekly.losses}L · 🤝 ${weekly.draws}D`,
       parse_mode: 'HTML',

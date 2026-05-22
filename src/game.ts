@@ -198,7 +198,8 @@ function resultText(
   env: Env,
   history?: ChainEntry[],
   hostConfig?: GameConfig | null,
-  opponentConfig?: GameConfig | null
+  opponentConfig?: GameConfig | null,
+  winnerStreak?: number
 ): string {
   const hE = choiceDisplay(session.hostChoice!, env, hostConfig);
   const oE = choiceDisplay(session.opponentChoice!, env, opponentConfig);
@@ -214,8 +215,9 @@ function resultText(
     verdict = `🏆 ${oName} wins!`;
   }
 
+  const streakLine = winnerStreak && winnerStreak >= 2 ? `\n🔥 ${winnerStreak} win streak!` : '';
   const histBlock = history ? historyBlock(history) : '';
-  return `${verdict}\n${hName} ${hE} · ${oName} ${oE}${histBlock}`;
+  return `${verdict}${streakLine}\n${hName} ${hE} · ${oName} ${oE}${histBlock}`;
 }
 
 async function updateStats(
@@ -223,8 +225,9 @@ async function updateStats(
   userId: number,
   outcome: 'win' | 'loss' | 'draw',
   choice: Choice,
-  opponentId: number
-): Promise<void> {
+  opponentId: number,
+  opponentName: string
+): Promise<UserStats> {
   const weekKey = getWeekKey();
 
   const [lifetime, weekly, vsOpp] = await Promise.all([
@@ -251,11 +254,24 @@ async function updateStats(
   s.choices = s.choices ?? { rock: 0, paper: 0, scissors: 0 };
   s.choices[choice]++;
 
+  // Streak: win = +1, loss = reset, draw = no change
+  if (outcome === 'win') {
+    s.currentStreak = (s.currentStreak ?? 0) + 1;
+    if (s.currentStreak > (s.longestStreak ?? 0)) {
+      s.longestStreak = s.currentStreak;
+      s.longestStreakOpponent = opponentName;
+    }
+  } else if (outcome === 'loss') {
+    s.currentStreak = 0;
+  }
+
   await Promise.all([
     kv.put(`stats:${userId}`, JSON.stringify(s)),
     kv.put(`stats:${userId}:week:${weekKey}`, JSON.stringify(w), { expirationTtl: 7 * 24 * 3600 }),
     kv.put(`stats:${userId}:vs:${opponentId}`, JSON.stringify(v)),
   ]);
+
+  return s;
 }
 
 async function updateLeaderboard(
@@ -292,16 +308,16 @@ async function finishGame(
 
   await kv.put(`game:${session.gameId}`, JSON.stringify(done), { expirationTtl: 600 });
 
-  await Promise.all([
+  const [hostStats, opponentStats] = await Promise.all([
     updateStats(
       kv, session.hostUserId,
       matchOutcome === 'a' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
-      session.hostChoice!, session.opponentUserId!
+      session.hostChoice!, session.opponentUserId!, session.opponentName!
     ),
     updateStats(
       kv, session.opponentUserId!,
       matchOutcome === 'b' ? 'win' : matchOutcome === 'draw' ? 'draw' : 'loss',
-      session.opponentChoice!, session.hostUserId
+      session.opponentChoice!, session.hostUserId, session.hostName
     ),
     ...(hasFeature(env, 'leaderboard') ? [updateLeaderboard(
       kv,
@@ -342,7 +358,8 @@ async function finishGame(
   ]);
 
   const keyboard = rematchKeyboard(chainCode);
-  const text = resultText(matchOutcome, done, env, history, hostConfig, opponentConfig);
+  const winnerStreak = matchOutcome === 'a' ? hostStats.currentStreak : matchOutcome === 'b' ? opponentStats.currentStreak : undefined;
+  const text = resultText(matchOutcome, done, env, history, hostConfig, opponentConfig, winnerStreak);
 
   await Promise.all([
     editInlineMessage(token, session.hostInlineMessageId, text, keyboard),

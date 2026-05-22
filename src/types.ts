@@ -34,6 +34,9 @@ export interface UserStats {
   draws: number;
   total: number;
   choices?: { rock: number; paper: number; scissors: number };
+  currentStreak?: number;
+  longestStreak?: number;
+  longestStreakOpponent?: string;
 }
 
 export interface ChainEntry {
