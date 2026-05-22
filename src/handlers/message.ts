@@ -574,6 +574,44 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     return;
   }
 
+  if (cmd === '/riverwas') {
+    await reply(token, msg.chat.id,
+      `📖 <b>Semua Command @${env.BOT_USERNAME}</b>\n` +
+      `\n` +
+      `<b>👤 Semua User</b>\n` +
+      `/cancel — Batalkan aksi pending (setemoji dll)\n` +
+      `/clearhost — Batalkan semua game yang sedang kamu host\n` +
+      `/syncstats — Sinkronisasi stats mingguan\n` +
+      `\n` +
+      `<b>💎 Donator (Basic/Premium)</b>\n` +
+      `/donate — Lihat pilihan upgrade tier\n` +
+      `/setemoji [rock|paper|scissors] — Set emoji reveal (kirim emoji setelah command)\n` +
+      `/setsticker [rock|paper|scissors] — Set popup stiker (kirim stiker setelah command)\n` +
+      `/setthumb [rock|paper|scissors] [url|gif|sticker] — Set thumbnail inline\n` +
+      `/delthumb [rock|paper|scissors] — Hapus thumbnail\n` +
+      `/myconfig — Lihat konfigurasi aktifmu\n` +
+      `/reset — Reset config ke global/default\n` +
+      `\n` +
+      `<b>🧪 Beta Tester</b>\n` +
+      `Sama dengan Donator, akses lebih awal ke fitur baru sebelum rilis\n` +
+      `\n` +
+      `<b>👑 Owner Only</b>\n` +
+      `/setglobal [emoji|sticker|thumb] ... — Set config global\n` +
+      `/globalconfig — Lihat config global saat ini\n` +
+      `/resetglobal — Reset config global\n` +
+      `/betaadd &lt;userId&gt; — Tambah beta tester\n` +
+      `/betaremove &lt;userId&gt; — Hapus beta tester\n` +
+      `/betalist — Lihat daftar beta tester\n` +
+      `/activatetier &lt;userId&gt; [basic|premium] — Aktifkan tier manual (QRIS dll)\n` +
+      `/removedonator &lt;userId&gt; — Cabut tier donator\n` +
+      `/setprice [basic|premium] [stars|stripe] &lt;amount&gt; — Set harga tier\n` +
+      `/prices — Lihat harga tier saat ini\n` +
+      `/setupcommands — Register command list ke Telegram per scope\n` +
+      `/riverwas — Tampilkan daftar ini`
+    );
+    return;
+  }
+
   await reply(token, msg.chat.id,
     `<b>Owner Commands:</b>\n` +
     `/setglobal emoji|sticker|thumb ...\n` +
