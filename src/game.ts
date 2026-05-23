@@ -506,9 +506,9 @@ async function updateDailyLeaderboard(
 export function teamPickKeyboard(gameId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [[
-      { text: '✊ Rock', callback_data: `tpick:${gameId}:rock` },
-      { text: '✋ Paper', callback_data: `tpick:${gameId}:paper` },
-      { text: '✌️ Scissors', callback_data: `tpick:${gameId}:scissors` },
+      { text: '✊', callback_data: `tpick:${gameId}:rock` },
+      { text: '✋', callback_data: `tpick:${gameId}:paper` },
+      { text: '✌️', callback_data: `tpick:${gameId}:scissors` },
     ]],
   };
 }
@@ -536,12 +536,12 @@ export function lmsJoinKeyboard(gameId: string): InlineKeyboardMarkup {
 }
 
 export function lmsHostKeyboard(gameId: string, canForce: boolean): InlineKeyboardMarkup {
-  const row: InlineKeyboardMarkup['inline_keyboard'][0] = [
+  const rows: InlineKeyboardMarkup['inline_keyboard'] = [[
     { text: '⚔️ Join', switch_inline_query_current_chat: gameId },
     { text: '⏰ Extend', callback_data: `extlms:${gameId}` },
-  ];
-  if (canForce) row.push({ text: '▶️ Force Start', callback_data: `lmsforce:${gameId}` });
-  return { inline_keyboard: [row] };
+  ]];
+  if (canForce) rows.push([{ text: '▶️ Force Start', callback_data: `lmsforce:${gameId}` }]);
+  return { inline_keyboard: rows };
 }
 
 export async function loadConfigAuthorized(
@@ -816,7 +816,7 @@ export function tournamentSignupKeyboard(tournamentId: string): InlineKeyboardMa
     inline_keyboard: [
       [
         { text: '🤝 Daftar', callback_data: `tourjoin:${tournamentId}` },
-        { text: '🚀 Mulai sekarang', callback_data: `tourstart:${tournamentId}` },
+        { text: '🚀 Mulai', callback_data: `tourstart:${tournamentId}` },
       ],
     ],
   };
