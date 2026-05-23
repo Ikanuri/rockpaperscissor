@@ -1269,6 +1269,12 @@ export async function runLmsRound(
 
   const eliminatedIds = new Set(eliminated.map(p => p.userId));
 
+  // Reveal: each active player briefly sees their own choice emoji
+  await Promise.allSettled(activePlayers.map(p =>
+    editInlineMessage(token, p.inlineMessageId, revealEmoji(p.choice!, env, configs.get(p.userId) ?? null))
+  ));
+  await sleep(3000);
+
   if (!isChaos && survivors.length === 1) {
     // ── Game over ──
     const winner = survivors[0];
