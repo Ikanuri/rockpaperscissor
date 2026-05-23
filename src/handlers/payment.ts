@@ -40,7 +40,7 @@ export async function handleDonate(msg: TelegramMessage, env: Env): Promise<void
     loadDonatorTier(kv, userId),
   ]);
 
-  let text = `💎 <b>JankensBot Donator</b>\n\nDukung bot dan dapatkan perks eksklusif!\n\n`;
+  let text = `💎 <b>GubakeBot Donator</b>\n\nDukung bot dan dapatkan perks eksklusif!\n\n`;
 
   for (const [tier, info] of [['basic', TIER_PERKS.basic], ['premium', TIER_PERKS.premium]] as [Tier, typeof TIER_PERKS.basic][]) {
     text += `<b>${info.label}</b> — ${prices[tier].stars} ⭐`;
@@ -93,7 +93,7 @@ export async function handleDonateCallback(query: CallbackQuery, env: Env): Prom
     await sendInvoice(
       token,
       query.message.chat.id,
-      `JankensBot ${TIER_PERKS[tier].label}`,
+      `GubakeBot ${TIER_PERKS[tier].label}`,
       TIER_PERKS[tier].features.join(', ') + ' — 30 hari',
       `donate:${tier}:${userId}`,
       'XTR',
@@ -106,7 +106,7 @@ export async function handleDonateCallback(query: CallbackQuery, env: Env): Prom
         prices[tier].stripe,
         'usd',
         `https://t.me/${env.BOT_USERNAME}`,
-        { tier, user_id: String(userId), product_name: `JankensBot ${TIER_PERKS[tier].label}` }
+        { tier, user_id: String(userId), product_name: `GubakeBot ${TIER_PERKS[tier].label}` }
       );
       await answerCallbackQuery(token, query.id);
       await sendMessage(token, query.message.chat.id,

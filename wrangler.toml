@@ -4,7 +4,7 @@ compatibility_date = "2024-09-19"
 
 [vars]
 # Set to your bot's username WITHOUT the @ symbol
-BOT_USERNAME = "JankensBot"
+BOT_USERNAME = "GubakeBot"
 # Your Telegram user ID — enables owner DM commands
 BOT_OWNER_ID = "582589514"
 # Lottie sticker file_ids — leave empty to use article fallback (overridable via /setglobal sticker)

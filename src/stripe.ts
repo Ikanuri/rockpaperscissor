@@ -9,7 +9,7 @@ export async function createCheckoutSession(
     'payment_method_types[]': 'card',
     'line_items[0][price_data][currency]': currency,
     'line_items[0][price_data][unit_amount]': String(amount),
-    'line_items[0][price_data][product_data][name]': metadata['product_name'] ?? 'JankensBot Donator',
+    'line_items[0][price_data][product_data][name]': metadata['product_name'] ?? 'GubakeBot Donator',
     'line_items[0][quantity]': '1',
     mode: 'payment',
     success_url: cancelUrl,
