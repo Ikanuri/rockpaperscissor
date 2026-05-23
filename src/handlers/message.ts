@@ -725,16 +725,14 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
 
   if (cmd === '/setupcommands') {
     const userCommands = [
-      { command: 'clearhost', description: 'Batalkan semua game yang sedang kamu host' },
-      { command: 'setlang', description: 'Pilih bahasa bot (Indonesia / English)' },
-      { command: 'donate', description: 'Support bot & dapatkan custom emoji/stiker' },
-      { command: 'guide', description: 'Panduan & cara main semua mode game' },
+      { command: 'clearhost', description: 'Batalkan game yang sedang kamu host' },
+      { command: 'setlang', description: 'Ganti bahasa bot' },
+      { command: 'guide', description: 'Panduan mode game' },
     ];
     const userCommandsEn = [
-      { command: 'clearhost', description: 'Cancel all your hosted games' },
-      { command: 'setlang', description: 'Change bot language (Indonesian / English)' },
-      { command: 'donate', description: 'Support the bot & get custom emoji/stickers' },
-      { command: 'guide', description: 'Game mode guide & how to play' },
+      { command: 'clearhost', description: 'Cancel your hosted games' },
+      { command: 'setlang', description: 'Change bot language' },
+      { command: 'guide', description: 'Game mode guide' },
     ];
     const ownerCommands = [
       ...userCommands,
