@@ -708,6 +708,8 @@ export async function runTeamRound(
       teamSession: session,
       tieA,
       tieB,
+      rollsA: [],
+      rollsB: [],
       resolvedA: resA,
       resolvedB: resB,
     };
@@ -721,9 +723,9 @@ export async function runTeamRound(
       inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${session.gameId}` }]],
     };
     await sendMessage(token, session.chatId,
-      `⚔️ <b>Seri internal!</b> Lempar 🎲 di grup sekarang!\n\n` +
+      `⚔️ <b>Seri internal!</b> Semua lempar 🎲 di grup!\n\n` +
       tieLines.join('\n') +
-      `\n\n<i>Siapa yang pertama lempar dadu, pilihannya dipakai untuk timnya.</i>\n` +
+      `\n\n<i>Semua player yang seri harus lempar dadu — 🎲 tertinggi menang.</i>\n` +
       `<i>Tidak ada yang lempar? Tekan tombol di bawah.</i>`,
       resolveKb
     );

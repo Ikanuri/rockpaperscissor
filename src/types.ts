@@ -202,6 +202,8 @@ export interface TeamDiceWaitState {
   teamSession: TeamSession;
   tieA: Array<{ userId: number; name: string; choice: Choice }> | null;
   tieB: Array<{ userId: number; name: string; choice: Choice }> | null;
+  rollsA: Array<{ userId: number; roll: number }>;
+  rollsB: Array<{ userId: number; roll: number }>;
   resolvedA: { choice: Choice; notes: string[] } | null;
   resolvedB: { choice: Choice; notes: string[] } | null;
 }
