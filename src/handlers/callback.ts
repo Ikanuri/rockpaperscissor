@@ -506,14 +506,13 @@ async function handleSetLang(query: CallbackQuery, env: Env, lang: string): Prom
   if (lang !== 'id' && lang !== 'en') { await answerCallbackQuery(token, query.id); return; }
 
   await kv.put(`lang:${query.from.id}`, lang);
-  const confirmMsg = lang === 'en' ? '✅ Language set to English!' : '✅ Bahasa diubah ke Indonesia!';
   const editText = lang === 'en'
     ? '🌐 Language set to <b>English</b>.'
     : '🌐 Bahasa diubah ke <b>Bahasa Indonesia</b>.';
   if (query.message) {
     await editMessage(token, query.message.chat.id, query.message.message_id, editText);
   }
-  await answerCallbackQuery(token, query.id, confirmMsg, true);
+  await answerCallbackQuery(token, query.id);
 }
 
 async function handleCancel(

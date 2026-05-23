@@ -730,15 +730,11 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       { command: 'setlang', description: 'Pilih bahasa bot (Indonesia / English)' },
       { command: 'donate', description: 'Support bot & dapatkan custom emoji/stiker' },
     ];
-    const donatorCommands = [
-      ...userCommands,
-      { command: 'setemoji', description: 'Set custom emoji untuk reveal (rock/paper/scissors)' },
-      { command: 'setsticker', description: 'Set popup stiker untuk pilihan' },
-      { command: 'setthumb', description: 'Set thumbnail artikel inline (url/gif/sticker)' },
-      { command: 'delthumb', description: 'Hapus thumbnail untuk pilihan' },
-      { command: 'myconfig', description: 'Lihat konfigurasi aktif kamu' },
-      { command: 'reset', description: 'Reset config ke default/global' },
-      { command: 'cancel', description: 'Batalkan aksi pending (setemoji dll)' },
+    const userCommandsEn = [
+      { command: 'guide', description: 'Game mode guide & how to play' },
+      { command: 'clearhost', description: 'Cancel all your hosted games' },
+      { command: 'setlang', description: 'Change bot language (Indonesian / English)' },
+      { command: 'donate', description: 'Support the bot & get custom emoji/stickers' },
     ];
     const ownerCommands = [
       ...userCommands,
@@ -758,14 +754,17 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     const ownerId = parseInt(env.BOT_OWNER_ID);
     await Promise.all([
       setMyCommands(token, userCommands, { type: 'default' }),
-      setMyCommands(token, donatorCommands, { type: 'chat', chat_id: ownerId }),
+      setMyCommands(token, userCommandsEn, { type: 'default' }, 'en'),
       setMyCommands(token, ownerCommands, { type: 'chat', chat_id: ownerId }),
     ]);
+    const idTemplate = userCommands.map(c => `${c.command} - ${c.description}`).join('\n');
+    const enTemplate = userCommandsEn.map(c => `${c.command} - ${c.description}`).join('\n');
     await reply(token, msg.chat.id,
       `✅ Commands registered.\n` +
       `👤 Default (all users): ${userCommands.length} commands\n` +
-      `💎 Donator scope: ${donatorCommands.length} commands\n` +
-      `👑 Owner (chat ${ownerId}): ${ownerCommands.length} commands`
+      `👑 Owner (chat ${ownerId}): ${ownerCommands.length} commands\n\n` +
+      `<b>BotFather template (🇮🇩):</b>\n<pre>${idTemplate}</pre>\n\n` +
+      `<b>BotFather template (🇬🇧):</b>\n<pre>${enTemplate}</pre>`
     );
     return;
   }

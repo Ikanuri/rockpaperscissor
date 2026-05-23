@@ -118,9 +118,10 @@ export async function getChatInfo(
 export function setMyCommands(
   token: string,
   commands: Array<{ command: string; description: string }>,
-  scope: Record<string, unknown>
+  scope: Record<string, unknown>,
+  language_code?: string
 ): Promise<void> {
-  return call(token, 'setMyCommands', { commands, scope });
+  return call(token, 'setMyCommands', { commands, scope, ...(language_code ? { language_code } : {}) });
 }
 
 export function sendInvoice(
