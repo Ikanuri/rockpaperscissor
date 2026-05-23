@@ -1,4 +1,4 @@
-import type { CallbackQuery, Choice, Env, GameSession, LmsSession, TeamSession, TournamentSession } from '../types';
+import type { CallbackQuery, Choice, Env, GameSession, InlineKeyboardMarkup, LmsSession, TeamSession, TournamentSession } from '../types';
 import { answerCallbackQuery, editInlineMessage, editMessage, getChatMember } from '../telegram';
 import {
   EMOJI,
@@ -265,9 +265,13 @@ async function handleExtendTeam(
   await answerCallbackQuery(token, query.id, '⏰ Waktu diperpanjang 10 menit!');
   const slotsA = session.teamSize - session.teamA.length;
   const slotsB = session.teamSize - session.teamB.length;
-  const kb = teamWaitingKeyboard(gameId, slotsA, slotsB);
+  const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB);
+  const memberKb: InlineKeyboardMarkup = { inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]] };
+  const waitText = teamWaitingText(updated);
   await Promise.allSettled(
-    [...session.teamA, ...session.teamB].map(p => editInlineMessage(token, p.inlineMessageId, teamWaitingText(updated), kb))
+    [...session.teamA, ...session.teamB].map(p =>
+      editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : memberKb)
+    )
   );
 }
 

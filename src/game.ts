@@ -142,7 +142,8 @@ export function waitingText(
   _botUsername: string,
   now = Date.now()
 ): string {
-  const remaining = Math.max(1, Math.ceil((session.createdAt + 600_000 - now) / 60_000));
+  const ttlMs = session.chainId ? 300_000 : 600_000;
+  const remaining = Math.max(1, Math.ceil((session.createdAt + ttlMs - now) / 60_000));
   const modeStr = session.mode !== 'single' ? ` · ${MODE_LABEL[session.mode]}` : '';
   const gameTag = session.ranked
     ? ` 🏆 Ranked${modeStr}`
@@ -548,6 +549,11 @@ export async function loadConfigAuthorized(
   return authorized ? config : null;
 }
 
+function expiryTimeStr(createdAt: number, ttlMs = 600_000): string {
+  const d = new Date(createdAt + ttlMs);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+}
+
 export function teamWaitingText(session: TeamSession): string {
   const modeLabel = session.mode === 'single' ? ''
     : session.mode === 'best_of_3' ? ' · BO3'
@@ -558,10 +564,12 @@ export function teamWaitingText(session: TeamSession): string {
     ).join(' · ');
     return `${label}: ${slots}`;
   };
+  const expiryStr = expiryTimeStr(session.createdAt);
   return (
     `⚔️ <b>Team ${session.teamSize}v${session.teamSize}${modeLabel}</b> · <code>${session.gameId}</code>\n` +
     `${slotLine(session.teamA, '🔵 Tim A')}\n` +
     `${slotLine(session.teamB, '🔴 Tim B')}\n\n` +
+    `⏰ Berlaku hingga ${expiryStr}\n` +
     `👇 Bergabung untuk main!`
   );
 }
@@ -1136,9 +1144,12 @@ export function lmsPickKeyboard(gameId: string): InlineKeyboardMarkup {
 
 export function lmsWaitingText(session: LmsSession): string {
   const slots = session.maxPlayers - session.players.length;
+  const expiryStr = expiryTimeStr(session.createdAt);
   const list = session.players.map(p => `• ${escHtml(p.name)}`).join('\n');
   return `⚔️ <b>Last Man Standing</b> (${session.maxPlayers} players)\n\n${list}\n\n` +
-    (slots > 0 ? `⏳ Waiting for ${slots} more player${slots > 1 ? 's' : ''}...` : '🚀 Starting!');
+    (slots > 0
+      ? `⏳ Waiting for ${slots} more player${slots > 1 ? 's' : ''}...\n⏰ Berlaku hingga ${expiryStr}`
+      : '🚀 Starting!');
 }
 
 export async function runLmsRound(

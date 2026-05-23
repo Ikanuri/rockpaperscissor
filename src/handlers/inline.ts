@@ -6,6 +6,7 @@ import type {
   GameConfig,
   GameMode,
   GameSession,
+  InlineKeyboardMarkup,
   InlineQuery,
   InlineResult,
   LastGameRecord,
@@ -984,10 +985,11 @@ export async function handleChosenInlineResult(
     } else {
       const slotsA = teamSess.teamSize - updatedA.length;
       const slotsB = teamSess.teamSize - updatedB.length;
-      const kb = teamWaitingKeyboard(gameId, slotsA, slotsB);
+      const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB);
+      const memberKb: InlineKeyboardMarkup = { inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]] };
       const waitText = teamWaitingText(updated);
       await Promise.allSettled([...updatedA, ...updatedB].map(p =>
-        editInlineMessage(token, p.inlineMessageId, waitText, kb)
+        editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : memberKb)
       ));
     }
     return;
