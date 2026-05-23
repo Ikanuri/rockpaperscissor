@@ -458,20 +458,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     return;
   }
 
-  if (cmd === '/clearleaderboard') {
-    if (!owner) { await reply(token, msg.chat.id, '❌ Owner only.'); return; }
-    const scope = parts[1];
-    if (scope === 'group' && parts[2]) {
-      const chatId = parseInt(parts[2]);
-      await kv.delete(`group:score:${chatId}`);
-      await reply(token, msg.chat.id, `✅ Group leaderboard ${chatId} cleared.`);
-    } else {
-      await kv.delete('leaderboard');
-      await reply(token, msg.chat.id, '✅ Global leaderboard cleared.');
-    }
-    return;
-  }
-
   if (cmd === '/betaadd' && parts.length >= 2) {
     const targetId = parseInt(parts[1]);
     if (isNaN(targetId)) { await reply(token, msg.chat.id, '❌ Invalid user ID.'); return; }
