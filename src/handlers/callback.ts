@@ -4,6 +4,7 @@ import {
   EMOJI,
   botResolveTie,
   escHtml,
+  getLang,
   lmsHostKeyboard,
   lmsJoinKeyboard,
   lmsPickKeyboard,
@@ -25,6 +26,7 @@ import {
 } from '../game';
 import { hasFeature } from '../feature';
 import { handleDonateCallback } from './payment';
+import { guideContent, guideMainMenu } from './message';
 
 export async function handleCallbackQuery(
   query: CallbackQuery,
@@ -65,6 +67,10 @@ export async function handleCallbackQuery(
     await handleCancel(query, env, parts[1]);
   } else if (action === 'refresh' && parts.length === 2) {
     await handleRefresh(query, env, parts[1]);
+  } else if (action === 'guide') {
+    await handleGuide(query, env);
+  } else if (action === 'setlang' && parts.length === 2) {
+    await handleSetLang(query, env, parts[1]);
   } else if (action === 'donate' && hasFeature(env, 'donator')) {
     await handleDonateCallback(query, env);
   } else {
@@ -470,6 +476,44 @@ async function handleRefresh(
     editInlineMessage(token, query.inline_message_id!, waitingText(session, env.BOT_USERNAME), waitingKeyboard(session.gameId, joinQuery, showRefresh)),
     answerCallbackQuery(token, query.id, '🔄 Refreshed!'),
   ]);
+}
+
+async function handleGuide(query: CallbackQuery, env: Env): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const chatId = query.message?.chat.id;
+  const msgId = query.message?.message_id;
+  if (!chatId || !msgId) { await answerCallbackQuery(token, query.id); return; }
+
+  const lang = await getLang(kv, query.from.id);
+  const mode = query.data!.split(':')[1];
+
+  if (!mode || mode === 'main') {
+    const { text, kb } = guideMainMenu(lang, env.BOT_USERNAME);
+    await editMessage(token, chatId, msgId, text, kb);
+  } else {
+    const content = guideContent(mode, lang, env.BOT_USERNAME);
+    const backLabel = lang === 'en' ? '← Back to modes' : '← Kembali ke menu';
+    const kb = { inline_keyboard: [[{ text: backLabel, callback_data: 'guide:main' }]] };
+    await editMessage(token, chatId, msgId, content, kb);
+  }
+  await answerCallbackQuery(token, query.id);
+}
+
+async function handleSetLang(query: CallbackQuery, env: Env, lang: string): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  if (lang !== 'id' && lang !== 'en') { await answerCallbackQuery(token, query.id); return; }
+
+  await kv.put(`lang:${query.from.id}`, lang);
+  const confirmMsg = lang === 'en' ? '✅ Language set to English!' : '✅ Bahasa diubah ke Indonesia!';
+  const editText = lang === 'en'
+    ? '🌐 Language set to <b>English</b>.'
+    : '🌐 Bahasa diubah ke <b>Bahasa Indonesia</b>.';
+  if (query.message) {
+    await editMessage(token, query.message.chat.id, query.message.message_id, editText);
+  }
+  await answerCallbackQuery(token, query.id, confirmMsg, true);
 }
 
 async function handleCancel(

@@ -204,6 +204,11 @@ export async function getReleaseMs(kv: KVNamespace): Promise<number> {
   return now;
 }
 
+export async function getLang(kv: KVNamespace, userId: number): Promise<'id' | 'en'> {
+  const stored = await kv.get(`lang:${userId}`);
+  return stored === 'en' ? 'en' : 'id';
+}
+
 export function getDayIndex(releaseMs: number, now = Date.now()): number {
   return Math.floor((now - releaseMs) / 86_400_000);
 }

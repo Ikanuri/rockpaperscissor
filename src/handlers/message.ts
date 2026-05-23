@@ -12,7 +12,7 @@ import {
 } from '../config';
 import { activateTier, loadDonatorTier, parseDuration, TIER_PERKS, tierBadge } from '../donator';
 import { handleDonate, handleSuccessfulPayment } from './payment';
-import { EMOJI, escHtml, fmtEmoji, generateId, resolveTeamDiceWait, tournamentSignupKeyboard, tournamentSignupText } from '../game';
+import { EMOJI, escHtml, fmtEmoji, generateId, getLang, resolveTeamDiceWait, tournamentSignupKeyboard, tournamentSignupText } from '../game';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
@@ -53,8 +53,11 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
   const owner = isOwner(msg, env);
-  const betaUser = await isBetaUser(kv, msg.from.id, env.BOT_OWNER_ID);
-  const tier = await loadDonatorTier(kv, msg.from.id);
+  const [betaUser, tier, lang] = await Promise.all([
+    isBetaUser(kv, msg.from.id, env.BOT_OWNER_ID),
+    loadDonatorTier(kv, msg.from.id),
+    getLang(kv, msg.from.id),
+  ]);
   const canConfig = owner || betaUser || tier !== 'free';
   const canDonate = owner || betaUser || hasFeature(env, 'donator');
 
@@ -289,7 +292,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
   }
 
   if (cmd === '/setsticker') {
-    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
+    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env, lang)); return; }
     const choice = parts[1]?.toLowerCase() as Choice;
     if (!choice || !CHOICES.includes(choice)) {
       await reply(token, msg.chat.id, '❌ Usage: /setsticker [rock|paper|scissors]');
@@ -309,7 +312,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
   }
 
   if (cmd === '/setthumb') {
-    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
+    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env, lang)); return; }
     const choice = parts[1]?.toLowerCase() as Choice;
     const type = parts[2]?.toLowerCase() as 'url' | 'gif' | 'sticker';
     if (!choice || !CHOICES.includes(choice) || !type || !['url', 'gif', 'sticker'].includes(type)) {
@@ -341,7 +344,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
   }
 
   if (cmd === '/delthumb') {
-    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
+    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env, lang)); return; }
     if (parts.length >= 2) {
       const choice = parts[1].toLowerCase() as Choice;
       if (!CHOICES.includes(choice)) {
@@ -361,7 +364,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
   }
 
   if (cmd === '/myconfig') {
-    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
+    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env, lang)); return; }
     const [merged, raw] = await Promise.all([
       loadConfig(kv, msg.from.id, env),
       getUserConfigRaw(kv, msg.from.id),
@@ -388,15 +391,31 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
   }
 
   if (cmd === '/reset') {
-    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env)); return; }
+    if (!canConfig) { await reply(token, msg.chat.id, welcomeText(env, lang)); return; }
     await resetUserConfig(kv, msg.from.id);
     await reply(token, msg.chat.id, '✅ Config reset to global/default.');
     return;
   }
 
+  if (cmd === '/setlang') {
+    const kb = { inline_keyboard: [[
+      { text: '🇮🇩 Bahasa Indonesia', callback_data: 'setlang:id' },
+      { text: '🇬🇧 English', callback_data: 'setlang:en' },
+    ]] };
+    await sendMessage(token, msg.chat.id,
+      lang === 'en' ? '🌐 Choose your language:' : '🌐 Pilih bahasa kamu:', kb);
+    return;
+  }
+
+  if (cmd === '/guide') {
+    const { text, kb } = guideMainMenu(lang, env.BOT_USERNAME);
+    await sendMessage(token, msg.chat.id, text, kb);
+    return;
+  }
+
   // ── Owner-only commands ──────────────────────────────────────────────
   if (!owner) {
-    await reply(token, msg.chat.id, welcomeText(env));
+    await reply(token, msg.chat.id, welcomeText(env, lang));
     return;
   }
 
@@ -706,15 +725,20 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
 
   if (cmd === '/setupcommands') {
     const userCommands = [
+      { command: 'guide', description: 'Panduan & cara main semua mode game' },
+      { command: 'clearhost', description: 'Batalkan semua game yang sedang kamu host' },
+      { command: 'setlang', description: 'Pilih bahasa bot (Indonesia / English)' },
+      { command: 'donate', description: 'Support bot & dapatkan custom emoji/stiker' },
+    ];
+    const donatorCommands = [
+      ...userCommands,
       { command: 'setemoji', description: 'Set custom emoji untuk reveal (rock/paper/scissors)' },
       { command: 'setsticker', description: 'Set popup stiker untuk pilihan' },
       { command: 'setthumb', description: 'Set thumbnail artikel inline (url/gif/sticker)' },
       { command: 'delthumb', description: 'Hapus thumbnail untuk pilihan' },
       { command: 'myconfig', description: 'Lihat konfigurasi aktif kamu' },
       { command: 'reset', description: 'Reset config ke default/global' },
-      { command: 'donate', description: 'Upgrade ke Basic atau Premium tier' },
       { command: 'cancel', description: 'Batalkan aksi pending (setemoji dll)' },
-      { command: 'clearhost', description: 'Batalkan semua game yang sedang kamu host' },
     ];
     const ownerCommands = [
       ...userCommands,
@@ -734,11 +758,13 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     const ownerId = parseInt(env.BOT_OWNER_ID);
     await Promise.all([
       setMyCommands(token, userCommands, { type: 'default' }),
+      setMyCommands(token, donatorCommands, { type: 'chat', chat_id: ownerId }),
       setMyCommands(token, ownerCommands, { type: 'chat', chat_id: ownerId }),
     ]);
     await reply(token, msg.chat.id,
       `✅ Commands registered.\n` +
-      `👤 Default: ${userCommands.length} commands\n` +
+      `👤 Default (all users): ${userCommands.length} commands\n` +
+      `💎 Donator scope: ${donatorCommands.length} commands\n` +
       `👑 Owner (chat ${ownerId}): ${ownerCommands.length} commands`
     );
     return;
@@ -948,17 +974,33 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   }
 
   if (cmd === '/start' || cmd === '/help') {
+    const b = env.BOT_USERNAME;
     await sendMessage(token, chatId,
       `🎮 <b>Rock Paper Scissors</b>\n\n` +
-      `Ketik <code>@${env.BOT_USERNAME}</code> di chat ini untuk mulai game!\n\n` +
-      `<b>Mode tersedia:</b>\n` +
-      `• Single, <code>BO3</code>, <code>BO5</code>, <code>BO7</code>\n` +
-      `• <code>RANKED</code> — mode ranked dengan ELO\n` +
-      `• <code>@username</code> — private challenge\n\n` +
+      `Ketik <code>@${b}</code> di chat ini untuk mulai game!\n\n` +
+      `<b>Mode:</b> Single · BO3 · BO5 · BO7 · RANKED · LMS · Team · vs Bot\n\n` +
+      `/guide — Panduan lengkap semua mode\n` +
       `/leaderboard — Papan skor global\n` +
-      `/groupstats — Statistik khusus grup ini\n` +
-      `/announce — Umumkan game berikutmu di grup ini`
+      `/groupstats — Statistik grup ini`
     );
+    return;
+  }
+
+  if (cmd === '/guide') {
+    const langGrp = msg.from ? await getLang(kv, msg.from.id) : 'id';
+    const { text, kb } = guideMainMenu(langGrp, env.BOT_USERNAME);
+    await sendMessage(token, chatId, text, kb);
+    return;
+  }
+
+  if (cmd === '/setlang' && msg.from) {
+    const langGrp = await getLang(kv, msg.from.id);
+    const kb = { inline_keyboard: [[
+      { text: '🇮🇩 Bahasa Indonesia', callback_data: 'setlang:id' },
+      { text: '🇬🇧 English', callback_data: 'setlang:en' },
+    ]] };
+    await sendMessage(token, chatId,
+      langGrp === 'en' ? '🌐 Choose your language:' : '🌐 Pilih bahasa kamu:', kb);
     return;
   }
 
@@ -1061,25 +1103,98 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   }
 }
 
-function welcomeText(env: Env): string {
+function welcomeText(env: Env, lang: 'id' | 'en'): string {
   const b = env.BOT_USERNAME;
+  if (lang === 'en') {
+    return (
+      `👋 Type <code>@${b}</code> in any chat to start playing!\n\n` +
+      `<b>🎮 Game modes:</b>\n` +
+      `<code>@${b}</code> — 1v1 classic\n` +
+      `<code>@${b} BO3</code> / <code>BO5</code> / <code>BO7</code> — best of series\n` +
+      `<code>@${b} RANKED</code> — affects ELO rating\n` +
+      `<code>@${b} LMS</code> — Last Man Standing (3–8 players)\n` +
+      `<code>@${b} TEAM 2v2</code> — team vs team\n` +
+      `<code>@${b} @username</code> — private challenge\n` +
+      `<code>@${b} BOT</code> — play vs AI\n\n` +
+      `<b>📊 Stats & info:</b>\n` +
+      `<code>@${b} STATS</code> — your full stats & streaks\n` +
+      `<code>@${b} LAST</code> — last game recap\n` +
+      `<code>@${b} VS @username</code> — head-to-head stats\n` +
+      `<code>@${b} TOP</code> — global leaderboard\n\n` +
+      `<b>Commands:</b>\n` +
+      `/guide — Full walkthrough for each mode\n` +
+      `/clearhost — Cancel all your active hosted games\n` +
+      `/setlang — Change language`
+    );
+  }
   return (
-    `👋 Halo! Ketuk <code>@${b}</code> di chat mana saja untuk mulai main.\n\n` +
+    `👋 Ketuk <code>@${b}</code> di chat mana saja untuk mulai main!\n\n` +
     `<b>🎮 Mode game:</b>\n` +
     `<code>@${b}</code> — 1v1 biasa\n` +
     `<code>@${b} BO3</code> / <code>BO5</code> / <code>BO7</code> — best of series\n` +
     `<code>@${b} RANKED</code> — pengaruhi ELO rating\n` +
     `<code>@${b} LMS</code> — Last Man Standing (3–8 pemain)\n` +
+    `<code>@${b} TEAM 2v2</code> — tim vs tim\n` +
     `<code>@${b} @username</code> — private challenge\n` +
     `<code>@${b} BOT</code> — lawan AI\n\n` +
     `<b>📊 Statistik & info:</b>\n` +
     `<code>@${b} STATS</code> — stats lengkap & streak kamu\n` +
     `<code>@${b} LAST</code> — rekap game terakhir\n` +
     `<code>@${b} VS @username</code> — head-to-head vs seseorang\n` +
-    `<code>@${b} TOP</code> — leaderboard global\n` +
-    `<code>@${b} CLEARHOST</code> — batalkan semua game aktifmu\n\n` +
+    `<code>@${b} TOP</code> — leaderboard global\n\n` +
     `<b>Commands:</b>\n` +
+    `/guide — Panduan lengkap semua mode game\n` +
     `/clearhost — Batalkan semua game yang sedang kamu host\n` +
-    `/donate — Support bot & dapatkan custom emoji/stiker`
+    `/setlang — Ganti bahasa`
   );
+}
+
+export function guideMainMenu(lang: 'id' | 'en', _botUsername: string): { text: string; kb: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
+  const text = lang === 'en'
+    ? `🎮 <b>Game Mode Guide</b>\n\nChoose a mode to see its walkthrough:`
+    : `🎮 <b>Panduan Mode Game</b>\n\nPilih mode untuk melihat cara mainnya:`;
+  const kb = {
+    inline_keyboard: [
+      [
+        { text: '✊ 1v1', callback_data: 'guide:1v1' },
+        { text: '🏆 BO3/5/7', callback_data: 'guide:bo' },
+        { text: '🏅 Ranked', callback_data: 'guide:ranked' },
+      ],
+      [
+        { text: '⚔️ Last Man Standing', callback_data: 'guide:lms' },
+        { text: '🤝 Team Mode', callback_data: 'guide:team' },
+      ],
+      [
+        { text: '🤖 vs Bot', callback_data: 'guide:bot' },
+        { text: '🌐 Open Challenge', callback_data: 'guide:open' },
+      ],
+    ],
+  };
+  return { text, kb };
+}
+
+export function guideContent(mode: string, lang: 'id' | 'en', bot: string): string {
+  const b = bot;
+  if (lang === 'en') {
+    switch (mode) {
+      case '1v1': return `✊ <b>1v1 — Classic Duel</b>\n\nTwo players, one round. Winner takes the game.\n\n<b>How to play:</b>\n1. Type <code>@${b}</code> in any chat\n2. Pick your weapon (✊ ✋ ✌️ or 🎲 random)\n3. Game message sent with a Join button\n4. Opponent taps Join → picks weapon → results shown\n\n<b>Examples:</b>\n<pre>@${b}           → open 1v1\n@${b} @budi     → private challenge\n@${b} ABCD12   → join by game code</pre>\n\n💡 Tap <b>Rematch</b> after the game to play again instantly.`;
+      case 'bo': return `🏆 <b>BO3 / BO5 / BO7 — Best of Series</b>\n\nFirst to reach the win target wins overall.\n\n<b>Win targets:</b>\n<pre>BO3 → first to 2 wins\nBO5 → first to 3 wins\nBO7 → first to 4 wins</pre>\n\n<b>How to play:</b>\n1. Type <code>@${b} BO3</code> (or BO5/BO7)\n2. Pick weapon → wait for opponent to join\n3. Each round, both pick a new weapon\n4. Game ends when one player hits the target\n\n<b>Examples:</b>\n<pre>@${b} BO3\n@${b} BO5 @budi     → private BO5\n@${b} RANKED BO3    → ranked BO3</pre>`;
+      case 'ranked': return `🏅 <b>Ranked — Competitive Mode</b>\n\nGame results affect your <b>ELO rating</b>. Starting rating: <b>1000</b>.\n\n<b>How ELO works:</b>\n• Beat a higher-rated player → gain more ELO\n• Lose to a lower-rated player → lose more ELO\n• Draw → slight change\n\n<b>How to play:</b>\n1. Type <code>@${b} RANKED</code>\n2. Play like a normal game\n\n<b>Examples:</b>\n<pre>@${b} RANKED\n@${b} RANKED BO3\n@${b} RANKED @budi</pre>\n\n💡 Casual games don't affect ELO at all.`;
+      case 'lms': return `⚔️ <b>Last Man Standing — Multiplayer</b>\n\n3–8 players. Losers eliminated each round. Last one standing wins.\n\n<b>Round logic:</b>\n<pre>2 weapon types → losers eliminated\n1 or 3 types   → Chaos! Everyone plays again</pre>\n\n<b>How to play:</b>\n1. Type <code>@${b} LMS</code> (default 4) or <code>@${b} LMS 6</code>\n2. Pick weapon → game message posted with Join button\n3. Others tap Join → pick weapon → their message sent\n4. Starts automatically when all slots filled\n5. After each round → tap ▶️ for the next round\n\n<b>Examples:</b>\n<pre>@${b} LMS      → 4-player LMS\n@${b} LMS 6    → 6-player LMS\n@${b} LMS 8    → 8-player LMS</pre>\n\n💡 Host can Force Start with ≥2 players without waiting for full slots.`;
+      case 'team': return `🤝 <b>Team Mode — Team vs Team</b>\n\nTwo teams face off. Official pick = majority vote of team members.\n\n<b>Prerequisite:</b> Bot must be added as a group member.\n\n<b>How to play:</b>\n1. In the group, type <code>/team 2v2</code> (supports 1v1/2v2/3v3/4v4)\n   Bot saves this group for 5 minutes\n2. Type <code>@${b} TEAM 2v2</code> → pick weapon\n3. Others join via buttons in the message:\n   • 🤝 Team A → your team (host's side)\n   • ⚔️ Team B → opposing team\n\n<b>If there's a tie within a team (50/50):</b>\n<pre>Bot sends 🎲 dice in the group\nHighest roll → that player's pick is used</pre>\n\n<b>Examples:</b>\n<pre>/team 2v2\n@${b} TEAM 2v2\n@${b} TEAM 2v2 BO3</pre>\n\n💡 If both teams pick the same weapon → Chaos round, everyone picks again.`;
+      case 'bot': return `🤖 <b>vs Bot — Play vs AI</b>\n\nInstant game, no waiting. The bot picks randomly.\n\n<b>How to play:</b>\n1. Type <code>@${b} BOT</code>\n2. Pick your weapon\n3. Result appears immediately with a Play Again button\n\n<b>Examples:</b>\n<pre>@${b} BOT\n@${b} BOT BO3</pre>\n\n💡 vs Bot games count toward stats (W/L/D) but don't affect ELO.`;
+      case 'open': return `🌐 <b>Open Challenge — Open to Anyone</b>\n\nCreate a game anyone can join. Great for busy groups.\n\n<b>Creating a challenge:</b>\n1. Type <code>@${b} OPEN</code>\n2. Pick weapon → message posted\n3. Anyone who opens OPEN within 9 minutes can join\n\n<b>Joining someone else's challenge:</b>\n1. Type <code>@${b} OPEN</code>\n2. Available challenges appear in the popup\n3. Tap "Join [name]" → pick weapon → game starts\n\n<b>Examples:</b>\n<pre>@${b} OPEN\n@${b} OPEN BO3</pre>\n\n💡 Up to 5 open challenges available at once. Each expires after 9 minutes.`;
+      default: return '❓ Unknown mode.';
+    }
+  }
+  switch (mode) {
+    case '1v1': return `✊ <b>1v1 — Duel Klasik</b>\n\nDua pemain, satu ronde. Siapa yang menang, menang game.\n\n<b>Cara main:</b>\n1. Ketik <code>@${b}</code> di kolom pesan\n2. Pilih senjata dari popup (✊ ✋ ✌️ atau 🎲 acak)\n3. Pesan game terkirim dengan tombol Join\n4. Lawan tekan Join → pilih senjata → hasil keluar\n\n<b>Contoh:</b>\n<pre>@${b}           → 1v1 terbuka\n@${b} @budi     → private, hanya Budi bisa join\n@${b} ABCD12   → join game dengan kode tertentu</pre>\n\n💡 Tekan <b>Rematch</b> setelah game untuk main lagi instan tanpa kode baru.`;
+    case 'bo': return `🏆 <b>BO3 / BO5 / BO7 — Best of Series</b>\n\nSiapa yang pertama capai target kemenangan, menang keseluruhan.\n\n<b>Target kemenangan:</b>\n<pre>BO3 → menang 2 ronde\nBO5 → menang 3 ronde\nBO7 → menang 4 ronde</pre>\n\n<b>Cara main:</b>\n1. Ketik <code>@${b} BO3</code> (atau BO5/BO7)\n2. Pilih senjata → tunggu lawan join\n3. Setiap ronde, keduanya pilih senjata baru\n4. Game selesai saat salah satu capai target\n\n<b>Contoh:</b>\n<pre>@${b} BO3\n@${b} BO5 @budi     → private BO5\n@${b} RANKED BO3    → BO3 + pengaruhi ELO</pre>`;
+    case 'ranked': return `🏅 <b>Ranked — Mode Kompetitif</b>\n\nHasil game berpengaruh pada <b>ELO rating</b> kamu. Rating awal: <b>1000</b>.\n\n<b>Cara kerja ELO:</b>\n• Menang vs rating tinggi → ELO naik banyak\n• Kalah vs rating rendah → ELO turun banyak\n• Draw → perubahan kecil\n\n<b>Cara main:</b>\n1. Ketik <code>@${b} RANKED</code>\n2. Lanjut seperti game biasa\n\n<b>Contoh:</b>\n<pre>@${b} RANKED\n@${b} RANKED BO3\n@${b} RANKED @budi</pre>\n\n💡 Game biasa (non-ranked) tidak mengubah ELO sama sekali.`;
+    case 'lms': return `⚔️ <b>Last Man Standing — Multiplayer</b>\n\n3–8 pemain dalam satu sesi. Yang kalah dieliminasi tiap ronde. Terakhir tersisa = pemenang.\n\n<b>Logika eliminasi:</b>\n<pre>2 jenis senjata muncul → yang kalah eliminasi\n1 atau 3 jenis muncul  → Chaos! Semua main ulang</pre>\n\n<b>Cara main:</b>\n1. Ketik <code>@${b} LMS</code> (default 4) atau <code>@${b} LMS 6</code>\n2. Pilih senjata → pesan terkirim dengan tombol Join\n3. Pemain lain tekan Join → pilih senjata → pesan mereka terkirim\n4. Mulai otomatis saat semua slot penuh\n5. Setelah tiap ronde → tekan ▶️ untuk ronde berikutnya\n\n<b>Contoh:</b>\n<pre>@${b} LMS      → LMS 4 pemain\n@${b} LMS 6    → LMS 6 pemain\n@${b} LMS 8    → LMS 8 pemain</pre>\n\n💡 Host bisa Force Start dengan ≥2 pemain tanpa menunggu slot penuh.`;
+    case 'team': return `🤝 <b>Team Mode — Tim vs Tim</b>\n\nDua tim berhadapan. Pilihan resmi tim = suara mayoritas anggota.\n\n<b>Prasyarat:</b> Bot harus di-add sebagai member di grup.\n\n<b>Cara main:</b>\n1. Di grup, ketik <code>/team 2v2</code> (1v1/2v2/3v3/4v4)\n   Bot menyimpan grup ini selama 5 menit\n2. Ketik <code>@${b} TEAM 2v2</code> → pilih senjata\n3. Anggota bergabung via tombol di pesan:\n   • 🤝 Tim A → tim kamu (tim host)\n   • ⚔️ Tim B → tim lawan\n\n<b>Jika seri dalam tim (50/50):</b>\n<pre>Bot kirim 🎲 dadu di grup\nAngka tertinggi → pilihan tim tersebut</pre>\n\n<b>Contoh:</b>\n<pre>/team 2v2\n@${b} TEAM 2v2\n@${b} TEAM 2v2 BO3</pre>\n\n💡 Jika kedua tim pilih senjata sama → Chaos round, semua pilih ulang.`;
+    case 'bot': return `🤖 <b>vs Bot — Lawan AI</b>\n\nMain instan tanpa menunggu lawan. Bot memilih senjata secara acak.\n\n<b>Cara main:</b>\n1. Ketik <code>@${b} BOT</code>\n2. Pilih senjatamu\n3. Hasil langsung keluar dengan tombol Main lagi\n\n<b>Contoh:</b>\n<pre>@${b} BOT\n@${b} BOT BO3</pre>\n\n💡 Game vs Bot mencatat stats (W/L/D) tapi tidak mempengaruhi ELO.`;
+    case 'open': return `🌐 <b>Open Challenge — Tantangan Terbuka</b>\n\nBuat game yang bisa di-join siapa saja. Cocok untuk grup ramai.\n\n<b>Membuat tantangan:</b>\n1. Ketik <code>@${b} OPEN</code>\n2. Pilih senjata → pesan terkirim\n3. Siapa saja yang buka OPEN dalam 9 menit bisa join\n\n<b>Cara join tantangan orang lain:</b>\n1. Ketik <code>@${b} OPEN</code>\n2. Daftar challenge tersedia muncul di popup\n3. Pilih "Join [nama]" → pilih senjata → game dimulai\n\n<b>Contoh:</b>\n<pre>@${b} OPEN\n@${b} OPEN BO3</pre>\n\n💡 Maksimal 5 open challenge tersedia. Challenge expire setelah 9 menit.`;
+    default: return '❓ Mode tidak diketahui.';
+  }
 }
