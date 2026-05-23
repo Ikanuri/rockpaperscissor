@@ -4,6 +4,7 @@ import {
   EMOJI,
   botResolveTie,
   escHtml,
+  lmsHostKeyboard,
   lmsJoinKeyboard,
   lmsPickKeyboard,
   lmsWaitingText,
@@ -45,6 +46,8 @@ export async function handleCallbackQuery(
     await handleTeamCancel(query, env, parts[1]);
   } else if (action === 'extlms' && parts.length === 2) {
     await handleExtendLms(query, env, parts[1]);
+  } else if (action === 'lmsforce' && parts.length === 2) {
+    await handleLmsForce(query, env, ctx, parts[1]);
   } else if (action === 'extteam' && parts.length === 2) {
     await handleExtendTeam(query, env, parts[1]);
   } else if (action === 'teamdice' && parts[1] === 'resolve' && parts.length === 3) {
@@ -242,10 +245,40 @@ async function handleExtendLms(
   const updated: LmsSession = { ...session, createdAt: Date.now() };
   await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
   await answerCallbackQuery(token, query.id, '⏰ Waktu diperpanjang 10 menit!');
-  const slotsLeft = session.maxPlayers - session.players.length;
+  const canForceExt = session.players.length >= 2;
   await Promise.allSettled(
-    session.players.map(p => editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updated), lmsJoinKeyboard(gameId, slotsLeft)))
+    session.players.map(p =>
+      editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updated),
+        p.userId === updated.hostUserId ? lmsHostKeyboard(gameId, canForceExt) : lmsJoinKeyboard(gameId))
+    )
   );
+}
+
+async function handleLmsForce(
+  query: CallbackQuery,
+  env: Env,
+  ctx: ExecutionContext,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+  if (!session || session.status !== 'waiting') {
+    await answerCallbackQuery(token, query.id, '❌ Game sudah dimulai.', true);
+    return;
+  }
+  if (query.from.id !== session.hostUserId) {
+    await answerCallbackQuery(token, query.id, '❌ Hanya host yang bisa force start.', true);
+    return;
+  }
+  if (session.players.length < 2) {
+    await answerCallbackQuery(token, query.id, '⚠️ Butuh minimal 2 pemain.', true);
+    return;
+  }
+  const forcedSession: LmsSession = { ...session, status: 'playing' };
+  await kv.put(`lms:${gameId}`, JSON.stringify(forcedSession), { expirationTtl: 300 });
+  await answerCallbackQuery(token, query.id, '▶️ Game dimulai!');
+  ctx.waitUntil(runLmsRound(token, kv, forcedSession, ctx, env));
 }
 
 async function handleExtendTeam(

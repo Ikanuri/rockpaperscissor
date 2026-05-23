@@ -26,6 +26,7 @@ import {
   escHtml,
   formatUser,
   generateId,
+  lmsHostKeyboard,
   lmsJoinKeyboard,
   lmsWaitingText,
   loadConfigAuthorized,
@@ -490,31 +491,55 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
-  // LMS join by code
+  // LMS join by code (waiting) or pick for next round (playing)
   if (LMS_CODE_RE.test(q)) {
     const lmsQ = await kv.get<LmsSession>(`lms:${q}`, 'json');
-    if (lmsQ && lmsQ.status === 'waiting') {
-      if (lmsQ.players.some(p => p.userId === from.id)) {
-        await answerInlineQuery(token, query.id, [{
-          type: 'article', id: 'already', title: '✅ Already in this game',
-          description: 'You already joined this LMS game.',
-          input_message_content: { message_text: '✅ Already joined. Waiting for others...' },
-        }]);
+    if (lmsQ) {
+      if (lmsQ.status === 'playing') {
+        const lmsQPlayer = lmsQ.players.find(p => p.userId === from.id);
+        if (!lmsQPlayer || !lmsQPlayer.active) {
+          await answerInlineQuery(token, query.id, [{
+            type: 'article', id: 'lms_elim', title: '❌ Kamu sudah eliminasi',
+            description: 'Game masih berlanjut, tapi kamu tidak bisa lanjut.',
+            input_message_content: { message_text: '❌ Kamu sudah eliminasi dari game ini.' },
+          }]);
+          return;
+        }
+        if (lmsQPlayer.choice !== null) {
+          await answerInlineQuery(token, query.id, [{
+            type: 'article', id: 'lms_wait', title: `✅ ${EMOJI[lmsQPlayer.choice]} dikunci`,
+            description: 'Menunggu pemain lain memilih...',
+            input_message_content: { message_text: `✅ ${EMOJI[lmsQPlayer.choice]} sudah dikunci. Menunggu pemain lain...` },
+          }]);
+          return;
+        }
+        const configLqP = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
+        await answerInlineQuery(token, query.id, buildChoiceResults(`⚔️ Round ${lmsQ.currentRound}`, env, configLqP));
         return;
       }
-      if (lmsQ.players.length >= lmsQ.maxPlayers) {
-        await answerInlineQuery(token, query.id, [{
-          type: 'article', id: 'err', title: '❌ Game is full',
-          description: `${lmsQ.maxPlayers}/${lmsQ.maxPlayers} players joined.`,
-          input_message_content: { message_text: '❌ LMS game is full.' },
-        }]);
+      if (lmsQ.status === 'waiting') {
+        if (lmsQ.players.some(p => p.userId === from.id)) {
+          await answerInlineQuery(token, query.id, [{
+            type: 'article', id: 'already', title: '✅ Already in this game',
+            description: 'You already joined this LMS game.',
+            input_message_content: { message_text: '✅ Already joined. Waiting for others...' },
+          }]);
+          return;
+        }
+        if (lmsQ.players.length >= lmsQ.maxPlayers) {
+          await answerInlineQuery(token, query.id, [{
+            type: 'article', id: 'err', title: '❌ Game is full',
+            description: `${lmsQ.maxPlayers}/${lmsQ.maxPlayers} players joined.`,
+            input_message_content: { message_text: '❌ LMS game is full.' },
+          }]);
+          return;
+        }
+        const configLqJ = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
+        await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Join LMS!', env, configLqJ));
         return;
       }
-      const configLqJ = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
-      await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Join LMS!', env, configLqJ));
-      return;
     }
-    // LMS game not found or not waiting — fall through to custom code / new game
+    // LMS game not found or done — fall through to custom code / new game
   }
 
   // Open Challenge
@@ -885,17 +910,48 @@ export async function handleChosenInlineResult(
       kv.put(`lms:${lmsGameId}`, JSON.stringify(lmsSession), { expirationTtl: 600 }),
       kv.put(rateKeyLR, String(countLR + 1), { expirationTtl: 600 }),
     ]);
-    const slotsLeft = maxPlayers - 1;
-    await editInlineMessage(token, result.inline_message_id, lmsWaitingText(lmsSession), lmsJoinKeyboard(lmsGameId, slotsLeft));
+    await editInlineMessage(token, result.inline_message_id, lmsWaitingText(lmsSession), lmsHostKeyboard(lmsGameId, false));
     return;
   }
 
-  // LMS join — check KV to distinguish from custom codes starting with L
+  // LMS — check KV to distinguish from custom codes starting with L
   if (LMS_CODE_RE.test(q)) {
     const lmsJoin = await kv.get<LmsSession>(`lms:${q}`, 'json');
     if (lmsJoin) {
+      // Next-round pick: player sending a new inline message for an in-progress round
+      if (lmsJoin.status === 'playing') {
+        const lmsPickPlayer = lmsJoin.players.find(p => p.userId === result.from.id);
+        if (!lmsPickPlayer || !lmsPickPlayer.active) {
+          await editInlineMessage(token, result.inline_message_id, '❌ Kamu sudah eliminasi dari game ini.');
+          return;
+        }
+        if (lmsPickPlayer.choice !== null) {
+          await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[lmsPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+          return;
+        }
+        const lmsPickUpdated = lmsJoin.players.map(p =>
+          p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
+        );
+        const lmsPickSession: LmsSession = { ...lmsJoin, players: lmsPickUpdated };
+        const lmsActive = lmsPickUpdated.filter(p => p.active);
+        const lmsAllPicked = lmsActive.every(p => p.choice !== null);
+        await kv.put(`lms:${q}`, JSON.stringify(lmsPickSession), { expirationTtl: 300 });
+        if (lmsAllPicked) {
+          ctx.waitUntil(runLmsRound(token, kv, lmsPickSession, ctx, env));
+        } else {
+          const lmsWaitLeft = lmsActive.filter(p => p.choice === null).length;
+          const lmsRoundWaitText = `⚔️ <b>Round ${lmsJoin.currentRound}</b>\n` +
+            lmsActive.map(p => {
+              const up = lmsPickUpdated.find(u => u.userId === p.userId)!;
+              return `• ${escHtml(up.name)}: ${up.choice ? '🔒' : '❓'}`;
+            }).join('\n') +
+            `\n\nMenunggu ${lmsWaitLeft} pemain lagi...`;
+          await editInlineMessage(token, result.inline_message_id, lmsRoundWaitText);
+        }
+        return;
+      }
       if (lmsJoin.status !== 'waiting') {
-        await editInlineMessage(token, result.inline_message_id, '❌ LMS game not found or already started.');
+        await editInlineMessage(token, result.inline_message_id, '❌ LMS game tidak ditemukan.');
         return;
       }
       if (lmsJoin.players.some(p => p.userId === result.from.id)) {
@@ -920,9 +976,12 @@ export async function handleChosenInlineResult(
       if (lmsIsFull) {
         ctx.waitUntil(runLmsRound(token, kv, updatedLms, ctx, env));
       } else {
-        const slotsLeft = lmsJoin.maxPlayers - updatedLmsPlayers.length;
+        const canForce = updatedLmsPlayers.length >= 2;
         await Promise.allSettled(
-          updatedLmsPlayers.map(p => editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updatedLms), lmsJoinKeyboard(q, slotsLeft)))
+          updatedLmsPlayers.map(p =>
+            editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updatedLms),
+              p.userId === updatedLms.hostUserId ? lmsHostKeyboard(q, canForce) : lmsJoinKeyboard(q))
+          )
         );
       }
       return;

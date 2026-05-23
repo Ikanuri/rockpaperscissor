@@ -526,13 +526,22 @@ export function teamWaitingKeyboard(gameId: string, slotsA: number, slotsB: numb
   return { inline_keyboard: rows };
 }
 
-export function lmsJoinKeyboard(gameId: string, slotsLeft: number): InlineKeyboardMarkup {
+export function lmsJoinKeyboard(gameId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [[
-      { text: `⚔️ Join (${slotsLeft} slot${slotsLeft !== 1 ? 's' : ''} left)`, switch_inline_query_current_chat: gameId },
+      { text: '⚔️ Join', switch_inline_query_current_chat: gameId },
       { text: '⏰ Extend', callback_data: `extlms:${gameId}` },
     ]],
   };
+}
+
+export function lmsHostKeyboard(gameId: string, canForce: boolean): InlineKeyboardMarkup {
+  const row: InlineKeyboardMarkup['inline_keyboard'][0] = [
+    { text: '⚔️ Join', switch_inline_query_current_chat: gameId },
+    { text: '⏰ Extend', callback_data: `extlms:${gameId}` },
+  ];
+  if (canForce) row.push({ text: '▶️ Force Start', callback_data: `lmsforce:${gameId}` });
+  return { inline_keyboard: [row] };
 }
 
 export async function loadConfigAuthorized(
@@ -1332,26 +1341,16 @@ export async function runLmsRound(
   };
   await kv.put(`lms:${session.gameId}`, JSON.stringify(updatedSession), { expirationTtl: 300 });
 
-  // Brief pause showing round result
-  const pauseKb: InlineKeyboardMarkup = { inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]] };
-  await Promise.allSettled(
-    session.players.map(p => editInlineMessage(token, p.inlineMessageId, roundText, pauseKb))
-  );
-  await sleep(3000);
-
-  // Prompt active players to pick; show elim message to newly eliminated
-  const pickText = `⚔️ <b>Round ${nextRound}</b>\n` +
-    updatedPlayers.filter(p => p.active).map(p => `• ${escHtml(p.name)}: ❓`).join('\n') +
-    '\n\nPick your move!';
-  const pickKb = lmsPickKeyboard(session.gameId);
-  const elimText = `❌ You were eliminated in Round ${session.currentRound}. Watching the rest...`;
-
+  // Show round result with next-round button for survivors; elimination notice for newly eliminated
+  const nextRoundKb: InlineKeyboardMarkup = {
+    inline_keyboard: [[{ text: `▶️ Round ${nextRound}`, switch_inline_query_current_chat: session.gameId }]],
+  };
   await Promise.allSettled([
     ...updatedPlayers.filter(p => p.active).map(p =>
-      editInlineMessage(token, p.inlineMessageId, pickText, pickKb)
+      editInlineMessage(token, p.inlineMessageId, roundText, nextRoundKb)
     ),
     ...session.players.filter(p => eliminatedIds.has(p.userId)).map(p =>
-      editInlineMessage(token, p.inlineMessageId, elimText)
+      editInlineMessage(token, p.inlineMessageId, roundText + '\n\n❌ Kamu eliminasi di ronde ini.')
     ),
   ]);
 }
