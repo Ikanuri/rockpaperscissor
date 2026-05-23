@@ -638,8 +638,16 @@ async function executeTeamRound(
   resA: { choice: Choice; notes: string[] },
   resB: { choice: Choice; notes: string[] },
   env: Env,
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
+  configs = new Map<number, GameConfig | null>()
 ): Promise<void> {
+  // Reveal: each player briefly sees their own choice emoji with personal config
+  const allPlayers = [...session.teamA, ...session.teamB];
+  await Promise.allSettled(allPlayers.map(p =>
+    editInlineMessage(token, p.inlineMessageId, revealEmoji(p.choice!, env, configs.get(p.userId) ?? null))
+  ));
+  await sleep(4000);
+
   const choiceA = resA.choice;
   const choiceB = resB.choice;
   const roundOutcome = determineWinner(choiceA, choiceB);
@@ -647,9 +655,8 @@ async function executeTeamRound(
   const newScoreB = session.scoreB + (roundOutcome === 'b' ? 1 : 0);
   const maxWins = getMaxWins(session.mode);
   const isDone = roundOutcome !== 'draw' && (newScoreA >= maxWins || newScoreB >= maxWins);
-  const allPlayers = [...session.teamA, ...session.teamB];
-  const teamALine = `🔵 Tim A ${EMOJI[choiceA]}: ${session.teamA.map(p => `${escHtml(p.name)} ${EMOJI[p.choice!]}`).join(', ')}`;
-  const teamBLine = `🔴 Tim B ${EMOJI[choiceB]}: ${session.teamB.map(p => `${escHtml(p.name)} ${EMOJI[p.choice!]}`).join(', ')}`;
+  const teamALine = `🔵 Tim A ${EMOJI[choiceA]}: ${session.teamA.map(p => `${escHtml(p.name)} ${revealEmoji(p.choice!, env, configs.get(p.userId) ?? null)}`).join(', ')}`;
+  const teamBLine = `🔴 Tim B ${EMOJI[choiceB]}: ${session.teamB.map(p => `${escHtml(p.name)} ${revealEmoji(p.choice!, env, configs.get(p.userId) ?? null)}`).join(', ')}`;
   const notesText = [...resA.notes, ...resB.notes].map(n => `<i>${n}</i>`).join('\n');
 
   if (isDone) {
@@ -735,7 +742,11 @@ export async function runTeamRound(
     return;
   }
 
-  await executeTeamRound(token, kv, session, resA, resB, env, ctx);
+  const configs = new Map<number, GameConfig | null>();
+  await Promise.all([...session.teamA, ...session.teamB].map(async p => {
+    configs.set(p.userId, await loadConfigAuthorized(kv, p.userId, env));
+  }));
+  await executeTeamRound(token, kv, session, resA, resB, env, ctx, configs);
 }
 
 // Called once all ties are resolved (by player dice or bot fallback).
@@ -748,7 +759,11 @@ export async function resolveTeamDiceWait(
 ): Promise<void> {
   if (!state.resolvedA || !state.resolvedB) return;
   await kv.delete(`chat:dice_wait:${state.chatId}`);
-  await executeTeamRound(token, kv, state.teamSession, state.resolvedA, state.resolvedB, env, ctx);
+  const configs = new Map<number, GameConfig | null>();
+  await Promise.all([...state.teamSession.teamA, ...state.teamSession.teamB].map(async p => {
+    configs.set(p.userId, await loadConfigAuthorized(kv, p.userId, env));
+  }));
+  await executeTeamRound(token, kv, state.teamSession, state.resolvedA, state.resolvedB, env, ctx, configs);
 }
 
 // ── Tournament ────────────────────────────────────────────────────────────────
