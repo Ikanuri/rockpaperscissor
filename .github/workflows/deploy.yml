@@ -1,8 +1,8 @@
-name: Deploy to Cloudflare Workers
+name: Deploy to Cloudflare Workers (Production)
 
 on:
   push:
-    branches: [main, master, claude/telegram-rps-game-bot-2C6Ix]
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -19,48 +19,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Create or find KV namespace
-        id: kv
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          RESPONSE=$(curl -s \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces?per_page=100" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
-
-          KV_ID=$(echo "$RESPONSE" | jq -r '.result[] | select(.title == "rps-bot-GAME_SESSIONS") | .id' 2>/dev/null)
-
-          if [ -z "$KV_ID" ] || [ "$KV_ID" = "null" ]; then
-            echo "KV namespace not found, creating..."
-            CREATE=$(curl -s -X POST \
-              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces" \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d '{"title":"rps-bot-GAME_SESSIONS"}')
-            KV_ID=$(echo "$CREATE" | jq -r '.result.id')
-          fi
-
-          echo "KV ID: $KV_ID"
-          sed -i "s/REPLACE_WITH_KV_ID/${KV_ID}/g" wrangler.toml
-          sed -i "s/REPLACE_WITH_KV_PREVIEW_ID/${KV_ID}/g" wrangler.toml
-
-      - name: Set bot username in config
-        env:
-          BOT_USERNAME: ${{ secrets.BOT_USERNAME }}
-        run: |
-          sed -i "s|BOT_USERNAME = \"\"|BOT_USERNAME = \"${BOT_USERNAME}\"|" wrangler.toml
-
       - name: Push secrets to Cloudflare Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: |
           echo "$BOT_TOKEN" | npx wrangler secret put BOT_TOKEN
+          echo "$WEBHOOK_SECRET" | npx wrangler secret put WEBHOOK_SECRET
+          if [ -n "$STRIPE_SECRET_KEY" ]; then
+            echo "$STRIPE_SECRET_KEY" | npx wrangler secret put STRIPE_SECRET_KEY
+          fi
+          if [ -n "$STRIPE_WEBHOOK_SECRET" ]; then
+            echo "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET
+          fi
 
       - name: Deploy Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy
+
+      - name: Register Telegram webhook
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+        run: |
+          SUBDOMAIN=$(curl -s \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" | jq -r '.result.subdomain')
+
+          WORKER_URL="https://rps-bot.${SUBDOMAIN}.workers.dev"
+          echo "Registering webhook to: $WORKER_URL"
+
+          RESULT=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
+            -d "url=${WORKER_URL}" \
+            -d "secret_token=${WEBHOOK_SECRET}" \
+            -d 'allowed_updates=["inline_query","chosen_inline_result","callback_query","message","pre_checkout_query"]')
+
+          echo "$RESULT"
+          echo "$RESULT" | jq -e '.ok == true' > /dev/null || (echo "Webhook registration failed!" && exit 1)
