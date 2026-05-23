@@ -458,6 +458,15 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
     return;
   }
 
+  if (cmd === '/resetuser' && parts.length >= 2) {
+    if (!owner) { await reply(token, msg.chat.id, '❌ Owner only.'); return; }
+    const targetId = parseInt(parts[1]);
+    if (isNaN(targetId)) { await reply(token, msg.chat.id, '❌ Invalid user ID.'); return; }
+    await resetUserConfig(kv, targetId);
+    await reply(token, msg.chat.id, `✅ Config user ${targetId} dihapus.`);
+    return;
+  }
+
   if (cmd === '/betaadd' && parts.length >= 2) {
     const targetId = parseInt(parts[1]);
     if (isNaN(targetId)) { await reply(token, msg.chat.id, '❌ Invalid user ID.'); return; }
