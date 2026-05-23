@@ -55,7 +55,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   const owner = isOwner(msg, env);
   const betaUser = await isBetaUser(kv, msg.from.id, env.BOT_OWNER_ID);
   const tier = await loadDonatorTier(kv, msg.from.id);
-  const canConfig = owner || betaUser || tier !== 'free' || hasFeature(env, 'beta_config');
+  const canConfig = owner || betaUser || tier !== 'free';
   const canDonate = owner || betaUser || hasFeature(env, 'donator');
 
   // Cache user info setiap DM — dipakai untuk tampilan donatorlist dll.
@@ -455,6 +455,20 @@ export async function handleMessage(msg: TelegramMessage, env: Env): Promise<voi
   if (cmd === '/resetglobal') {
     await resetGlobalConfig(kv);
     await reply(token, msg.chat.id, '✅ Global config reset.');
+    return;
+  }
+
+  if (cmd === '/clearleaderboard') {
+    if (!owner) { await reply(token, msg.chat.id, '❌ Owner only.'); return; }
+    const scope = parts[1];
+    if (scope === 'group' && parts[2]) {
+      const chatId = parseInt(parts[2]);
+      await kv.delete(`group:score:${chatId}`);
+      await reply(token, msg.chat.id, `✅ Group leaderboard ${chatId} cleared.`);
+    } else {
+      await kv.delete('leaderboard');
+      await reply(token, msg.chat.id, '✅ Global leaderboard cleared.');
+    }
     return;
   }
 

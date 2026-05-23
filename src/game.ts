@@ -173,7 +173,7 @@ function choiceDisplay(choice: Choice, env: Env, config?: GameConfig | null): st
   const customId = config?.reveal[choice]
     ?? (env as unknown as Record<string, string>)[`CUSTOM_EMOJI_${choice.toUpperCase()}`];
   const rendered = revealEmoji(choice, env, config);
-  if (customId && /^\d{10,}$/.test(customId)) {
+  if (customId) {
     return `${rendered} (${EMOJI[choice]})`;
   }
   return rendered;
