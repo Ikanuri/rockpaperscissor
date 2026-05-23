@@ -3,7 +3,9 @@ import { answerCallbackQuery, editInlineMessage, editMessage, getChatMember } fr
 import {
   EMOJI,
   escHtml,
+  lmsJoinKeyboard,
   lmsPickKeyboard,
+  lmsWaitingText,
   nextRoundText,
   pickKeyboard,
   runLmsRound,
@@ -11,6 +13,8 @@ import {
   runTeamRound,
   startTournamentBracket,
   teamPickKeyboard,
+  teamWaitingKeyboard,
+  teamWaitingText,
   tournamentSignupKeyboard,
   tournamentSignupText,
   waitingKeyboard,
@@ -37,6 +41,10 @@ export async function handleCallbackQuery(
     await handleTeamPick(query, env, ctx, parts[1], parts[2] as Choice);
   } else if (action === 'tcancel' && parts.length === 2) {
     await handleTeamCancel(query, env, parts[1]);
+  } else if (action === 'extlms' && parts.length === 2) {
+    await handleExtendLms(query, env, parts[1]);
+  } else if (action === 'extteam' && parts.length === 2) {
+    await handleExtendTeam(query, env, parts[1]);
   } else if (action === 'tourjoin' && parts.length === 2) {
     await handleTourJoin(query, env, parts[1]);
   } else if (action === 'tourstart' && parts.length === 2) {
@@ -209,6 +217,58 @@ async function handleTeamPick(
       editInlineMessage(token, p.inlineMessageId, waitText, pickKb)
     ));
   }
+}
+
+async function handleExtendLms(
+  query: CallbackQuery,
+  env: Env,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+  if (!session || session.status !== 'waiting') {
+    await answerCallbackQuery(token, query.id, '❌ Game tidak bisa di-extend.', true);
+    return;
+  }
+  if (query.from.id !== session.hostUserId) {
+    await answerCallbackQuery(token, query.id, '❌ Hanya host yang bisa extend.', true);
+    return;
+  }
+  const updated: LmsSession = { ...session, createdAt: Date.now() };
+  await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
+  await answerCallbackQuery(token, query.id, '⏰ Waktu diperpanjang 10 menit!');
+  const slotsLeft = session.maxPlayers - session.players.length;
+  await Promise.allSettled(
+    session.players.map(p => editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updated), lmsJoinKeyboard(gameId, slotsLeft)))
+  );
+}
+
+async function handleExtendTeam(
+  query: CallbackQuery,
+  env: Env,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+  if (!session || session.status !== 'waiting') {
+    await answerCallbackQuery(token, query.id, '❌ Game tidak bisa di-extend.', true);
+    return;
+  }
+  if (query.from.id !== session.hostUserId) {
+    await answerCallbackQuery(token, query.id, '❌ Hanya host yang bisa extend.', true);
+    return;
+  }
+  const updated: TeamSession = { ...session, createdAt: Date.now() };
+  await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
+  await answerCallbackQuery(token, query.id, '⏰ Waktu diperpanjang 10 menit!');
+  const slotsA = session.teamSize - session.teamA.length;
+  const slotsB = session.teamSize - session.teamB.length;
+  const kb = teamWaitingKeyboard(gameId, slotsA, slotsB);
+  await Promise.allSettled(
+    [...session.teamA, ...session.teamB].map(p => editInlineMessage(token, p.inlineMessageId, teamWaitingText(updated), kb))
+  );
 }
 
 async function handleTeamCancel(

@@ -23,7 +23,7 @@ import type {
 } from './types';
 import { editInlineMessage, editMessage, pinChatMessage, sendDice, sendMessage, sendMessageForId } from './telegram';
 import { loadConfig, RELEASE_DATE } from './config';
-import { hasFeature } from './feature';
+import { hasFeature, isBetaUser } from './feature';
 
 export const EMOJI: Record<Choice, string> = {
   rock: '✊',
@@ -517,8 +517,35 @@ export function teamWaitingKeyboard(gameId: string, slotsA: number, slotsB: numb
   if (slotsB > 0) joinRow.push({ text: `⚔️ Tim B (${slotsB})`, switch_inline_query_current_chat: `TJOIN ${gameId} B` });
   const rows: InlineKeyboardMarkup['inline_keyboard'] = [];
   if (joinRow.length) rows.push(joinRow);
-  rows.push([{ text: '❌ Batal', callback_data: `tcancel:${gameId}` }]);
+  rows.push([
+    { text: '⏰ Extend', callback_data: `extteam:${gameId}` },
+    { text: '❌ Batal', callback_data: `tcancel:${gameId}` },
+  ]);
   return { inline_keyboard: rows };
+}
+
+export function lmsJoinKeyboard(gameId: string, slotsLeft: number): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [[
+      { text: `⚔️ Join (${slotsLeft} slot${slotsLeft !== 1 ? 's' : ''} left)`, switch_inline_query_current_chat: gameId },
+      { text: '⏰ Extend', callback_data: `extlms:${gameId}` },
+    ]],
+  };
+}
+
+export async function loadConfigAuthorized(
+  kv: KVNamespace,
+  userId: number,
+  env: Env
+): Promise<GameConfig | null> {
+  if (String(userId) === env.BOT_OWNER_ID) return loadConfig(kv, userId, env);
+  const [config, donator, beta] = await Promise.all([
+    loadConfig(kv, userId, env),
+    kv.get<{ tier: string; expiry: number }>(`donator:${userId}`, 'json'),
+    isBetaUser(kv, userId, env.BOT_OWNER_ID),
+  ]);
+  const authorized = beta || (!!donator && donator.tier !== 'free' && Date.now() <= donator.expiry);
+  return authorized ? config : null;
 }
 
 export function teamWaitingText(session: TeamSession): string {
@@ -1015,8 +1042,8 @@ export async function runRevealAndResult(
   const o = session.opponentInlineMessageId!;
 
   const [hostConfig, opponentConfig] = await Promise.all([
-    loadConfig(kv, session.hostUserId, env),
-    loadConfig(kv, session.opponentUserId!, env),
+    loadConfigAuthorized(kv, session.hostUserId, env),
+    loadConfigAuthorized(kv, session.opponentUserId!, env),
   ]);
 
   const hE = revealEmoji(session.hostChoice!, env, hostConfig);

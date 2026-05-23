@@ -25,7 +25,9 @@ import {
   escHtml,
   formatUser,
   generateId,
+  lmsJoinKeyboard,
   lmsWaitingText,
+  loadConfigAuthorized,
   runLmsRound,
   runRevealAndResult,
   runTeamRound,
@@ -37,7 +39,6 @@ import {
   waitingText,
 } from '../game';
 import { hasFeature } from '../feature';
-import { loadConfig } from '../config';
 import { loadDonatorTier } from '../donator';
 
 const GAME_ID_RE = /^[A-Z2-9]{6}$/;
@@ -350,7 +351,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   }
 
   if (q === 'BOT') {
-    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults('🤖 vs Bot', env, config));
     return;
   }
@@ -413,7 +414,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     }
     const n = Math.min(4, Math.max(1, parseInt(teamQueryMatch[1])));
     const modeLabel = teamQueryMatch[3] ? ` ${teamQueryMatch[3]}` : '';
-    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults(`⚔️ Team ${n}v${n}${modeLabel}`, env, config));
     return;
   }
@@ -449,7 +450,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       }]);
       return;
     }
-    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults(`🤝 Join Tim ${team}`, env, config));
     return;
   }
@@ -468,7 +469,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       return;
     }
     const n = lmsQueryMatch[1] ? Math.min(8, Math.max(3, parseInt(lmsQueryMatch[1]))) : 4;
-    const configLq = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const configLq = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults(`⚔️ LMS (${n} players)`, env, configLq));
     return;
   }
@@ -493,7 +494,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
         }]);
         return;
       }
-      const configLqJ = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+      const configLqJ = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
       await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Join LMS!', env, configLqJ));
       return;
     }
@@ -504,7 +505,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   if (q === 'OPEN') {
     const openList = ((await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [])
       .filter(c => c.hostUserId !== from.id && Date.now() - c.createdAt < 9 * 60 * 1000);
-    const configOq = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const configOq = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     const createResults = buildChoiceResults('🌐 Open Challenge', env, configOq);
     if (openList.length === 0) {
       await answerInlineQuery(token, query.id, createResults);
@@ -540,7 +541,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       }]);
       return;
     }
-    const configR = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const configR = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     const modeLabelR = rankedQueryMatch[1] ? ` ${rankedQueryMatch[1]}` : '';
     await answerInlineQuery(token, query.id, buildChoiceResults(`🏆 Ranked${modeLabelR}`, env, configR));
     return;
@@ -565,7 +566,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       }]);
       return;
     }
-    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults('🔄 Rematch!', env, config));
     return;
   }
@@ -578,7 +579,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       // Check if this is a tournament match code
       const tmInfo = await kv.get<{ tournamentId: string; matchId: string }>(`tournament:matchgame:${q}`, 'json');
       if (tmInfo) {
-        const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+        const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
         await answerInlineQuery(token, query.id, buildChoiceResults('🏆 Tournament Match', env, config));
         return;
       }
@@ -648,7 +649,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       );
     }
 
-    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Challenge accepted!', env, config));
     return;
   }
@@ -668,7 +669,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     }
     const targetUsername = privateMatch[1];
     const modeLabel = privateMatch[2] ? ` ${privateMatch[2]}` : '';
-    const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults(`🔒 Private challenge for @${targetUsername}${modeLabel}`, env, config));
     return;
   }
@@ -693,7 +694,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
           waitingKeyboard(existingC.gameId, undefined, hasFeature(env, 'refresh_button'))
         );
       }
-      const configCJ = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+      const configCJ = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
       await answerInlineQuery(token, query.id, buildChoiceResults('⚔️ Challenge accepted!', env, configCJ));
       return;
     }
@@ -727,7 +728,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       }]);
       return;
     }
-    const configC = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+    const configC = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults(`🎮 Game: ${q}`, env, configC));
     return;
   }
@@ -743,7 +744,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     return;
   }
 
-  const config = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
+  const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
   await answerInlineQuery(token, query.id, buildChoiceResults('🎮 Setting up game...', env, config));
 }
 
@@ -869,9 +870,7 @@ export async function handleChosenInlineResult(
       kv.put(rateKeyLR, String(countLR + 1), { expirationTtl: 600 }),
     ]);
     const slotsLeft = maxPlayers - 1;
-    await editInlineMessage(token, result.inline_message_id, lmsWaitingText(lmsSession), {
-      inline_keyboard: [[{ text: `⚔️ Join (${slotsLeft} slot${slotsLeft !== 1 ? 's' : ''} left)`, switch_inline_query_current_chat: lmsGameId }]],
-    });
+    await editInlineMessage(token, result.inline_message_id, lmsWaitingText(lmsSession), lmsJoinKeyboard(lmsGameId, slotsLeft));
     return;
   }
 
@@ -906,11 +905,8 @@ export async function handleChosenInlineResult(
         ctx.waitUntil(runLmsRound(token, kv, updatedLms, ctx));
       } else {
         const slotsLeft = lmsJoin.maxPlayers - updatedLmsPlayers.length;
-        const joinBtn = {
-          inline_keyboard: [[{ text: `⚔️ Join (${slotsLeft} slot${slotsLeft !== 1 ? 's' : ''} left)`, switch_inline_query_current_chat: q }]],
-        };
         await Promise.allSettled(
-          updatedLmsPlayers.map(p => editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updatedLms), joinBtn))
+          updatedLmsPlayers.map(p => editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updatedLms), lmsJoinKeyboard(q, slotsLeft)))
         );
       }
       return;
