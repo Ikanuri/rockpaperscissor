@@ -729,7 +729,7 @@ export async function runTeamRound(
       resolvedA: resA,
       resolvedB: resB,
     };
-    await kv.put(`chat:dice_wait:${session.chatId}`, JSON.stringify(state), { expirationTtl: 60 });
+    await kv.put(`chat:dice_wait:${session.chatId}`, JSON.stringify(state), { expirationTtl: 300 });
 
     const tieLines: string[] = [];
     if (tieA) tieLines.push(`🔵 Tim A seri: ${tieA.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);

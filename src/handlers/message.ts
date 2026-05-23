@@ -912,7 +912,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
         if (aOk && bOk && updated.resolvedA && updated.resolvedB) {
           ctx.waitUntil(resolveTeamDiceWait(token, kv, updated, env, ctx));
         } else {
-          await kv.put(`chat:dice_wait:${chatId}`, JSON.stringify(updated), { expirationTtl: 60 });
+          await kv.put(`chat:dice_wait:${chatId}`, JSON.stringify(updated), { expirationTtl: 300 });
         }
       }
     }
