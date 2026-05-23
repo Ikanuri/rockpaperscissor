@@ -918,7 +918,7 @@ export async function handleChosenInlineResult(
       const updatedLms: LmsSession = { ...lmsJoin, players: updatedLmsPlayers, status: lmsIsFull ? 'playing' : 'waiting' };
       await kv.put(`lms:${q}`, JSON.stringify(updatedLms), { expirationTtl: lmsIsFull ? 300 : 600 });
       if (lmsIsFull) {
-        ctx.waitUntil(runLmsRound(token, kv, updatedLms, ctx));
+        ctx.waitUntil(runLmsRound(token, kv, updatedLms, ctx, env));
       } else {
         const slotsLeft = lmsJoin.maxPlayers - updatedLmsPlayers.length;
         await Promise.allSettled(

@@ -175,7 +175,7 @@ function choiceDisplay(choice: Choice, env: Env, config?: GameConfig | null): st
   const customId = config?.reveal[choice]
     ?? (env as unknown as Record<string, string>)[`CUSTOM_EMOJI_${choice.toUpperCase()}`];
   const rendered = revealEmoji(choice, env, config);
-  if (customId) {
+  if (customId && customId !== EMOJI[choice]) {
     return `${rendered} (${EMOJI[choice]})`;
   }
   return rendered;
@@ -1248,10 +1248,16 @@ export async function runLmsRound(
   token: string,
   kv: KVNamespace,
   session: LmsSession,
-  ctx: ExecutionContext
+  ctx: ExecutionContext,
+  env: Env
 ): Promise<void> {
   const activePlayers = session.players.filter(p => p.active);
   if (activePlayers.length <= 1) return;
+
+  const configs = new Map<number, GameConfig | null>();
+  await Promise.all(session.players.map(async p => {
+    configs.set(p.userId, await loadConfigAuthorized(kv, p.userId, env));
+  }));
 
   const { survivors, eliminated, isChaos } = runLmsElimination(activePlayers);
 
@@ -1268,7 +1274,7 @@ export async function runLmsRound(
     const winner = survivors[0];
     const allLines = session.players.map(p => {
       const isOut = !p.active || eliminatedIds.has(p.userId);
-      return `${escHtml(p.name)}: ${EMOJI[p.choice!]}${isOut ? ' ❌' : ' 🏆'}`;
+      return `${escHtml(p.name)}: ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}${isOut ? ' ❌' : ' 🏆'}`;
     }).join('\n');
     const winText = `🏆 <b>${escHtml(winner.name)} wins Last Man Standing!</b>\n━━━━━━━━━━━━━━\n${allLines}`;
 
@@ -1297,7 +1303,7 @@ export async function runLmsRound(
   const allLines = session.players.map(p => {
     if (!p.active) return `${escHtml(p.name)}: ❌`;
     const isNowElim = eliminatedIds.has(p.userId);
-    return `${escHtml(p.name)}: ${EMOJI[p.choice!]}${isNowElim ? ' ❌' : ''}`;
+    return `${escHtml(p.name)}: ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}${isNowElim ? ' ❌' : ''}`;
   }).join('\n');
 
   const header = isChaos

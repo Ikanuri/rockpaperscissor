@@ -152,7 +152,7 @@ async function handleLmsPick(
   await answerCallbackQuery(token, query.id, `🔒 ${EMOJI[choice]} dikunci!`);
 
   if (allPicked) {
-    ctx.waitUntil(runLmsRound(token, kv, updatedSession, ctx));
+    ctx.waitUntil(runLmsRound(token, kv, updatedSession, ctx, env));
   } else {
     const waitCount = activePlayers.filter(p => p.choice === null).length;
     const pickText = `⚔️ <b>Round ${session.currentRound}</b>\n` +
