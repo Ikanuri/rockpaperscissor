@@ -1,5 +1,5 @@
 import type { CallbackQuery, Choice, Env, GameSession, InlineKeyboardMarkup, LmsSession, TeamDiceWaitState, TeamSession, TournamentSession } from '../types';
-import { answerCallbackQuery, editInlineMessage, editMessage, getChatMember, sendDice } from '../telegram';
+import { answerCallbackQuery, editInlineMessage, editMessage, getChatMember } from '../telegram';
 import {
   EMOJI,
   botResolveTie,
@@ -49,8 +49,6 @@ export async function handleCallbackQuery(
     await handleExtendTeam(query, env, parts[1]);
   } else if (action === 'teamdice' && parts[1] === 'resolve' && parts.length === 3) {
     await handleTeamDiceResolve(query, env, ctx, parts[2]);
-  } else if (action === 'tdthrow' && parts.length === 2) {
-    await handleTeamDiceThrow(query, env, ctx, parts[1]);
   } else if (action === 'tourjoin' && parts.length === 2) {
     await handleTourJoin(query, env, parts[1]);
   } else if (action === 'tourstart' && parts.length === 2) {
@@ -309,61 +307,6 @@ async function handleTeamDiceResolve(
   if (state.tieB && !resolvedB) resolvedB = await botResolveTie(state.tieB, chatId, token);
 
   ctx.waitUntil(resolveTeamDiceWait(token, kv, { ...state, resolvedA, resolvedB }, env, ctx));
-}
-
-async function handleTeamDiceThrow(
-  query: CallbackQuery,
-  env: Env,
-  ctx: ExecutionContext,
-  gameId: string
-): Promise<void> {
-  const token = env.BOT_TOKEN;
-  const kv = env.GAME_SESSIONS;
-  const chatId = query.message?.chat.id;
-  if (!chatId) { await answerCallbackQuery(token, query.id, '❌ Tidak bisa resolve.', true); return; }
-
-  const state = await kv.get<TeamDiceWaitState>(`chat:dice_wait:${chatId}`, 'json');
-  if (!state || state.gameId !== gameId) {
-    await answerCallbackQuery(token, query.id, '❌ Tiebreaker sudah selesai.', true);
-    return;
-  }
-
-  const userId = query.from.id;
-  let updated = { ...state };
-  let changed = false;
-
-  if (state.tieA && !state.resolvedA) {
-    const p = state.tieA.find(tp => tp.userId === userId);
-    if (p) {
-      const roll = await sendDice(token, chatId);
-      updated = { ...updated, resolvedA: { choice: p.choice, notes: [`🎲 ${escHtml(p.name)} tekan duluan → Tim A pilih ${EMOJI[p.choice]} (🎲${roll})`] } };
-      await answerCallbackQuery(token, query.id, `🎲 Tim A pilih ${EMOJI[p.choice]}!`);
-      changed = true;
-    }
-  }
-
-  if (!changed && state.tieB && !state.resolvedB) {
-    const p = state.tieB.find(tp => tp.userId === userId);
-    if (p) {
-      const roll = await sendDice(token, chatId);
-      updated = { ...updated, resolvedB: { choice: p.choice, notes: [`🎲 ${escHtml(p.name)} tekan duluan → Tim B pilih ${EMOJI[p.choice]} (🎲${roll})`] } };
-      await answerCallbackQuery(token, query.id, `🎲 Tim B pilih ${EMOJI[p.choice]}!`);
-      changed = true;
-    }
-  }
-
-  if (!changed) {
-    await answerCallbackQuery(token, query.id, '❌ Bukan giliranmu atau sudah resolve.', true);
-    return;
-  }
-
-  const aOk = !updated.tieA || updated.resolvedA !== null;
-  const bOk = !updated.tieB || updated.resolvedB !== null;
-  if (aOk && bOk && updated.resolvedA && updated.resolvedB) {
-    ctx.waitUntil(resolveTeamDiceWait(token, kv, updated, env, ctx));
-  } else {
-    await kv.put(`chat:dice_wait:${chatId}`, JSON.stringify(updated), { expirationTtl: 60 });
-  }
 }
 
 async function handleTeamCancel(

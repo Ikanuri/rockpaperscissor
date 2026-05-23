@@ -688,24 +688,6 @@ async function executeTeamRound(
   }
 }
 
-export function teamDiceTiebreakerKeyboard(
-  gameId: string,
-  tieA: Array<{ name: string; choice: Choice }> | null,
-  tieB: Array<{ name: string; choice: Choice }> | null,
-): InlineKeyboardMarkup {
-  const rows: InlineKeyboardMarkup['inline_keyboard'] = [];
-  if (tieA) rows.push(tieA.map(p => ({
-    text: `🎲 ${p.name.slice(0, 12)} ${EMOJI[p.choice]}`,
-    callback_data: `tdthrow:${gameId}`,
-  })));
-  if (tieB) rows.push(tieB.map(p => ({
-    text: `🎲 ${p.name.slice(0, 12)} ${EMOJI[p.choice]}`,
-    callback_data: `tdthrow:${gameId}`,
-  })));
-  rows.push([{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${gameId}` }]);
-  return { inline_keyboard: rows };
-}
-
 export async function runTeamRound(
   token: string,
   kv: KVNamespace,
@@ -735,13 +717,15 @@ export async function runTeamRound(
     if (tieA) tieLines.push(`🔵 Tim A seri: ${tieA.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
     if (tieB) tieLines.push(`🔴 Tim B seri: ${tieB.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
 
-    const tiebreakerKb = teamDiceTiebreakerKeyboard(session.gameId, tieA, tieB);
+    const resolveKb: InlineKeyboardMarkup = {
+      inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${session.gameId}` }]],
+    };
     await sendMessage(token, session.chatId,
-      `⚔️ <b>Seri internal!</b> Tekan tombol untuk lempar dadu 🎲\n\n` +
+      `⚔️ <b>Seri internal!</b> Lempar 🎲 di grup sekarang!\n\n` +
       tieLines.join('\n') +
-      `\n\n<i>Siapa yang pertama tekan tombolnya, pilihannya dipakai untuk timnya.</i>\n` +
-      `<i>Host bisa tekan ⏱️ kalau tidak ada yang mau.</i>`,
-      tiebreakerKb
+      `\n\n<i>Siapa yang pertama lempar dadu, pilihannya dipakai untuk timnya.</i>\n` +
+      `<i>Tidak ada yang lempar? Tekan tombol di bawah.</i>`,
+      resolveKb
     );
     await Promise.allSettled([...session.teamA, ...session.teamB].map(p =>
       editInlineMessage(token, p.inlineMessageId, '⏳ Menunggu tiebreaker dadu di grup...')
