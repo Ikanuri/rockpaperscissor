@@ -805,13 +805,35 @@ export async function handleChosenInlineResult(
     const gameIds = await kv.get<string[]>(listKey, 'json') ?? [];
     let cancelled = 0;
     for (const gameId of gameIds) {
-      const session = await kv.get<GameSession>(`game:${gameId}`, 'json');
-      if (session && session.status === 'waiting' && session.hostUserId === result.from.id) {
-        await Promise.all([
-          kv.delete(`game:${gameId}`),
-          editInlineMessage(token, session.hostInlineMessageId, '❌ Game cancelled.'),
-        ]);
-        cancelled++;
+      if (gameId.startsWith('L')) {
+        const s = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+        if (s && s.hostUserId === result.from.id && s.status !== 'done') {
+          await Promise.all([
+            kv.delete(`lms:${gameId}`),
+            ...s.players.map(p => editInlineMessage(token, p.inlineMessageId, '❌ LMS game dibatalkan.')),
+          ]);
+          cancelled++;
+        }
+      } else if (gameId.startsWith('T')) {
+        const s = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+        if (s && s.hostUserId === result.from.id && s.status !== 'playing') {
+          await Promise.all([
+            kv.delete(`team:${gameId}`),
+            ...[...s.teamA, ...s.teamB].map(p => editInlineMessage(token, p.inlineMessageId, '❌ Team game dibatalkan.')),
+          ]);
+          cancelled++;
+        }
+      } else {
+        const s = await kv.get<GameSession>(`game:${gameId}`, 'json');
+        if (s && s.hostUserId === result.from.id && s.status !== 'done') {
+          const ops: Promise<void>[] = [
+            kv.delete(`game:${gameId}`),
+            editInlineMessage(token, s.hostInlineMessageId, '❌ Game dibatalkan.'),
+          ];
+          if (s.opponentInlineMessageId) ops.push(editInlineMessage(token, s.opponentInlineMessageId, '❌ Game dibatalkan.'));
+          await Promise.all(ops);
+          cancelled++;
+        }
       }
     }
     await Promise.all([
@@ -820,8 +842,8 @@ export async function handleChosenInlineResult(
     ]);
     await editInlineMessage(token, result.inline_message_id,
       cancelled > 0
-        ? `🧹 ${cancelled} game${cancelled > 1 ? 's' : ''} cancelled.`
-        : `🧹 No active hosted games found.`
+        ? `🧹 ${cancelled} game${cancelled > 1 ? 's' : ''} dibatalkan.`
+        : `🧹 Tidak ada game aktif.`
     );
     return;
   }
@@ -909,6 +931,7 @@ export async function handleChosenInlineResult(
     await Promise.all([
       kv.put(`lms:${lmsGameId}`, JSON.stringify(lmsSession), { expirationTtl: 600 }),
       kv.put(rateKeyLR, String(countLR + 1), { expirationTtl: 600 }),
+      trackHostedGame(kv, result.from.id, lmsGameId),
     ]);
     await editInlineMessage(token, result.inline_message_id, lmsWaitingText(lmsSession), lmsHostKeyboard(lmsGameId, false));
     return;
@@ -1016,6 +1039,7 @@ export async function handleChosenInlineResult(
       kv.put(`team:${gameId}`, JSON.stringify(teamSession), { expirationTtl: 600 }),
       kv.put(rateKeyT, String(countT + 1), { expirationTtl: 600 }),
       kv.delete(`team_chat:${result.from.id}`),
+      trackHostedGame(kv, result.from.id, gameId),
     ]);
     const slotsA = teamSize - 1;
     const slotsB = teamSize;
