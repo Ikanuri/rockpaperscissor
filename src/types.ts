@@ -196,6 +196,16 @@ export interface TournamentSession {
   createdAt: number;
 }
 
+export interface TeamDiceWaitState {
+  gameId: string;
+  chatId: number;
+  teamSession: TeamSession;
+  tieA: Array<{ userId: number; name: string; choice: Choice }> | null;
+  tieB: Array<{ userId: number; name: string; choice: Choice }> | null;
+  resolvedA: { choice: Choice; notes: string[] } | null;
+  resolvedB: { choice: Choice; notes: string[] } | null;
+}
+
 export interface Env {
   GAME_SESSIONS: KVNamespace;
   BOT_TOKEN: string;
@@ -231,6 +241,7 @@ export interface TelegramMessage {
   successful_payment?: SuccessfulPayment;
   new_chat_members?: TelegramUser[];
   left_chat_member?: TelegramUser;
+  dice?: { emoji: string; value: number };
 }
 
 export type PendingAction =

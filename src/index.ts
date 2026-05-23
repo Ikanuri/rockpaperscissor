@@ -50,7 +50,7 @@ export default {
       } else if (update.pre_checkout_query && hasFeature(env, 'donator')) {
         await handlePreCheckout(update.pre_checkout_query, env);
       } else if (update.message) {
-        await handleMessage(update.message, env);
+        await handleMessage(update.message, env, ctx);
       }
     } catch (err) {
       console.error('Webhook error:', err);

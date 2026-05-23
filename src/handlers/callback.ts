@@ -1,13 +1,15 @@
-import type { CallbackQuery, Choice, Env, GameSession, InlineKeyboardMarkup, LmsSession, TeamSession, TournamentSession } from '../types';
+import type { CallbackQuery, Choice, Env, GameSession, InlineKeyboardMarkup, LmsSession, TeamDiceWaitState, TeamSession, TournamentSession } from '../types';
 import { answerCallbackQuery, editInlineMessage, editMessage, getChatMember } from '../telegram';
 import {
   EMOJI,
+  botResolveTie,
   escHtml,
   lmsJoinKeyboard,
   lmsPickKeyboard,
   lmsWaitingText,
   nextRoundText,
   pickKeyboard,
+  resolveTeamDiceWait,
   runLmsRound,
   runRevealAndResult,
   runTeamRound,
@@ -45,6 +47,8 @@ export async function handleCallbackQuery(
     await handleExtendLms(query, env, parts[1]);
   } else if (action === 'extteam' && parts.length === 2) {
     await handleExtendTeam(query, env, parts[1]);
+  } else if (action === 'teamdice' && parts[1] === 'resolve' && parts.length === 3) {
+    await handleTeamDiceResolve(query, env, ctx, parts[2]);
   } else if (action === 'tourjoin' && parts.length === 2) {
     await handleTourJoin(query, env, parts[1]);
   } else if (action === 'tourstart' && parts.length === 2) {
@@ -273,6 +277,36 @@ async function handleExtendTeam(
       editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : memberKb)
     )
   );
+}
+
+async function handleTeamDiceResolve(
+  query: CallbackQuery,
+  env: Env,
+  ctx: ExecutionContext,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const chatId = query.message?.chat.id;
+  if (!chatId) { await answerCallbackQuery(token, query.id, '❌ Tidak bisa resolve.', true); return; }
+
+  const state = await kv.get<TeamDiceWaitState>(`chat:dice_wait:${chatId}`, 'json');
+  if (!state || state.gameId !== gameId) {
+    await answerCallbackQuery(token, query.id, '❌ Tidak ada tiebreaker aktif.', true);
+    return;
+  }
+  if (query.from.id !== state.teamSession.hostUserId) {
+    await answerCallbackQuery(token, query.id, '❌ Hanya host yang bisa resolve.', true);
+    return;
+  }
+
+  await answerCallbackQuery(token, query.id, '🎲 Bot resolve...');
+
+  let { resolvedA, resolvedB } = state;
+  if (state.tieA && !resolvedA) resolvedA = await botResolveTie(state.tieA, chatId, token);
+  if (state.tieB && !resolvedB) resolvedB = await botResolveTie(state.tieB, chatId, token);
+
+  ctx.waitUntil(resolveTeamDiceWait(token, kv, { ...state, resolvedA, resolvedB }, env, ctx));
 }
 
 async function handleTeamCancel(

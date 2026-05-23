@@ -12,6 +12,7 @@ import type {
   LmsPlayer,
   LmsRoundRecord,
   LmsSession,
+  TeamDiceWaitState,
   TeamPlayer,
   TeamSession,
   TelegramUser,
@@ -574,58 +575,71 @@ export function teamWaitingText(session: TeamSession): string {
   );
 }
 
-async function resolveTeamChoice(
-  team: TeamPlayer[],
-  chatId: number,
-  token: string
-): Promise<{ choice: Choice; notes: string[] }> {
+// Returns the majority choice if unambiguous, null if tied.
+function resolveChoiceNoDice(team: TeamPlayer[]): { choice: Choice; notes: string[] } | null {
   const votes: Record<Choice, TeamPlayer[]> = { rock: [], paper: [], scissors: [] };
   for (const p of team) if (p.choice) votes[p.choice].push(p);
   const sorted = (['rock', 'paper', 'scissors'] as Choice[])
     .filter(c => votes[c].length > 0)
     .sort((a, b) => votes[b].length - votes[a].length);
   if (sorted.length === 0) return { choice: 'rock', notes: [] };
-  // Unambiguous majority
   if (sorted.length === 1 || votes[sorted[0]].length > votes[sorted[1]].length) {
     return {
       choice: sorted[0],
       notes: sorted.slice(1).flatMap(c => votes[c].map(p => `${escHtml(p.name)} ${EMOJI[c]} tidak dipakai`)),
     };
   }
-  // Tie — dice for each tied player
+  return null;
+}
+
+// Returns all players involved in the top-count tie.
+function getTiedPlayers(team: TeamPlayer[]): Array<{ userId: number; name: string; choice: Choice }> {
+  const votes: Record<Choice, TeamPlayer[]> = { rock: [], paper: [], scissors: [] };
+  for (const p of team) if (p.choice) votes[p.choice].push(p);
+  const sorted = (['rock', 'paper', 'scissors'] as Choice[])
+    .filter(c => votes[c].length > 0)
+    .sort((a, b) => votes[b].length - votes[a].length);
+  if (sorted.length === 0) return [];
   const topCount = votes[sorted[0]].length;
-  const tiedEntries = sorted
+  return sorted
     .filter(c => votes[c].length === topCount)
-    .flatMap(c => votes[c].map(p => ({ player: p, choice: c as Choice })));
+    .flatMap(c => votes[c].map(p => ({ userId: p.userId, name: p.name, choice: c as Choice })));
+}
+
+// Bot rolls dice for tied players and returns the winner's choice.
+export async function botResolveTie(
+  tied: Array<{ userId: number; name: string; choice: Choice }>,
+  chatId: number,
+  token: string
+): Promise<{ choice: Choice; notes: string[] }> {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const rolls = await Promise.all(tiedEntries.map(async e => ({ ...e, roll: await sendDice(token, chatId) })));
+    const rolls = await Promise.all(tied.map(async e => ({ ...e, roll: await sendDice(token, chatId) })));
     const maxRoll = Math.max(...rolls.map(r => r.roll));
     const winners = rolls.filter(r => r.roll === maxRoll);
     if (winners.length === 1) {
       const w = winners[0];
       return {
         choice: w.choice,
-        notes: rolls.filter(r => r.player.userId !== w.player.userId)
-          .map(r => `${escHtml(r.player.name)} 🎲${r.roll} ${EMOJI[r.choice]} tidak dipakai`),
+        notes: rolls
+          .filter(r => r.userId !== w.userId)
+          .map(r => `${escHtml(r.name)} 🎲${r.roll} ${EMOJI[r.choice]} tidak dipakai`),
       };
     }
   }
-  // 3-tie fallback — random
-  const fallback = tiedEntries[Math.floor(Math.random() * tiedEntries.length)];
+  const fallback = tied[Math.floor(Math.random() * tied.length)];
   return { choice: fallback.choice, notes: ['Dadu seri 3x — pilihan acak'] };
 }
 
-export async function runTeamRound(
+// Core round resolution — called once both team choices are determined.
+async function executeTeamRound(
   token: string,
   kv: KVNamespace,
   session: TeamSession,
+  resA: { choice: Choice; notes: string[] },
+  resB: { choice: Choice; notes: string[] },
   env: Env,
   ctx: ExecutionContext
 ): Promise<void> {
-  const [resA, resB] = await Promise.all([
-    resolveTeamChoice(session.teamA, session.chatId, token),
-    resolveTeamChoice(session.teamB, session.chatId, token),
-  ]);
   const choiceA = resA.choice;
   const choiceB = resB.choice;
   const roundOutcome = determineWinner(choiceA, choiceB);
@@ -672,6 +686,67 @@ export async function runTeamRound(
     const pickKb = teamPickKeyboard(session.gameId);
     await Promise.allSettled(allPlayers.map(p => editInlineMessage(token, p.inlineMessageId, roundText, pickKb)));
   }
+}
+
+export async function runTeamRound(
+  token: string,
+  kv: KVNamespace,
+  session: TeamSession,
+  env: Env,
+  ctx: ExecutionContext
+): Promise<void> {
+  const resA = resolveChoiceNoDice(session.teamA);
+  const resB = resolveChoiceNoDice(session.teamB);
+
+  if (resA === null || resB === null) {
+    const tieA = resA === null ? getTiedPlayers(session.teamA) : null;
+    const tieB = resB === null ? getTiedPlayers(session.teamB) : null;
+
+    const state: TeamDiceWaitState = {
+      gameId: session.gameId,
+      chatId: session.chatId,
+      teamSession: session,
+      tieA,
+      tieB,
+      resolvedA: resA,
+      resolvedB: resB,
+    };
+    await kv.put(`chat:dice_wait:${session.chatId}`, JSON.stringify(state), { expirationTtl: 60 });
+
+    const tieLines: string[] = [];
+    if (tieA) tieLines.push(`🔵 Tim A seri: ${tieA.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
+    if (tieB) tieLines.push(`🔴 Tim B seri: ${tieB.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
+
+    const resolveKb: InlineKeyboardMarkup = {
+      inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${session.gameId}` }]],
+    };
+    await sendMessage(token, session.chatId,
+      `⚔️ <b>Seri internal!</b> Lempar 🎲 di grup sekarang!\n\n` +
+      tieLines.join('\n') +
+      `\n\n<i>Siapa yang pertama lempar dadu, pilihannya dipakai untuk timnya.</i>\n` +
+      `<i>Tidak ada yang lempar? Tekan tombol di bawah.</i>`,
+      resolveKb
+    );
+    await Promise.allSettled([...session.teamA, ...session.teamB].map(p =>
+      editInlineMessage(token, p.inlineMessageId, '⏳ Menunggu tiebreaker dadu di grup...')
+    ));
+    return;
+  }
+
+  await executeTeamRound(token, kv, session, resA, resB, env, ctx);
+}
+
+// Called once all ties are resolved (by player dice or bot fallback).
+export async function resolveTeamDiceWait(
+  token: string,
+  kv: KVNamespace,
+  state: TeamDiceWaitState,
+  env: Env,
+  ctx: ExecutionContext
+): Promise<void> {
+  if (!state.resolvedA || !state.resolvedB) return;
+  await kv.delete(`chat:dice_wait:${state.chatId}`);
+  await executeTeamRound(token, kv, state.teamSession, state.resolvedA, state.resolvedB, env, ctx);
 }
 
 // ── Tournament ────────────────────────────────────────────────────────────────
