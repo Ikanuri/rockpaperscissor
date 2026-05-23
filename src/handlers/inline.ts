@@ -39,7 +39,7 @@ import {
   waitingKeyboard,
   waitingText,
 } from '../game';
-import { hasFeature } from '../feature';
+import { hasFeature, isBetaUser } from '../feature';
 import { loadDonatorTier } from '../donator';
 
 const GAME_ID_RE = /^[A-Z2-9]{6}$/;
@@ -287,6 +287,21 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       input_message_content: { message_text: `Buka @${env.BOT_USERNAME} dan ketik /start untuk bisa main! 👋` },
     }]);
     return;
+  }
+
+  // Beta gate: when enabled, only owner + approved beta users can play inline
+  if (hasFeature(env, 'beta_gate') && String(from.id) !== env.BOT_OWNER_ID) {
+    const approved = await isBetaUser(kv, from.id, env.BOT_OWNER_ID);
+    if (!approved) {
+      await answerInlineQuery(token, query.id, [{
+        type: 'article',
+        id: 'beta_only',
+        title: '🔒 Beta access only',
+        description: 'Bot ini masih beta. Hubungi admin untuk mendapat akses.',
+        input_message_content: { message_text: '🔒 Bot ini masih dalam beta testing. Hubungi admin untuk mendapat akses.' },
+      }]);
+      return;
+    }
   }
 
   if (q === 'TOP' && hasFeature(env, 'leaderboard')) {
