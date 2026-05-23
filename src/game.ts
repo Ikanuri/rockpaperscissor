@@ -655,8 +655,8 @@ async function executeTeamRound(
   const newScoreB = session.scoreB + (roundOutcome === 'b' ? 1 : 0);
   const maxWins = getMaxWins(session.mode);
   const isDone = roundOutcome !== 'draw' && (newScoreA >= maxWins || newScoreB >= maxWins);
-  const teamALine = `🔵 Tim A ${EMOJI[choiceA]}: ${session.teamA.map(p => `${escHtml(p.name)} ${revealEmoji(p.choice!, env, configs.get(p.userId) ?? null)}`).join(', ')}`;
-  const teamBLine = `🔴 Tim B ${EMOJI[choiceB]}: ${session.teamB.map(p => `${escHtml(p.name)} ${revealEmoji(p.choice!, env, configs.get(p.userId) ?? null)}`).join(', ')}`;
+  const teamALine = `🔵 Tim A ${EMOJI[choiceA]}: ${session.teamA.map(p => `${escHtml(p.name)} ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}`).join(', ')}`;
+  const teamBLine = `🔴 Tim B ${EMOJI[choiceB]}: ${session.teamB.map(p => `${escHtml(p.name)} ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}`).join(', ')}`;
   const notesText = [...resA.notes, ...resB.notes].map(n => `<i>${n}</i>`).join('\n');
 
   if (isDone) {
