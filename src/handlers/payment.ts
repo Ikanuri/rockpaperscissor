@@ -162,12 +162,10 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
       const session = (event['data'] as { object: { metadata?: Record<string, string> } }).object;
       const meta = session.metadata;
       if (meta?.['tier'] && meta?.['user_id'] && (meta['tier'] === 'basic' || meta['tier'] === 'premium')) {
-        await activateTier(
-          env.GAME_SESSIONS,
-          parseInt(meta['user_id']),
-          meta['tier'] as Tier,
-          'stripe'
-        );
+        const stripeUserId = parseInt(meta['user_id'], 10);
+        if (!isNaN(stripeUserId)) {
+          await activateTier(env.GAME_SESSIONS, stripeUserId, meta['tier'] as Tier, 'stripe');
+        }
       }
     }
     return new Response('OK');

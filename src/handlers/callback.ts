@@ -36,11 +36,16 @@ export async function handleCallbackQuery(
   const parts = query.data.split(':');
   const action = parts[0];
 
+  const VALID_CHOICES = ['rock', 'paper', 'scissors'];
+
   if (action === 'pick' && parts.length === 3) {
+    if (!VALID_CHOICES.includes(parts[2])) { await answerCallbackQuery(env.BOT_TOKEN, query.id); return; }
     await handlePick(query, env, ctx, parts[1], parts[2] as Choice);
   } else if (action === 'lmspick' && parts.length === 3) {
+    if (!VALID_CHOICES.includes(parts[2])) { await answerCallbackQuery(env.BOT_TOKEN, query.id); return; }
     await handleLmsPick(query, env, ctx, parts[1], parts[2] as Choice);
   } else if (action === 'tpick' && parts.length === 3) {
+    if (!VALID_CHOICES.includes(parts[2])) { await answerCallbackQuery(env.BOT_TOKEN, query.id); return; }
     await handleTeamPick(query, env, ctx, parts[1], parts[2] as Choice);
   } else if (action === 'tcancel' && parts.length === 2) {
     await handleTeamCancel(query, env, parts[1]);
