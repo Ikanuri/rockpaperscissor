@@ -5,6 +5,122 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.0.0] — 2026-05-23
+
+### Added
+- `/guide` command: `guideMainMenu(lang, botUsername)` and `guideContent(mode, lang, bot)` exported from `message.ts`; 7 modes (1v1, bo, ranked, lms, team, bot, open) with bilingual walkthrough text and `<pre>` code examples
+- `handleGuide` in `callback.ts`: edits bot message to mode content + back button (`guide:main` → main menu); silent callback answer
+- `handleSetLang` in `callback.ts`: stores `lang:${userId}` in KV; edits message to confirmation; no toast popup
+- `getLang(kv, userId)` in `game.ts`: reads `lang:${userId}` KV key, returns `'id' | 'en'`
+- `setMyCommands` in `telegram.ts`: optional `language_code` parameter; `/setupcommands` now calls it twice — default scope (Indonesian) + `language_code: 'en'` (English); reply includes copy-ready BotFather template for both languages
+- Webhook secret validation in `index.ts`: checks `X-Telegram-Bot-Api-Secret-Token` header against `env.WEBHOOK_SECRET` (skipped if env var absent)
+- `DEPLOY.md`: deployment guide — branch→workflow mapping, secrets reference, KV namespace table, rollback procedure
+
+### Changed
+- Bot identity: JankensBot → GubakeBot in `payment.ts` (3 occurrences), `stripe.ts` (1), `wrangler.toml` (worker name, service name)
+- `RELEASE_DATE`: removed from `config.ts` as compile-time constant; replaced by `getReleaseMs(kv)` in `game.ts` — writes `config:release_date = Date.now()` on first call, all period index functions accept explicit `releaseMs` param
+- `welcomeText(env, lang)`: now bilingual; Team Mode listed; `/donate` removed; `/guide` and `/setlang` added
+- `/setupcommands`: user scope trimmed to 3 commands (clearhost, setlang, guide); removed donatorCommands block (was incorrectly scoped to owner chatId, shadowed by ownerCommands anyway); reply now includes BotFather template
+- User command list order: guide moved to last position (appears at bottom of Telegram popup, always visible regardless of screen height)
+
+### Fixed
+- Choice validation in `callback.ts` `handleCallbackQuery`: `parts[2]` now checked against `VALID_CHOICES` before cast to `Choice` type
+- `parseInt` in `payment.ts` Stripe webhook: added base-10 radix; added `isNaN` guard before KV lookup
+- Rate limit `kv.put` calls in callback handlers: wrapped in `ctx.waitUntil` to prevent fire-and-forget loss in Workers
+- `/adddonator` not updating `donators:ids` KV set
+
+---
+
+## [1.9.0] — 2026-05-22
+
+### Added
+- **LMS**: `LmsPlayer`, `LmsRoundRecord`, `LmsSession` types; `runLmsElimination` (2-choice eliminates losers, 1/3-choice → chaos re-round), `lmsPickKeyboard`, `lmsHostKeyboard`, `lmsJoinKeyboard`, `lmsWaitingText`, `runLmsRound`; `extlms:` callback extends TTL; `lmsforce:` callback force-starts with ≥2 players; reveal phase (3s per-player emoji before round result); `lms:${gameId}` KV key (TTL 300s playing, 600s waiting); inline trigger `@bot LMS [N]` (default 4, max 8)
+- **Team Mode**: `TeamPlayer`, `TeamSession` types; `teamPickKeyboard`, `teamWaitingKeyboard`, `teamWaitingText`, `resolveTeamChoice` (majority vote → `sendDice` tiebreaker in group chat, highest roll wins), `runTeamRound`; `tpick:`, `tcancel:`, `extteam:`, `teamdice:resolve` callbacks; `/team NvN` group command writes `team_chat:${userId}` (TTL 300s); join A/B via `switch_inline_query_current_chat`; `getChatMember` membership check before joining; per-player custom emoji in result
+- **Tournament**: `TournamentPlayer`, `TournamentMatch`, `TournamentSession` types; `tournamentSignupKeyboard`, `tournamentSignupText`, `startTournamentBracket` (single-elimination, bye padding for odd counts); `/tournament N` group command; `tourjoin:` and `tourstart:` callbacks; auto-start when full; `getChatMember` membership check; `GameSession` extended with optional `tournamentId`, `tournamentMatchId`; `sendMessageForId`, `editMessage` added to `telegram.ts`
+- **vs Bot**: `@bot BOT` creates instant single-player game; bot picks via `Math.random()`; stats recorded (W/L/D); ELO unchanged; `BOT` added to `RESERVED_CODES`
+- **Open Challenge**: `OpenChallenge` type; `open:list` KV key (JSON array, TTL 600s, max 5 entries); `handleInlineQuery` renders available challenges + create option for `@bot OPEN`; join routes through regular 6-char game join; `OPEN` added to `RESERVED_CODES`
+- **VS @username**: `VsStats` type; `@bot VS @username` reads `user:by_username:${username}` reverse index + `stats:${userId}:vs:${opponentId}`; renders head-to-head W/L/D
+- **LAST replay**: `LastGameRecord` type; `stats:${userId}:last` KV key written after each `finishGame`; `@bot LAST` renders last game summary
+- **Group mode** (`group_mode` feature flag): `handleGroupMessage` routes `group`/`supergroup` updates; bot-added event writes `group:settings:${chatId}`; bot-kicked deletes it; `new_chat_members` sends welcome mention; `/announce` writes `group:announce:${userId}` (TTL 300s); `maybeAnnounceGame` fires via `ctx.waitUntil` after game creation; `/leaderboard` posts global board as message; `/groupstats` posts from `group:score:${chatId}`; `/poll` and `/dice` commands using native Telegram API; `updatePinnedScoreboard` edits/creates pinned message after `finishGame`
+- Expiry warning: lazy-triggered in `handleInlineQuery` at 8 min elapsed; `warn:sent:${gameId}` flag (TTL 60s) prevents duplicate; fires to group via `group:announce` key
+- `refresh_button` feature flag: `waitingKeyboard(gameId, joinQuery?, showRefresh?)` emits `refresh:${gameId}` button; `handleRefresh` re-edits message with fresh timestamp
+
+### Changed
+- `/clearhost` now scans `hostgames:${userId}` KV set and cancels LMS and Team sessions in addition to 1v1/BO
+- `TeamDiceWaitState` TTL raised 60s → 300s
+- LMS and Team rate limit counter decremented when game transitions to playing (previously only on cancel/expire)
+
+---
+
+## [1.8.0] — 2026-05-22
+
+### Added
+- Ranked mode: `ranked?: boolean` on `GameSession`; `@bot RANKED` sets flag; ELO updates only when `ranked` is true; 🏅 badge in `waitingText`; `ChainMeta.ranked` propagates flag across rematch chain
+- Achievements: `UserStats.achievements: string[]`; 9 conditions checked in `finishGame` (first_win, win_10/50/100, games_10/100, streak_5/10/20); DM sent on first unlock via `ctx.waitUntil`; count shown in `statsResult`
+- Streak notifications: `UserStats.lastNotifiedStreak`; DM on milestones [5,10,20,50,100]; fires from `finishGame` via `ctx.waitUntil`; no re-notification until next milestone
+- Streak Shield (Premium): `UserStats.shieldUsedDayIndex`; absorbs one loss per day without resetting `currentStreak`; checked in `updateStats` when tier = Premium
+
+### Changed
+- ELO update gated to ranked games only; non-ranked games leave `UserStats.rating` unchanged
+- `runRevealAndResult`, `finishGame`: accept `ctx: ExecutionContext` for fire-and-forget DMs
+- `finishGame`: donator record read in parallel with lifetime stats via `Promise.all`
+
+---
+
+## [1.7.0] — 2026-05-22
+
+### Added
+- `GameMode`: `'best_of_5' | 'best_of_7'` variants
+- `getMaxRounds(mode)`, `getMaxWins(mode)`: derive match parameters from `GameMode`; no hardcoded values in `runRevealAndResult`
+- `parseMode(str)`: converts `'BO3'|'BO5'|'BO7'` → `GameMode`
+- `isCustomCode(str)`: predicate to distinguish user custom codes from reserved keywords
+- `RESERVED_CODES`: `Set<string>` blocking collision (`BOT`, `OPEN`, `LMS`, `RANKED`, `TEAM`, `LAST`, `VS`, `BO3`, `BO5`, `BO7`, `TOP`, `STATS`)
+- `UserStats.rating?: number`: ELO rating; K=16; calculated in `updateStats` when `opponentRating` provided
+- `gameHeader(mode)`: `MODE_LABEL` map renders correct label for all game modes
+- Custom game code (Premium): `handleInlineQuery` validates `isCustomCode()` + tier Premium + KV `game:${code}` existence before allowing; Premium gate skipped for joining an existing custom-code game
+
+### Changed
+- `GAME_ID_RE`, `CHAIN_CODE_RE`: updated to `{6}` chars
+- `PRIVATE_RE`: extended to BO3/BO5/BO7 variants
+
+---
+
+## [1.6.0] — 2026-05-22
+
+### Added
+- `getDayIndex(releaseMs, now?)`, `getWeekIndex(releaseMs, now?)`, `getMonthIndex(releaseMs, now?)`: period indexes relative to release date anchor (replace `getDayKey`/`getWeekKey`)
+- `UserStats` period fields: `dayIndex`, `weekIndex`, `monthIndex`; per-period `dayWins/Losses/Draws/Streak`, `weekWins/Losses/Draws/Streak`, `monthWins/Losses/Draws/Streak`; `longestDayStreak`, `longestWeekStreak`, `longestMonthStreak`; `longestVsStreak`, `longestVsOpponentId`, `longestVsOpponentName`
+- `stats:${userId}:vs:${opponentId}` KV key: per-opponent `currentStreak`, `longestStreak`
+- `generateId`: 4 → 6 bytes (entropy 20 → 30 bits)
+- Force-start gate in `handleInlineQuery`: returns single "Start bot first" result if `user:info:${from.id}` absent
+- `user:info:${userId}` cache write in `handleChosenInlineResult` for all game paths
+
+### Changed
+- `updateStats()`: 3+3 KV ops → 2+2 per player; all period stats embedded in `stats:${userId}` JSON key
+- `statsResult()`: rewritten for period streaks + vs-opponent streak with username/ID display
+- `STATS` inline query: single KV read; `stats:${userId}:week:*` keys obsolete
+
+---
+
+## [1.5.0] — 2026-05-22
+
+### Added
+- Per-player emoji reveal: each player's result uses their own config (not host's); `choiceDisplay(choice, config)` helper
+- Standard emoji fallback bracket: `🍎 (✊)` when custom emoji differs from default; plain emoji otherwise
+- Donator tier enforcement: `/setemoji`, `/setsticker`, `/setthumb` require Basic/Premium tier
+- `/activatetier`: bulk (multiple user IDs), flexible duration (`7d`, `60m`, plain int for days); DM notification on activation with tier, expiry UTC + WIB, benefits
+- `/donatorlist`: all active donators with name, username, monospace ID, tier badge, expiry
+- `/removedonator`: bulk removal
+- `/betalist`: updated to name + username + monospace ID format (matches `/donatorlist`)
+- `/riverwas`: all commands organized by role
+- `/setupcommands`: registers scoped command lists via `setMyCommands`
+- `config:suspend:${userId}` KV key: suspends donator config on tier expiry
+
+### Fixed
+- `/adddonator` not updating `donators:ids` KV set
+
+---
+
 ## [1.4.0] — 2026-05-21
 
 ### Added

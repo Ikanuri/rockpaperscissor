@@ -4,6 +4,279 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.0.0 — 23 Mei 2026
+
+### ✨ Fitur Baru
+
+**🌏 /setlang — Pilih Bahasa Bot**
+
+Ketik `/setlang` → pilih 🇮🇩 Bahasa Indonesia atau 🇬🇧 English. Semua pesan bot (welcome, panduan, konfirmasi) mengikuti pilihan ini secara otomatis.
+
+---
+
+**📖 /guide — Panduan Mode Game Interaktif**
+
+Ketik `/guide` → muncul menu 7 mode. Tap salah satu → penjelasan lengkap: cara main, contoh command dalam code block, dan tips. Ada tombol ← Kembali untuk balik ke menu utama.
+
+Mode yang tersedia di panduan: 1v1, BO3/5/7, Ranked, Last Man Standing, Team, vs Bot, Open Challenge.
+
+---
+
+**🎮 Bot Pindah ke @GubakeBot**
+
+Bot berganti nama dari JankensBot ke **GubakeBot**. Semua fitur sama persis, hanya nama dan username yang berubah.
+
+---
+
+### 🔧 Perubahan
+
+- **Command list** diperbarui: hanya `/clearhost`, `/setlang`, `/guide` yang tampil di autocomplete. `/donate` sengaja disembunyikan sementara — fitur tetap bisa diakses, hanya tidak ditampilkan di menu.
+- **Welcome message** diperbarui: mode Team ditambahkan ke daftar, `/donate` dihilangkan, `/guide` dan `/setlang` tercantum.
+- **Deskripsi command** kini otomatis tampil dalam bahasa yang sesuai: user dengan app Telegram bahasa Inggris dapat deskripsi English, lainnya dapat Bahasa Indonesia.
+
+---
+
+## v1.9.0 — 22 Mei 2026
+
+### ✨ Mode Game Baru
+
+**⚔️ Last Man Standing (LMS)**
+
+3–8 pemain, eliminasi tiap ronde. Terakhir tersisa = pemenang.
+
+```
+@GubakeBot LMS      → 4 pemain (default)
+@GubakeBot LMS 6    → 6 pemain
+@GubakeBot LMS 8    → 8 pemain
+```
+
+Logika ronde:
+- 2 jenis senjata muncul → yang kalah eliminasi
+- 1 atau 3 jenis muncul → **Chaos round**, semua main ulang
+
+Sebelum hasil tiap ronde, tiap pemain lihat emoji pilihan mereka 3 detik. Host bisa **Force Start** kalau sudah ada ≥2 pemain tanpa menunggu slot penuh.
+
+---
+
+**🤝 Team Mode (NvN)**
+
+Dua tim berhadapan. Pilihan resmi tim = suara terbanyak anggota. Kalau 50/50 → bot kirim 🎲 dadu di grup, roll tertinggi menang.
+
+Cara main:
+1. Ketik `/team 2v2` di grup (bot simpan grup ini 5 menit)
+2. Buka inline `@GubakeBot TEAM 2v2`
+3. Anggota join lewat tombol 🤝 Tim A atau ⚔️ Tim B
+
+Mendukung 1v1 / 2v2 / 3v3 / 4v4. Custom emoji per pemain tampil di hasil tim.
+
+---
+
+**🤖 vs Bot**
+
+Main instan tanpa menunggu lawan. Bot pilih senjata acak. Stats tetap tercatat (W/L/D) tapi tidak memengaruhi ELO.
+
+```
+@GubakeBot BOT
+@GubakeBot BOT BO3
+```
+
+---
+
+**🌐 Open Challenge**
+
+Buat game terbuka — siapa saja yang ketik `@GubakeBot OPEN` dalam 9 menit bisa join tanpa perlu tahu kodenya.
+
+```
+@GubakeBot OPEN
+@GubakeBot OPEN BO3
+```
+
+Kalau ada challenge terbuka di popup, pilih "Join [nama]" untuk langsung lawan.
+
+---
+
+**📊 VS @username — Statistik Head-to-Head**
+
+Lihat rekor kamu vs seseorang secara spesifik:
+
+```
+@GubakeBot VS @username
+```
+
+Menampilkan W/L/D kamu vs mereka.
+
+---
+
+**📺 LAST — Replay Game Terakhir**
+
+Lihat ringkasan game terakhirmu:
+
+```
+@GubakeBot LAST
+```
+
+---
+
+**🏆 Tournament**
+
+Bot di-add ke grup → ketik `/tournament 8` (atau jumlah pemain lain) → peserta klik Join → host mulai bracket → pertandingan berjalan otomatis satu babak per babak sampai ada pemenang.
+
+---
+
+### 🏘️ Fitur Grup (Bot Di-Add ke Grup)
+
+Setelah bot di-add sebagai member grup, fitur tambahan aktif:
+
+- **📢 Pengumuman game** — ketik `/announce` sebelum buka inline, bot kirim notifikasi ke grup saat game dibuat
+- **👋 Welcome otomatis** — bot menyapa member baru yang join grup
+- **📊 /leaderboard** di grup — tampil sebagai pesan biasa (lebih panjang dari popup inline)
+- **📌 Papan skor pinned** — otomatis ter-edit tiap game selesai
+- **📈 /groupstats** — statistik khusus grup (total game, champion minggu ini, dll.)
+- **🗳️ /poll** dan **🎲 /dice** — buat polling atau kirim dadu native Telegram
+- **✅ Membership check** — verifikasi user masih di grup sebelum bisa join Team game atau Tournament
+
+---
+
+### 🔧 Perubahan
+
+- `/clearhost` sekarang juga batalkan game LMS dan Team aktif (sebelumnya hanya 1v1/BO)
+- Tombol keyboard dipersingkat teksnya supaya muat di semua ukuran layar
+- Waktu ekspiry ditampilkan di pesan tunggu LMS dan Team
+- Peringatan ekspiry dikirim ke grup 1 menit sebelum game kadaluarsa
+
+---
+
+## v1.8.0 — 22 Mei 2026
+
+### ✨ Fitur Baru
+
+**🏅 Ranked Mode**
+
+Game yang memengaruhi ELO. Badge 🏅 di pesan tunggu. Bisa dikombinasi dengan semua mode lain:
+
+```
+@GubakeBot RANKED
+@GubakeBot RANKED BO3
+@GubakeBot RANKED BO5 @budi
+```
+
+Game biasa (non-ranked) tidak mengubah ELO sama sekali.
+
+---
+
+**🏆 Achievements / Badge**
+
+9 pencapaian yang bisa di-unlock:
+
+| Pencapaian | Syarat |
+|-----------|--------|
+| First Win | Menang pertama kali |
+| Winning Streak | Menang 5× beruntun |
+| On Fire | Menang 10× beruntun |
+| Unstoppable | Menang 20× beruntun |
+| Veteran | Main 10 game |
+| Seasoned | Main 100 game |
+| Champion | 10 kemenangan total |
+| Elite | 50 kemenangan total |
+| Legend | 100 kemenangan total |
+
+Bot kirim DM saat pencapaian pertama kali di-unlock. Total badge yang terkumpul tampil di stats popup.
+
+---
+
+**🎖️ Streak Shield** *(Premium)*
+
+Satu kali per hari, kekalahan tidak memutus streak kamu. Shield aktif otomatis selama tier Premium berlaku. Setelah shield terpakai dalam sehari, kalah berikutnya baru memutus streak.
+
+---
+
+**🔔 Notifikasi Streak**
+
+Bot kirim DM saat kamu capai milestone streak: **5×, 10×, 20×, 50×, 100×** win beruntun.
+
+---
+
+## v1.7.0 — 22 Mei 2026
+
+### ✨ Fitur Baru
+
+**🏆 BO5 / BO7 — Seri Lebih Panjang**
+
+```
+@GubakeBot BO5    → menang 3 ronde dulu
+@GubakeBot BO7    → menang 4 ronde dulu
+@GubakeBot RANKED BO5
+@GubakeBot BO7 @budi
+```
+
+---
+
+**⚡ ELO Rating**
+
+Rating dimulai dari **1000** saat pertama main Ranked. Naik kalau menang vs lawan rating lebih tinggi, turun kalau kalah vs lawan rating lebih rendah. Draw ubah rating sedikit.
+
+Tampil di stats popup:
+
+```
+⚡ ELO: 1047  (+47)
+```
+
+---
+
+**🔑 Custom Game Code** *(Premium)*
+
+User Premium bisa pakai kode sendiri sebagai ID game:
+
+```
+@GubakeBot HARIMAU
+@GubakeBot RAVEN BO3
+@GubakeBot RANKED BADAI
+```
+
+Kode tidak boleh sama dengan command yang sudah ada (`BOT`, `OPEN`, `LMS`, dll.). Kalau kode sedang dipakai orang lain, bot minta kode lain.
+
+---
+
+## v1.6.0 — 22 Mei 2026
+
+### ✨ Fitur Baru
+
+**📊 Streak per Periode**
+
+Statistik `@GubakeBot STATS` sekarang menampilkan streak harian, mingguan, dan bulanan:
+
+```
+🔥 Streak
+Sekarang: 3 win beruntun
+Terpanjang: 7×
+
+  📅 Hari ini: 3×
+  📅 Minggu ini: 5×
+  📅 Bulan ini: 7×
+```
+
+Sub-baris hanya muncul kalau nilainya > 0. Periode dihitung dari tanggal rilis bot.
+
+---
+
+**🏅 Streak vs Satu Lawan**
+
+Rekam streak kemenangan beruntun khusus vs satu lawan tertentu:
+
+```
+🏅 Vs satu lawan: 6× (vs Citra · @citra99 · 987654)
+```
+
+---
+
+**🔒 Wajib /start Sebelum Main**
+
+Harus pernah kirim `/start` ke bot dulu sebelum bisa buka popup inline. Kalau belum, popup menampilkan arahan untuk DM bot.
+
+Ini memastikan nama dan username semua pemain ter-cache dengan benar untuk tampilan stats dan anti-cheat.
+
+---
+
 ## v1.5.0 — 22 Mei 2026
 
 ### ✨ Fitur Baru (Beta)
