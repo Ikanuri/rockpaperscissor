@@ -243,3 +243,15 @@ export async function getChatMember(
     return null;
   }
 }
+
+export function pinChatMessage(
+  token: string,
+  chatId: number,
+  messageId: number
+): Promise<void> {
+  return call(token, 'pinChatMessage', {
+    chat_id: chatId,
+    message_id: messageId,
+    disable_notification: true,
+  });
+}

@@ -18,7 +18,7 @@ import type {
   UserStats,
   VsStats,
 } from '../types';
-import { answerInlineQuery, editInlineMessage, sendMessage } from '../telegram';
+import { answerInlineQuery, editInlineMessage, getChatMember, sendMessage } from '../telegram';
 import {
   EMOJI,
   determineWinner,
@@ -618,13 +618,33 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       return;
     }
 
-    if (Date.now() - session.createdAt > 9 * 60 * 1000) {
+    const ageMs = Date.now() - session.createdAt;
+    if (ageMs > 8 * 60 * 1000) {
+      const warnKey = `warn:sent:${session.gameId}`;
+      const [alreadyWarned, groupChatIdStr] = await Promise.all([
+        kv.get(warnKey),
+        kv.get(`group:game:${session.gameId}`),
+      ]);
+      if (!alreadyWarned && groupChatIdStr) {
+        const warnChatId = parseInt(groupChatIdStr);
+        if (!isNaN(warnChatId)) {
+          void Promise.all([
+            sendMessage(token, warnChatId,
+              `⚠️ Game <b>${escHtml(session.hostName)}</b> expire dalam ~1 menit! Masih ada yang mau join? Ketik <code>@${env.BOT_USERNAME} ${session.gameId}</code>`
+            ),
+            kv.put(warnKey, '1', { expirationTtl: 120 }),
+          ]);
+        }
+      }
+    }
+
+    if (ageMs > 9 * 60 * 1000) {
       const joinQuery = session.chainId ?? undefined;
       await editInlineMessage(
         token,
         session.hostInlineMessageId,
         waitingText(session, env.BOT_USERNAME, Date.now()),
-        waitingKeyboard(session.gameId, joinQuery)
+        waitingKeyboard(session.gameId, joinQuery, hasFeature(env, 'refresh_button'))
       );
     }
 
@@ -670,7 +690,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       if (Date.now() - existingC.createdAt > 9 * 60 * 1000) {
         await editInlineMessage(token, existingC.hostInlineMessageId,
           waitingText(existingC, env.BOT_USERNAME, Date.now()),
-          waitingKeyboard(existingC.gameId)
+          waitingKeyboard(existingC.gameId, undefined, hasFeature(env, 'refresh_button'))
         );
       }
       const configCJ = hasFeature(env, 'gif_thumb') ? await loadConfig(kv, from.id, env) : null;
@@ -942,6 +962,11 @@ export async function handleChosenInlineResult(
       await editInlineMessage(token, result.inline_message_id, '❌ Team game tidak ditemukan.');
       return;
     }
+    const member = await getChatMember(token, teamSess.chatId, result.from.id);
+    if (!member || ['left', 'kicked'].includes(member.status)) {
+      await editInlineMessage(token, result.inline_message_id, '❌ Kamu tidak ada di grup ini.');
+      return;
+    }
     const alreadyIn = [...teamSess.teamA, ...teamSess.teamB].some(p => p.userId === result.from.id);
     if (alreadyIn) {
       await editInlineMessage(token, result.inline_message_id, teamWaitingText(teamSess));
@@ -1014,7 +1039,7 @@ export async function handleChosenInlineResult(
       kv.put(rateKeyOp, String(countOp + 1), { expirationTtl: 600 }),
     ]);
     await editInlineMessage(token, result.inline_message_id,
-      waitingText(openSession, env.BOT_USERNAME), waitingKeyboard(openGameId)
+      waitingText(openSession, env.BOT_USERNAME), waitingKeyboard(openGameId, undefined, hasFeature(env, 'refresh_button'))
     );
     ctx.waitUntil(maybeAnnounceGame(token, kv, openSession, env.BOT_USERNAME));
     return;
@@ -1069,7 +1094,7 @@ export async function handleChosenInlineResult(
         token,
         result.inline_message_id,
         waitingText(session, env.BOT_USERNAME),
-        waitingKeyboard(newGameId, chainCode)
+        waitingKeyboard(newGameId, chainCode, hasFeature(env, 'refresh_button'))
       );
     } else {
       const session = await kv.get<GameSession>(`game:${activeGameId}`, 'json');
@@ -1138,7 +1163,7 @@ export async function handleChosenInlineResult(
       token,
       result.inline_message_id,
       waitingText(session, env.BOT_USERNAME),
-      waitingKeyboard(gameId)
+      waitingKeyboard(gameId, undefined, hasFeature(env, 'refresh_button'))
     );
     ctx.waitUntil(maybeAnnounceGame(token, kv, session, env.BOT_USERNAME));
     return;
@@ -1181,7 +1206,7 @@ export async function handleChosenInlineResult(
     await kv.put(rateKeyR, String(countR + 1), { expirationTtl: 600 });
     await editInlineMessage(token, result.inline_message_id,
       waitingText(rankedSession, env.BOT_USERNAME),
-      waitingKeyboard(gameId)
+      waitingKeyboard(gameId, undefined, hasFeature(env, 'refresh_button'))
     );
     ctx.waitUntil(maybeAnnounceGame(token, kv, rankedSession, env.BOT_USERNAME));
     return;
@@ -1319,7 +1344,7 @@ export async function handleChosenInlineResult(
     await kv.put(rateKeyCustom, String(countCustom + 1), { expirationTtl: 600 });
     await editInlineMessage(token, result.inline_message_id,
       waitingText(customSession, env.BOT_USERNAME),
-      waitingKeyboard(q)
+      waitingKeyboard(q, undefined, hasFeature(env, 'refresh_button'))
     );
     ctx.waitUntil(maybeAnnounceGame(token, kv, customSession, env.BOT_USERNAME));
     return;
@@ -1361,7 +1386,7 @@ export async function handleChosenInlineResult(
     token,
     result.inline_message_id,
     waitingText(session, env.BOT_USERNAME),
-    waitingKeyboard(gameId)
+    waitingKeyboard(gameId, undefined, hasFeature(env, 'refresh_button'))
   );
   ctx.waitUntil(maybeAnnounceGame(token, kv, session, env.BOT_USERNAME));
 }

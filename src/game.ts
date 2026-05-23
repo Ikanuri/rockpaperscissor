@@ -21,7 +21,7 @@ import type {
   UserStats,
   VsStats,
 } from './types';
-import { editInlineMessage, sendDice, sendMessage } from './telegram';
+import { editInlineMessage, editMessage, pinChatMessage, sendDice, sendMessage, sendMessageForId } from './telegram';
 import { loadConfig, RELEASE_DATE } from './config';
 import { hasFeature } from './feature';
 
@@ -103,10 +103,13 @@ export function pickKeyboard(gameId: string): InlineKeyboardMarkup {
   };
 }
 
-export function waitingKeyboard(gameId: string, joinQuery?: string): InlineKeyboardMarkup {
+export function waitingKeyboard(gameId: string, joinQuery?: string, showRefresh = false): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
-      [{ text: '🎮 Join', switch_inline_query_current_chat: joinQuery ?? gameId }],
+      [
+        { text: '🎮 Join', switch_inline_query_current_chat: joinQuery ?? gameId },
+        ...(showRefresh ? [{ text: '🔄', callback_data: `refresh:${gameId}` }] : []),
+      ],
       [{ text: '❌ Cancel', callback_data: `cancel:${gameId}` }],
     ],
   };
@@ -802,6 +805,34 @@ async function sendGroupStreakMention(
   );
 }
 
+async function updatePinnedScoreboard(
+  token: string,
+  kv: KVNamespace,
+  chatId: number
+): Promise<void> {
+  const [board, settings] = await Promise.all([
+    kv.get<LeaderboardEntry[]>(`group:score:${chatId}`, 'json'),
+    kv.get<{ pinnedMsgId?: number }>(`group:settings:${chatId}`, 'json'),
+  ]);
+  if (!board || board.length === 0) return;
+  const lines = board.slice(0, 10).map((e, i) =>
+    `${i + 1}. ${escHtml(e.name)} — ${e.wins}W / ${e.total - e.wins}L`
+  );
+  const updateTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const text = `📊 <b>SCOREBOARD GRUP</b>\nUpdate: ${updateTime} UTC\n━━━━━━━━━━━━━━\n${lines.join('\n')}`;
+  if (settings?.pinnedMsgId) {
+    await editMessage(token, chatId, settings.pinnedMsgId, text);
+  } else {
+    const msgId = await sendMessageForId(token, chatId, text);
+    if (msgId) {
+      await Promise.all([
+        kv.put(`group:settings:${chatId}`, JSON.stringify({ ...(settings ?? {}), pinnedMsgId: msgId })),
+        pinChatMessage(token, chatId, msgId),
+      ]);
+    }
+  }
+}
+
 async function finishGame(
   token: string,
   kv: KVNamespace,
@@ -963,6 +994,10 @@ async function finishGame(
       ? { userId: session.opponentUserId!, name: session.opponentName! }
       : { userId: session.hostUserId, name: session.hostName };
     ctx.waitUntil(advanceTournament(token, kv, session.tournamentId, session.tournamentMatchId, tWinner, tLoser, matchOutcome === 'draw', env.BOT_USERNAME));
+  }
+
+  if (groupChatId && !isNaN(groupChatId) && hasFeature(env, 'group_mode')) {
+    ctx.waitUntil(updatePinnedScoreboard(token, kv, groupChatId));
   }
 }
 

@@ -1,5 +1,5 @@
 import type { CallbackQuery, Choice, Env, GameSession, LmsSession, TeamSession, TournamentSession } from '../types';
-import { answerCallbackQuery, editInlineMessage, editMessage } from '../telegram';
+import { answerCallbackQuery, editInlineMessage, editMessage, getChatMember } from '../telegram';
 import {
   EMOJI,
   escHtml,
@@ -13,6 +13,8 @@ import {
   teamPickKeyboard,
   tournamentSignupKeyboard,
   tournamentSignupText,
+  waitingKeyboard,
+  waitingText,
 } from '../game';
 import { hasFeature } from '../feature';
 import { handleDonateCallback } from './payment';
@@ -41,6 +43,8 @@ export async function handleCallbackQuery(
     await handleTourStart(query, env, ctx, parts[1]);
   } else if (action === 'cancel' && parts.length === 2) {
     await handleCancel(query, env, parts[1]);
+  } else if (action === 'refresh' && parts.length === 2) {
+    await handleRefresh(query, env, parts[1]);
   } else if (action === 'donate' && hasFeature(env, 'donator')) {
     await handleDonateCallback(query, env);
   } else {
@@ -252,6 +256,12 @@ async function handleTourJoin(
     return;
   }
 
+  const memberCheck = await getChatMember(token, tournament.chatId, query.from.id);
+  if (!memberCheck || ['left', 'kicked'].includes(memberCheck.status)) {
+    await answerCallbackQuery(token, query.id, '❌ Kamu tidak ada di grup tournament.', true);
+    return;
+  }
+
   const updated: TournamentSession = {
     ...tournament,
     players: [...tournament.players, { userId: query.from.id, name: query.from.first_name }],
@@ -302,6 +312,25 @@ async function handleTourStart(
   const paddedTournament: TournamentSession = { ...tournament, players };
   await answerCallbackQuery(token, query.id, '🚀 Bracket dimulai!');
   ctx.waitUntil(startTournamentBracket(token, kv, paddedTournament, env.BOT_USERNAME));
+}
+
+async function handleRefresh(
+  query: CallbackQuery,
+  env: Env,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const session = await env.GAME_SESSIONS.get<GameSession>(`game:${gameId}`, 'json');
+  if (!session || session.status !== 'waiting') {
+    await answerCallbackQuery(token, query.id, '❌ Game tidak aktif.', true);
+    return;
+  }
+  const joinQuery = session.chainId ?? undefined;
+  const showRefresh = hasFeature(env, 'refresh_button');
+  await Promise.all([
+    editInlineMessage(token, query.inline_message_id!, waitingText(session, env.BOT_USERNAME), waitingKeyboard(session.gameId, joinQuery, showRefresh)),
+    answerCallbackQuery(token, query.id, '🔄 Refreshed!'),
+  ]);
 }
 
 async function handleCancel(
