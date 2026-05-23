@@ -23,7 +23,7 @@ import type {
   VsStats,
 } from './types';
 import { editInlineMessage, editMessage, pinChatMessage, sendDice, sendMessage, sendMessageForId } from './telegram';
-import { loadConfig, RELEASE_DATE } from './config';
+import { loadConfig } from './config';
 import { hasFeature, isBetaUser } from './feature';
 
 export const EMOJI: Record<Choice, string> = {
@@ -195,16 +195,25 @@ export function getMaxWins(mode: GameMode): number {
   return 1;
 }
 
-export function getDayIndex(now = Date.now()): number {
-  return Math.floor((now - RELEASE_DATE.getTime()) / 86_400_000);
+// Auto-set to Date.now() on first call if not in KV — no manual config needed.
+export async function getReleaseMs(kv: KVNamespace): Promise<number> {
+  const stored = await kv.get('config:release_date');
+  if (stored) return Number(stored);
+  const now = Date.now();
+  await kv.put('config:release_date', String(now));
+  return now;
 }
 
-export function getWeekIndex(now = Date.now()): number {
-  return Math.floor((now - RELEASE_DATE.getTime()) / (7 * 86_400_000));
+export function getDayIndex(releaseMs: number, now = Date.now()): number {
+  return Math.floor((now - releaseMs) / 86_400_000);
 }
 
-export function getMonthIndex(now = Date.now()): number {
-  const r = RELEASE_DATE;
+export function getWeekIndex(releaseMs: number, now = Date.now()): number {
+  return Math.floor((now - releaseMs) / (7 * 86_400_000));
+}
+
+export function getMonthIndex(releaseMs: number, now = Date.now()): number {
+  const r = new Date(releaseMs);
   const d = new Date(now);
   return (d.getUTCFullYear() - r.getUTCFullYear()) * 12 + (d.getUTCMonth() - r.getUTCMonth());
 }
@@ -313,9 +322,10 @@ async function updateStats(
   preloadedLifetime?: UserStats | null
 ): Promise<UpdateStatsResult> {
   const now = Date.now();
-  const curDay = getDayIndex(now);
-  const curWeek = getWeekIndex(now);
-  const curMonth = getMonthIndex(now);
+  const releaseMs = await getReleaseMs(kv);
+  const curDay = getDayIndex(releaseMs, now);
+  const curWeek = getWeekIndex(releaseMs, now);
+  const curMonth = getMonthIndex(releaseMs, now);
 
   const [lifetime, vsOpp] = await Promise.all([
     preloadedLifetime !== undefined ? Promise.resolve(preloadedLifetime) : kv.get<UserStats>(`stats:${userId}`, 'json'),
@@ -484,7 +494,7 @@ async function updateDailyLeaderboard(
   op: { userId: number; name: string },
   outcome: 'a' | 'b' | 'draw'
 ): Promise<void> {
-  const dayIdx = getDayIndex();
+  const dayIdx = getDayIndex(await getReleaseMs(kv));
   const key = `daily:${dayIdx}:leaderboard`;
   const board = (await kv.get<LeaderboardEntry[]>(key, 'json')) ?? [];
   for (const [user, won] of [[host, outcome === 'a'], [op, outcome === 'b']] as Array<[{ userId: number; name: string }, boolean]>) {

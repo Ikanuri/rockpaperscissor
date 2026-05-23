@@ -5,7 +5,7 @@ import { handleMessage } from './handlers/message';
 import { handlePreCheckout, handleStripeWebhook } from './handlers/payment';
 import { hasFeature } from './feature';
 import { sendMessage } from './telegram';
-import { getDayIndex, escHtml } from './game';
+import { getDayIndex, getReleaseMs, escHtml } from './game';
 
 async function handleDailyChallenge(env: Env): Promise<void> {
   const chatIdStr = await env.GAME_SESSIONS.get('config:daily_challenge_chat');
@@ -13,7 +13,7 @@ async function handleDailyChallenge(env: Env): Promise<void> {
   const chatId = parseInt(chatIdStr);
   if (isNaN(chatId)) return;
 
-  const yesterdayIdx = getDayIndex() - 1;
+  const yesterdayIdx = getDayIndex(await getReleaseMs(env.GAME_SESSIONS)) - 1;
   const yesterdayBoard = yesterdayIdx >= 0
     ? await env.GAME_SESSIONS.get<LeaderboardEntry[]>(`daily:${yesterdayIdx}:leaderboard`, 'json')
     : null;
