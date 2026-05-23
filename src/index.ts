@@ -38,6 +38,11 @@ export default {
 
     if (request.method !== 'POST') return new Response('OK');
 
+    if (env.WEBHOOK_SECRET) {
+      const incoming = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
+      if (incoming !== env.WEBHOOK_SECRET) return new Response('Unauthorized', { status: 401 });
+    }
+
     try {
       const update = await request.json<TelegramUpdate>();
 

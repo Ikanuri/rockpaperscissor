@@ -863,12 +863,12 @@ export async function handleChosenInlineResult(
   const choice = resolveChoice(result.result_id);
 
   // Keep user info cache fresh even for users who haven't DM'd the bot
-  kv.put(`user:info:${result.from.id}`, JSON.stringify({
+  ctx.waitUntil(kv.put(`user:info:${result.from.id}`, JSON.stringify({
     name: result.from.first_name,
     username: result.from.username ?? null,
-  }));
+  })));
   if (result.from.username) {
-    kv.put(`user:by_username:${result.from.username.toLowerCase()}`, String(result.from.id));
+    ctx.waitUntil(kv.put(`user:by_username:${result.from.username.toLowerCase()}`, String(result.from.id)));
   }
 
   // Instant game vs Bot
@@ -999,7 +999,7 @@ export async function handleChosenInlineResult(
       if (lmsIsFull) {
         // Free rate limit slot — game is now active, same pattern as 1v1 opponent-join
         const lmsRateKey = `ratelimit:${lmsJoin.hostUserId}`;
-        const lmsRateCur = parseInt(await kv.get(lmsRateKey) ?? '1');
+        const lmsRateCur = parseInt(await kv.get(lmsRateKey) ?? '0');
         if (lmsRateCur > 0) await kv.put(lmsRateKey, String(lmsRateCur - 1), { expirationTtl: 600 });
         ctx.waitUntil(runLmsRound(token, kv, updatedLms, ctx, env));
       } else {
@@ -1085,7 +1085,7 @@ export async function handleChosenInlineResult(
     if (isFull) {
       // Free host's rate limit slot — game is now active
       const teamRateKey = `ratelimit:${teamSess.hostUserId}`;
-      const teamRateCur = parseInt(await kv.get(teamRateKey) ?? '1');
+      const teamRateCur = parseInt(await kv.get(teamRateKey) ?? '0');
       if (teamRateCur > 0) await kv.put(teamRateKey, String(teamRateCur - 1), { expirationTtl: 600 });
       ctx.waitUntil(runTeamRound(token, kv, updated, env, ctx));
     } else {

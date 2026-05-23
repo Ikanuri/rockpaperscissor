@@ -581,6 +581,10 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       return;
     }
     await activateTier(kv, targetId, tier, 'stars');
+    const adIdList = await kv.get<number[]>('donators:ids', 'json') ?? [];
+    if (!adIdList.includes(targetId)) {
+      await kv.put('donators:ids', JSON.stringify([...adIdList, targetId]));
+    }
     await reply(token, msg.chat.id, `✅ <b>${TIER_PERKS[tier].label}</b> activated for ${targetId} (30 days).`);
     return;
   }
