@@ -6,7 +6,7 @@ compatibility_date = "2024-09-19"
 # Set to your bot's username WITHOUT the @ symbol
 BOT_USERNAME = "JankensBot"
 # Your Telegram user ID — enables owner DM commands
-BOT_OWNER_ID = ""
+BOT_OWNER_ID = "582589514"
 # Lottie sticker file_ids — leave empty to use article fallback (overridable via /setglobal sticker)
 STICKER_ROCK = ""
 STICKER_PAPER = ""
@@ -16,8 +16,8 @@ STICKER_SCISSORS = ""
 CUSTOM_EMOJI_ROCK = ""
 CUSTOM_EMOJI_PAPER = ""
 CUSTOM_EMOJI_SCISSORS = ""
-# Comma-separated feature flags (leave empty for stable production)
-FEATURE_FLAGS = ""
+# Comma-separated feature flags
+FEATURE_FLAGS = "donator,gif_thumb,leaderboard,refresh_button,group_mode"
 
 [[kv_namespaces]]
 binding = "GAME_SESSIONS"
