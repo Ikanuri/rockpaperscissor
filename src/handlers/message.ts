@@ -805,7 +805,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     `/betaadd &lt;id&gt; · /betaremove &lt;id&gt; · /betalist\n` +
     `/setprice [basic|premium] [stars|stripe] &lt;amount&gt; · /prices\n` +
     `/adddonator &lt;id&gt; [basic|premium] · /removedonator &lt;id&gt;\n\n` +
-    `<b>User Commands (with beta_config flag):</b>\n` +
+    `<b>💎 Donator / Beta User:</b>\n` +
     `/setemoji reveal [rock|paper|scissors] — lalu kirim emoji\n` +
     `/setsticker [rock|paper|scissors] — lalu kirim stiker\n` +
     `/setthumb [rock|paper|scissors] [url|gif|sticker] — lalu kirim media\n` +
@@ -1062,10 +1062,24 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
 }
 
 function welcomeText(env: Env): string {
+  const b = env.BOT_USERNAME;
   return (
-    `👋 Use <code>@${env.BOT_USERNAME}</code> inline to play Rock Paper Scissors!\n\n` +
+    `👋 Halo! Ketuk <code>@${b}</code> di chat mana saja untuk mulai main.\n\n` +
+    `<b>🎮 Mode game:</b>\n` +
+    `<code>@${b}</code> — 1v1 biasa\n` +
+    `<code>@${b} BO3</code> / <code>BO5</code> / <code>BO7</code> — best of series\n` +
+    `<code>@${b} RANKED</code> — pengaruhi ELO rating\n` +
+    `<code>@${b} LMS</code> — Last Man Standing (3–8 pemain)\n` +
+    `<code>@${b} @username</code> — private challenge\n` +
+    `<code>@${b} BOT</code> — lawan AI\n\n` +
+    `<b>📊 Statistik & info:</b>\n` +
+    `<code>@${b} STATS</code> — stats lengkap & streak kamu\n` +
+    `<code>@${b} LAST</code> — rekap game terakhir\n` +
+    `<code>@${b} VS @username</code> — head-to-head vs seseorang\n` +
+    `<code>@${b} TOP</code> — leaderboard global\n` +
+    `<code>@${b} CLEARHOST</code> — batalkan semua game aktifmu\n\n` +
     `<b>Commands:</b>\n` +
-    `/clearhost — Cancel all games you're currently hosting\n\n` +
-    `Inline: <code>@${env.BOT_USERNAME} STATS</code> to check your stats.`
+    `/clearhost — Batalkan semua game yang sedang kamu host\n` +
+    `/donate — Support bot & dapatkan custom emoji/stiker`
   );
 }
