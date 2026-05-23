@@ -1,4 +1,4 @@
-import type { Choice, Env, GameSession, LeaderboardEntry, PendingConfig, TeamDiceWaitState, TelegramMessage, TournamentSession, UserStats } from '../types';
+import type { Choice, Env, GameSession, LeaderboardEntry, PendingConfig, TelegramMessage, TournamentSession, UserStats } from '../types';
 import { editInlineMessage, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendPoll, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
@@ -12,7 +12,7 @@ import {
 } from '../config';
 import { activateTier, loadDonatorTier, parseDuration, TIER_PERKS, tierBadge } from '../donator';
 import { handleDonate, handleSuccessfulPayment } from './payment';
-import { EMOJI, escHtml, fmtEmoji, generateId, resolveTeamDiceWait, tournamentSignupKeyboard, tournamentSignupText } from '../game';
+import { escHtml, fmtEmoji, generateId, tournamentSignupKeyboard, tournamentSignupText } from '../game';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
@@ -826,41 +826,6 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
         await sendMessage(token, chatId,
           `👋 Selamat datang ${mentions}! Ketik @${env.BOT_USERNAME} untuk main RPS 🎮`
         );
-      }
-    }
-    return;
-  }
-
-  // Team tiebreaker dice — works regardless of group_mode feature
-  if (msg.dice && msg.from) {
-    const state = await kv.get<TeamDiceWaitState>(`chat:dice_wait:${chatId}`, 'json');
-    if (state) {
-      const userId = msg.from.id;
-      const roll = msg.dice.value;
-      let updated = { ...state };
-      let changed = false;
-      if (state.tieA && !state.resolvedA) {
-        const p = state.tieA.find(tp => tp.userId === userId);
-        if (p) {
-          updated = { ...updated, resolvedA: { choice: p.choice, notes: [`🎲 ${escHtml(p.name)} lempar duluan → Tim A pilih ${EMOJI[p.choice]} (🎲${roll})`] } };
-          changed = true;
-        }
-      }
-      if (state.tieB && !state.resolvedB) {
-        const p = state.tieB.find(tp => tp.userId === userId);
-        if (p) {
-          updated = { ...updated, resolvedB: { choice: p.choice, notes: [`🎲 ${escHtml(p.name)} lempar duluan → Tim B pilih ${EMOJI[p.choice]} (🎲${roll})`] } };
-          changed = true;
-        }
-      }
-      if (changed) {
-        const aOk = !updated.tieA || updated.resolvedA !== null;
-        const bOk = !updated.tieB || updated.resolvedB !== null;
-        if (aOk && bOk && updated.resolvedA && updated.resolvedB) {
-          ctx.waitUntil(resolveTeamDiceWait(token, kv, updated, env, ctx));
-        } else {
-          await kv.put(`chat:dice_wait:${chatId}`, JSON.stringify(updated), { expirationTtl: 60 });
-        }
       }
     }
     return;
