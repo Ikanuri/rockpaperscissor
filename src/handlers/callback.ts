@@ -279,7 +279,7 @@ async function handleLmsForce(
   await kv.put(`lms:${gameId}`, JSON.stringify(forcedSession), { expirationTtl: 300 });
   const fsRateKey = `ratelimit:${session.hostUserId}`;
   const fsRateCur = parseInt(await kv.get(fsRateKey) ?? '1');
-  if (fsRateCur > 0) kv.put(fsRateKey, String(fsRateCur - 1), { expirationTtl: 600 });
+  if (fsRateCur > 0) await kv.put(fsRateKey, String(fsRateCur - 1), { expirationTtl: 600 });
   await answerCallbackQuery(token, query.id, '▶️ Game dimulai!');
   ctx.waitUntil(runLmsRound(token, kv, forcedSession, ctx, env));
 }

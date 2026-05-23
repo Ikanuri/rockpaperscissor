@@ -1000,7 +1000,7 @@ export async function handleChosenInlineResult(
         // Free rate limit slot — game is now active, same pattern as 1v1 opponent-join
         const lmsRateKey = `ratelimit:${lmsJoin.hostUserId}`;
         const lmsRateCur = parseInt(await kv.get(lmsRateKey) ?? '1');
-        if (lmsRateCur > 0) kv.put(lmsRateKey, String(lmsRateCur - 1), { expirationTtl: 600 });
+        if (lmsRateCur > 0) await kv.put(lmsRateKey, String(lmsRateCur - 1), { expirationTtl: 600 });
         ctx.waitUntil(runLmsRound(token, kv, updatedLms, ctx, env));
       } else {
         const canForce = updatedLmsPlayers.length >= 2;
@@ -1086,7 +1086,7 @@ export async function handleChosenInlineResult(
       // Free host's rate limit slot — game is now active
       const teamRateKey = `ratelimit:${teamSess.hostUserId}`;
       const teamRateCur = parseInt(await kv.get(teamRateKey) ?? '1');
-      if (teamRateCur > 0) kv.put(teamRateKey, String(teamRateCur - 1), { expirationTtl: 600 });
+      if (teamRateCur > 0) await kv.put(teamRateKey, String(teamRateCur - 1), { expirationTtl: 600 });
       ctx.waitUntil(runTeamRound(token, kv, updated, env, ctx));
     } else {
       const slotsA = teamSess.teamSize - updatedA.length;
