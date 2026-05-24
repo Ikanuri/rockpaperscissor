@@ -423,15 +423,28 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
 
   if (cmd === '/credits') {
     await reply(token, msg.chat.id,
-      `🎮 <b>GubakeBot</b> — v2.0.0\n\n` +
-      `Bot ini ada karena kalian.\n\n` +
-      `🧪 <b>Beta testers</b>\n` +
-      `Yang rela main waktu semuanya masih setengah jadi.\n` +
-      `Bug report kalian yang bikin ini layak dimainkan.\n\n` +
-      `🏆 <b>Para pemain</b>\n` +
-      `Yang terus balik main meski kadang bot-nya error duluan.\n\n` +
-      `❤️ <b>Kamu yang baca ini</b>\n` +
-      `Sampai sini aja sudah cukup.\n\n` +
+      `🎮 <b>GubakeBot</b> — v2.0.0\n` +
+      `<i>Batu. Gunting. Kertas. Dan banyak yang lainnya.</i>\n\n` +
+      `──────────────\n\n` +
+      `Ini bukan tentang bot-nya.\n` +
+      `Ini tentang orang-orang yang bikin bot ini <i>worth building</i>.\n\n` +
+      `🧪 <b>Beta Testers</b>\n` +
+      `@nama · @nama · @nama\n` +
+      `Orang pertama yang main waktu semua fitur masih setengah jadi.\n` +
+      `Bug report kalian — sekecil apapun — adalah alasan bot ini\n` +
+      `masih bisa dinikmati hari ini.\n\n` +
+      `🐛 <b>Bug Reporters</b>\n` +
+      `Yang screenshoot error dan kirim duluan sebelum ditanya.\n` +
+      `Pahlawan tanpa tanda jasa. Tapi sekarang ada.\n\n` +
+      `🌱 <b>Early Supporters</b>\n` +
+      `Yang cerita ke teman tentang bot ini sebelum ada yang minta.\n` +
+      `Word of mouth terbaik datang dari yang genuinely suka.\n\n` +
+      `🏆 <b>Para Pemain</b>\n` +
+      `Dari yang main sekali sampai yang hitungannya sudah ribuan ronde.\n` +
+      `Setiap game yang kalian mulai adalah alasan bot ini tetap hidup.\n\n` +
+      `──────────────\n\n` +
+      `<i>Dari satu orang yang terlalu sering begadang debug.\n` +
+      `Terima kasih sudah ada.</i>\n\n` +
       `— @ikanuri`
     );
     return;
@@ -1019,15 +1032,28 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
 
   if (cmd === '/credits') {
     await sendMessage(token, chatId,
-      `🎮 <b>GubakeBot</b> — v2.0.0\n\n` +
-      `Bot ini ada karena kalian.\n\n` +
-      `🧪 <b>Beta testers</b>\n` +
-      `Yang rela main waktu semuanya masih setengah jadi.\n` +
-      `Bug report kalian yang bikin ini layak dimainkan.\n\n` +
-      `🏆 <b>Para pemain</b>\n` +
-      `Yang terus balik main meski kadang bot-nya error duluan.\n\n` +
-      `❤️ <b>Kamu yang baca ini</b>\n` +
-      `Sampai sini aja sudah cukup.\n\n` +
+      `🎮 <b>GubakeBot</b> — v2.0.0\n` +
+      `<i>Batu. Gunting. Kertas. Dan banyak yang lainnya.</i>\n\n` +
+      `──────────────\n\n` +
+      `Ini bukan tentang bot-nya.\n` +
+      `Ini tentang orang-orang yang bikin bot ini <i>worth building</i>.\n\n` +
+      `🧪 <b>Beta Testers</b>\n` +
+      `@nama · @nama · @nama\n` +
+      `Orang pertama yang main waktu semua fitur masih setengah jadi.\n` +
+      `Bug report kalian — sekecil apapun — adalah alasan bot ini\n` +
+      `masih bisa dinikmati hari ini.\n\n` +
+      `🐛 <b>Bug Reporters</b>\n` +
+      `Yang screenshoot error dan kirim duluan sebelum ditanya.\n` +
+      `Pahlawan tanpa tanda jasa. Tapi sekarang ada.\n\n` +
+      `🌱 <b>Early Supporters</b>\n` +
+      `Yang cerita ke teman tentang bot ini sebelum ada yang minta.\n` +
+      `Word of mouth terbaik datang dari yang genuinely suka.\n\n` +
+      `🏆 <b>Para Pemain</b>\n` +
+      `Dari yang main sekali sampai yang hitungannya sudah ribuan ronde.\n` +
+      `Setiap game yang kalian mulai adalah alasan bot ini tetap hidup.\n\n` +
+      `──────────────\n\n` +
+      `<i>Dari satu orang yang terlalu sering begadang debug.\n` +
+      `Terima kasih sudah ada.</i>\n\n` +
       `— @ikanuri`
     );
     return;
