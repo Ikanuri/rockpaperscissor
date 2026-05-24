@@ -17,31 +17,6 @@ import { EMOJI, escHtml, fmtEmoji, generateId, getLang, resolveTeamDiceWait, tou
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
 
-const DEFAULT_CREDITS =
-  `🎮 <b>GubakeBot</b> — v2.0.0\n` +
-  `<i>Batu. Gunting. Kertas. Dan banyak yang lainnya.</i>\n\n` +
-  `──────────────\n\n` +
-  `Ini bukan tentang bot-nya.\n` +
-  `Ini tentang orang-orang yang bikin bot ini <i>worth building</i>.\n\n` +
-  `🧪 <b>Beta Testers</b>\n` +
-  `@nama · @nama · @nama\n` +
-  `Orang pertama yang main waktu semua fitur masih setengah jadi.\n` +
-  `Bug report kalian — sekecil apapun — adalah alasan bot ini\n` +
-  `masih bisa dinikmati hari ini.\n\n` +
-  `🐛 <b>Bug Reporters</b>\n` +
-  `Yang screenshoot error dan kirim duluan sebelum ditanya.\n` +
-  `Pahlawan tanpa tanda jasa. Tapi sekarang ada.\n\n` +
-  `🌱 <b>Early Supporters</b>\n` +
-  `Yang cerita ke teman tentang bot ini sebelum ada yang minta.\n` +
-  `Word of mouth terbaik datang dari yang genuinely suka.\n\n` +
-  `🏆 <b>Para Pemain</b>\n` +
-  `Dari yang main sekali sampai yang hitungannya sudah ribuan ronde.\n` +
-  `Setiap game yang kalian mulai adalah alasan bot ini tetap hidup.\n\n` +
-  `──────────────\n\n` +
-  `<i>Dari satu orang yang terlalu sering begadang debug.\n` +
-  `Terima kasih sudah ada.</i>\n\n` +
-  `— @ikanuri`;
-
 async function resolveUserDisplay(
   kv: KVNamespace,
   token: string,
@@ -209,6 +184,18 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     }
   }
 
+  // ── Pending setcredits ────────────────────────────────────────────────
+  if (msg.text && !msg.text.startsWith('/')) {
+    const pendingCr = await kv.get(`pending:setcredits:${msg.from.id}`);
+    if (pendingCr) {
+      await kv.delete(`pending:setcredits:${msg.from.id}`);
+      const newText = msg.text.trim();
+      await kv.put('config:credits', newText);
+      await reply(token, msg.chat.id, newText ? `✅ Credits diperbarui.` : `✅ Credits dikosongkan.`);
+      return;
+    }
+  }
+
   if (!msg.text) return;
 
   const parts = msg.text.trim().split(/\s+/);
@@ -216,9 +203,15 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
 
   // ── Available to all users ───────────────────────────────────────────
   if (cmd === '/cancel') {
-    const had = await kv.get(`pending:config:${msg.from.id}`);
-    await kv.delete(`pending:config:${msg.from.id}`);
-    await reply(token, msg.chat.id, had ? '❌ Dibatalkan.' : '❌ Tidak ada yang perlu dibatalkan.');
+    const [had, hadCr] = await Promise.all([
+      kv.get(`pending:config:${msg.from.id}`),
+      kv.get(`pending:setcredits:${msg.from.id}`),
+    ]);
+    await Promise.all([
+      kv.delete(`pending:config:${msg.from.id}`),
+      kv.delete(`pending:setcredits:${msg.from.id}`),
+    ]);
+    await reply(token, msg.chat.id, (had || hadCr) ? '❌ Dibatalkan.' : '❌ Tidak ada yang perlu dibatalkan.');
     return;
   }
 
@@ -447,7 +440,22 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
   }
 
   if (cmd === '/credits') {
-    await reply(token, msg.chat.id, DEFAULT_CREDITS);
+    const current = await kv.get('config:credits');
+    if (owner) {
+      await kv.put(`pending:setcredits:${msg.from.id}`, '1', { expirationTtl: 300 });
+      if (!current) {
+        await reply(token, msg.chat.id, `📝 Credits belum ada. Kirim teks credits:\n\n<i>Berlaku 5 menit. /cancel untuk batal.</i>`);
+      } else {
+        await reply(token, msg.chat.id,
+          `📝 <b>Credits saat ini:</b>\n\n${current}\n\n` +
+          `──────────────\n` +
+          `Kirim teks baru untuk edit. Kirim teks kosong (spasi) untuk mengosongkan.\n` +
+          `<i>/cancel untuk batal.</i>`
+        );
+      }
+    } else if (current) {
+      await reply(token, msg.chat.id, current);
+    }
     return;
   }
 
@@ -1032,7 +1040,8 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   }
 
   if (cmd === '/credits') {
-    await sendMessage(token, chatId, DEFAULT_CREDITS);
+    const creditsGrp = await kv.get('config:credits');
+    if (creditsGrp) await sendMessage(token, chatId, creditsGrp);
     return;
   }
 
