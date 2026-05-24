@@ -237,7 +237,7 @@ export interface TelegramMessage {
   from?: TelegramUser;
   chat: { id: number; type: string };
   text?: string;
-  sticker?: { file_id: string; file_unique_id: string; type?: string; custom_emoji_id?: string };
+  sticker?: { file_id: string; file_unique_id: string; type?: string; custom_emoji_id?: string; is_video?: boolean; is_animated?: boolean };
   animation?: { file_id: string; file_unique_id: string };
   entities?: Array<{ type: string; offset: number; length: number; custom_emoji_id?: string }>;
   successful_payment?: SuccessfulPayment;

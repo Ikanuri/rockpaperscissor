@@ -85,14 +85,22 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
 
     if (msg.sticker) {
       if (stickerActions.includes(pending.action)) {
+        const isPopupAction = pending.action === 'setsticker' || pending.action === 'setglobal_sticker';
+        if (isPopupAction && msg.sticker.is_video) {
+          await reply(token, msg.chat.id,
+            `⚠️ Stiker video tidak bisa dipakai di popup inline (batasan API Telegram).\n` +
+            `Kirim stiker diam (webp) atau animasi, lalu coba lagi.`
+          );
+          return;
+        }
         await kv.delete(`pending:config:${msg.from.id}`);
         const fileId = msg.sticker.file_id;
         if (pending.action === 'setsticker') {
           await setUserConfig(kv, msg.from.id, { sticker: { [pending.choice]: fileId } });
-          await reply(token, msg.chat.id, `✅ Popup sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+          await reply(token, msg.chat.id, `✅ Popup stiker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.\n<i>Di popup inline, stiker muncul tanpa label teks — gunakan stiker yang mudah dikenali.</i>`);
         } else if (pending.action === 'setglobal_sticker') {
           await setGlobalConfig(kv, { sticker: { [pending.choice]: fileId } });
-          await reply(token, msg.chat.id, `✅ Global sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
+          await reply(token, msg.chat.id, `✅ Global stiker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.\n<i>Di popup inline, stiker muncul tanpa label teks — gunakan stiker yang mudah dikenali.</i>`);
         } else if (pending.action === 'setthumb_sticker') {
           await setUserConfig(kv, msg.from.id, { thumb: { [pending.choice]: { type: 'sticker', value: fileId } } });
           await reply(token, msg.chat.id, `✅ Thumbnail sticker untuk ${CHOICE_EMOJI[pending.choice]} <b>${pending.choice}</b> tersimpan.`);
