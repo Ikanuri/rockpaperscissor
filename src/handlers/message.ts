@@ -427,11 +427,6 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       `Bot gundu digital. Batu gunting kertas, tapi serius.\n\n` +
       `<b>Dibuat oleh</b>\n` +
       `@ikanuri\n\n` +
-      `<b>Dibangun dengan</b>\n` +
-      `⚡ Cloudflare Workers\n` +
-      `🗄️ Cloudflare KV\n` +
-      `🤖 Telegram Bot API\n` +
-      `🔷 TypeScript\n\n` +
       `<i>Terima kasih sudah main. Semoga kamu menang lebih sering dari yang kamu akui.</i>`
     );
     return;
@@ -1023,11 +1018,6 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
       `Bot gundu digital. Batu gunting kertas, tapi serius.\n\n` +
       `<b>Dibuat oleh</b>\n` +
       `@ikanuri\n\n` +
-      `<b>Dibangun dengan</b>\n` +
-      `⚡ Cloudflare Workers\n` +
-      `🗄️ Cloudflare KV\n` +
-      `🤖 Telegram Bot API\n` +
-      `🔷 TypeScript\n\n` +
       `<i>Terima kasih sudah main. Semoga kamu menang lebih sering dari yang kamu akui.</i>`
     );
     return;
