@@ -421,6 +421,22 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     return;
   }
 
+  if (cmd === '/credits') {
+    await reply(token, msg.chat.id,
+      `🎮 <b>GubakeBot</b> — v2.0.0\n\n` +
+      `Bot gundu digital. Batu gunting kertas, tapi serius.\n\n` +
+      `<b>Dibuat oleh</b>\n` +
+      `@ikanuri\n\n` +
+      `<b>Dibangun dengan</b>\n` +
+      `⚡ Cloudflare Workers\n` +
+      `🗄️ Cloudflare KV\n` +
+      `🤖 Telegram Bot API\n` +
+      `🔷 TypeScript\n\n` +
+      `<i>Terima kasih sudah main. Semoga kamu menang lebih sering dari yang kamu akui.</i>`
+    );
+    return;
+  }
+
   // ── Owner-only commands ──────────────────────────────────────────────
   if (!owner) {
     await reply(token, msg.chat.id, welcomeText(env, lang));
@@ -735,11 +751,13 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     const userCommands = [
       { command: 'clearhost', description: 'Batalkan game yang sedang kamu host' },
       { command: 'setlang', description: 'Ganti bahasa bot' },
+      { command: 'credits', description: 'Tentang bot ini' },
       { command: 'guide', description: 'Panduan mode game' },
     ];
     const userCommandsEn = [
       { command: 'clearhost', description: 'Cancel your hosted games' },
       { command: 'setlang', description: 'Change bot language' },
+      { command: 'credits', description: 'About this bot' },
       { command: 'guide', description: 'Game mode guide' },
     ];
     const ownerCommands = [
@@ -799,6 +817,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       `/cancel — Batalkan aksi pending (setemoji dll)\n` +
       `/clearhost — Batalkan semua game yang sedang kamu host\n` +
       `/syncstats — Sinkronisasi stats mingguan\n` +
+      `/credits — Tentang bot ini\n` +
       `\n` +
       `<b>💎 Donator (Basic/Premium)</b>\n` +
       `/donate — Lihat pilihan upgrade tier\n` +
@@ -995,6 +1014,22 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
     const langGrp = msg.from ? await getLang(kv, msg.from.id) : 'id';
     const { text, kb } = guideMainMenu(langGrp, env.BOT_USERNAME);
     await sendMessage(token, chatId, text, kb);
+    return;
+  }
+
+  if (cmd === '/credits') {
+    await sendMessage(token, chatId,
+      `🎮 <b>GubakeBot</b> — v2.0.0\n\n` +
+      `Bot gundu digital. Batu gunting kertas, tapi serius.\n\n` +
+      `<b>Dibuat oleh</b>\n` +
+      `@ikanuri\n\n` +
+      `<b>Dibangun dengan</b>\n` +
+      `⚡ Cloudflare Workers\n` +
+      `🗄️ Cloudflare KV\n` +
+      `🤖 Telegram Bot API\n` +
+      `🔷 TypeScript\n\n` +
+      `<i>Terima kasih sudah main. Semoga kamu menang lebih sering dari yang kamu akui.</i>`
+    );
     return;
   }
 
