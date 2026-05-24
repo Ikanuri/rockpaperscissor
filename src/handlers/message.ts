@@ -424,10 +424,15 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
   if (cmd === '/credits') {
     await reply(token, msg.chat.id,
       `🎮 <b>GubakeBot</b> — v2.0.0\n\n` +
-      `Bot gundu digital. Batu gunting kertas, tapi serius.\n\n` +
-      `<b>Dibuat oleh</b>\n` +
-      `@ikanuri\n\n` +
-      `<i>Terima kasih sudah main. Semoga kamu menang lebih sering dari yang kamu akui.</i>`
+      `Bot ini ada karena kalian.\n\n` +
+      `🧪 <b>Beta testers</b>\n` +
+      `Yang rela main waktu semuanya masih setengah jadi.\n` +
+      `Bug report kalian yang bikin ini layak dimainkan.\n\n` +
+      `🏆 <b>Para pemain</b>\n` +
+      `Yang terus balik main meski kadang bot-nya error duluan.\n\n` +
+      `❤️ <b>Kamu yang baca ini</b>\n` +
+      `Sampai sini aja sudah cukup.\n\n` +
+      `— @ikanuri`
     );
     return;
   }
@@ -1015,10 +1020,15 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   if (cmd === '/credits') {
     await sendMessage(token, chatId,
       `🎮 <b>GubakeBot</b> — v2.0.0\n\n` +
-      `Bot gundu digital. Batu gunting kertas, tapi serius.\n\n` +
-      `<b>Dibuat oleh</b>\n` +
-      `@ikanuri\n\n` +
-      `<i>Terima kasih sudah main. Semoga kamu menang lebih sering dari yang kamu akui.</i>`
+      `Bot ini ada karena kalian.\n\n` +
+      `🧪 <b>Beta testers</b>\n` +
+      `Yang rela main waktu semuanya masih setengah jadi.\n` +
+      `Bug report kalian yang bikin ini layak dimainkan.\n\n` +
+      `🏆 <b>Para pemain</b>\n` +
+      `Yang terus balik main meski kadang bot-nya error duluan.\n\n` +
+      `❤️ <b>Kamu yang baca ini</b>\n` +
+      `Sampai sini aja sudah cukup.\n\n` +
+      `— @ikanuri`
     );
     return;
   }
