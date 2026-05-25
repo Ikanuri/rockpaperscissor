@@ -734,30 +734,36 @@ export async function runTeamRound(
     const tieA = resA === null ? getTiedPlayers(session.teamA) : null;
     const tieB = resB === null ? getTiedPlayers(session.teamB) : null;
 
+    const state: TeamDiceWaitState = {
+      gameId: session.gameId,
+      chatId: session.chatId,
+      teamSession: session,
+      tieA,
+      tieB,
+      rollsA: [],
+      rollsB: [],
+      resolvedA: resA,
+      resolvedB: resB,
+    };
+    await kv.put(`chat:dice_wait:${session.chatId}`, JSON.stringify(state), { expirationTtl: 300 });
+
     const tieLines: string[] = [];
     if (tieA) tieLines.push(`🔵 Tim A seri: ${tieA.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
     if (tieB) tieLines.push(`🔴 Tim B seri: ${tieB.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
 
-    await Promise.allSettled([
-      sendMessage(token, session.chatId,
-        `⚔️ <b>Seri internal!</b> Bot melempar 🎲 untuk menentukan pilihan tim...\n\n` +
-        tieLines.join('\n')
-      ),
-      ...[...session.teamA, ...session.teamB].map(p =>
-        editInlineMessage(token, p.inlineMessageId, '⏳ Menunggu tiebreaker dadu...')
-      ),
-    ]);
-
-    const [resolvedA, resolvedB] = await Promise.all([
-      tieA ? botResolveTie(tieA, session.chatId, token) : Promise.resolve(resA!),
-      tieB ? botResolveTie(tieB, session.chatId, token) : Promise.resolve(resB!),
-    ]);
-
-    const configs = new Map<number, GameConfig | null>();
-    await Promise.all([...session.teamA, ...session.teamB].map(async p => {
-      configs.set(p.userId, await loadConfigAuthorized(kv, p.userId, env));
-    }));
-    await executeTeamRound(token, kv, session, resolvedA, resolvedB, env, ctx, configs);
+    const resolveKb: InlineKeyboardMarkup = {
+      inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${session.gameId}` }]],
+    };
+    await sendMessage(token, session.chatId,
+      `⚔️ <b>Seri internal!</b> Semua lempar 🎲 di grup!\n\n` +
+      tieLines.join('\n') +
+      `\n\n<i>Semua player yang seri harus lempar dadu — 🎲 tertinggi menang.</i>\n` +
+      `<i>Tidak ada yang lempar? Tekan tombol di bawah.</i>`,
+      resolveKb
+    );
+    await Promise.allSettled([...session.teamA, ...session.teamB].map(p =>
+      editInlineMessage(token, p.inlineMessageId, '⏳ Menunggu tiebreaker dadu di grup...')
+    ));
     return;
   }
 
