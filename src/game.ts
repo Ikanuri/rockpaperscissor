@@ -40,22 +40,23 @@ export const LABEL: Record<Choice, string> = {
 
 export const STREAK_MILESTONES = [5, 10, 20, 50, 100];
 
-interface AchievementDef {
+export interface AchievementDef {
   id: string;
   label: string;
+  labelEn: string;
   check: (s: UserStats) => boolean;
 }
 
-const ACHIEVEMENT_DEFS: AchievementDef[] = [
-  { id: 'first_win',  label: '🏆 Kemenangan pertama!',    check: s => s.wins >= 1 },
-  { id: 'wins_10',    label: '🔟 10 kemenangan!',          check: s => s.wins >= 10 },
-  { id: 'wins_50',    label: '🥇 50 kemenangan!',          check: s => s.wins >= 50 },
-  { id: 'wins_100',   label: '💯 100 kemenangan!',         check: s => s.wins >= 100 },
-  { id: 'total_10',   label: '🎮 10 game dimainkan',       check: s => s.total >= 10 },
-  { id: 'total_100',  label: '🎮 100 game dimainkan',      check: s => s.total >= 100 },
-  { id: 'streak_5',   label: '🔥 Streak 5x beruntun!',    check: s => (s.longestStreak ?? 0) >= 5 },
-  { id: 'streak_10',  label: '🔥 Streak 10x beruntun!',   check: s => (s.longestStreak ?? 0) >= 10 },
-  { id: 'streak_20',  label: '🔥 Streak 20x beruntun!',   check: s => (s.longestStreak ?? 0) >= 20 },
+export const ACHIEVEMENT_DEFS: AchievementDef[] = [
+  { id: 'first_win',  label: '🏆 Kemenangan pertama!',    labelEn: '🏆 First win!',              check: s => s.wins >= 1 },
+  { id: 'wins_10',    label: '🔟 10 kemenangan!',          labelEn: '🔟 10 wins!',                check: s => s.wins >= 10 },
+  { id: 'wins_50',    label: '🥇 50 kemenangan!',          labelEn: '🥇 50 wins!',                check: s => s.wins >= 50 },
+  { id: 'wins_100',   label: '💯 100 kemenangan!',         labelEn: '💯 100 wins!',               check: s => s.wins >= 100 },
+  { id: 'total_10',   label: '🎮 10 game dimainkan',       labelEn: '🎮 10 games played',         check: s => s.total >= 10 },
+  { id: 'total_100',  label: '🎮 100 game dimainkan',      labelEn: '🎮 100 games played',        check: s => s.total >= 100 },
+  { id: 'streak_5',   label: '🔥 Streak 5x beruntun!',    labelEn: '🔥 5-win streak!',           check: s => (s.longestStreak ?? 0) >= 5 },
+  { id: 'streak_10',  label: '🔥 Streak 10x beruntun!',   labelEn: '🔥 10-win streak!',          check: s => (s.longestStreak ?? 0) >= 10 },
+  { id: 'streak_20',  label: '🔥 Streak 20x beruntun!',   labelEn: '🔥 20-win streak!',          check: s => (s.longestStreak ?? 0) >= 20 },
 ];
 
 export function escHtml(s: string): string {
@@ -1073,6 +1074,16 @@ async function finishGame(
   }
   for (const label of opponentResult.newAchievements) {
     ctx.waitUntil(sendMessage(token, session.opponentUserId!, `🏅 Achievement unlocked: ${label}`));
+  }
+
+  // Open challenge result DM to host
+  if (session.isOpen) {
+    const hostOutcomeLabel = matchOutcome === 'a' ? 'Menang 🏆' : matchOutcome === 'b' ? 'Kalah 😔' : 'Seri 🤝';
+    ctx.waitUntil(sendMessage(token, session.hostUserId,
+      `⚔️ Open challenge diambil oleh ${escHtml(session.opponentName!)}!\n\n` +
+      `${EMOJI[session.hostChoice!]} Kamu · ${EMOJI[session.opponentChoice!]} ${escHtml(session.opponentName!)}\n` +
+      `Hasil: <b>${hostOutcomeLabel}</b>`
+    ));
   }
 
   // Always track chain history so rematch #1 already has game 1 on record

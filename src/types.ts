@@ -29,6 +29,7 @@ export interface GameSession {
   ranked?: boolean;
   tournamentId?: string;
   tournamentMatchId?: string;
+  isOpen?: boolean;
 }
 
 export interface UserStats {

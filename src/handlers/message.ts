@@ -12,7 +12,7 @@ import {
 } from '../config';
 import { activateTier, loadDonatorTier, parseDuration, TIER_PERKS, tierBadge } from '../donator';
 import { handleDonate, handleSuccessfulPayment } from './payment';
-import { EMOJI, escHtml, fmtEmoji, generateId, getLang, resolveTeamDiceWait, tournamentSignupKeyboard, tournamentSignupText } from '../game';
+import { ACHIEVEMENT_DEFS, EMOJI, escHtml, fmtEmoji, generateId, getLang, resolveTeamDiceWait, tournamentSignupKeyboard, tournamentSignupText } from '../game';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
@@ -459,6 +459,20 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     return;
   }
 
+  if (cmd === '/achievement') {
+    const stats = await kv.get<UserStats>(`stats:${msg.from.id}`, 'json');
+    const earned = stats?.achievements ?? {};
+    const isEn = lang === 'en';
+    const lines = ACHIEVEMENT_DEFS.map(a => {
+      const unlocked = !!earned[a.id];
+      const label = isEn ? a.labelEn : a.label;
+      return `${unlocked ? '✅' : '🔒'} ${label}`;
+    });
+    const title = isEn ? '🏅 <b>Achievements</b>' : '🏅 <b>Achievement</b>';
+    await reply(token, msg.chat.id, `${title}\n\n${lines.join('\n')}`);
+    return;
+  }
+
   // ── Owner-only commands ──────────────────────────────────────────────
   if (!owner) {
     await reply(token, msg.chat.id, welcomeText(env, lang));
@@ -773,12 +787,14 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     const userCommands = [
       { command: 'clearhost', description: 'Batalkan game yang sedang kamu host' },
       { command: 'setlang', description: 'Ganti bahasa bot' },
+      { command: 'achievement', description: 'Lihat daftar achievement kamu' },
       { command: 'credits', description: 'Tentang bot ini' },
       { command: 'guide', description: 'Panduan mode game' },
     ];
     const userCommandsEn = [
       { command: 'clearhost', description: 'Cancel your hosted games' },
       { command: 'setlang', description: 'Change bot language' },
+      { command: 'achievement', description: 'View your achievements' },
       { command: 'credits', description: 'About this bot' },
       { command: 'guide', description: 'Game mode guide' },
     ];
@@ -839,6 +855,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       `/cancel — Batalkan aksi pending (setemoji dll)\n` +
       `/clearhost — Batalkan semua game yang sedang kamu host\n` +
       `/syncstats — Sinkronisasi stats mingguan\n` +
+      `/achievement — Lihat daftar achievement kamu\n` +
       `/credits — Tentang bot ini\n` +
       `\n` +
       `<b>💎 Donator (Basic/Premium)</b>\n` +

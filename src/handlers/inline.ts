@@ -1126,6 +1126,7 @@ export async function handleChosenInlineResult(
       opponentScore: 0,
       rounds: [],
       createdAt: Date.now(),
+      isOpen: true,
     };
     const rawOpenList = (await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [];
     const newOpenEntry: OpenChallenge = { gameId: openGameId, hostName: formatUser(result.from), hostUserId: result.from.id, createdAt: Date.now() };
@@ -1369,6 +1370,15 @@ export async function handleChosenInlineResult(
       // Clean up chain active pointer so next rematch isn't blocked
       ...(session.chainId ? [kv.delete(`chain:${session.chainId}:active`)] : []),
     ]);
+
+    // Remove from open:list if this was an open challenge
+    if (session.isOpen) {
+      const openList = (await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [];
+      const filteredList = openList.filter(c => c.gameId !== q);
+      if (filteredList.length !== openList.length) {
+        ctx.waitUntil(kv.put('open:list', JSON.stringify(filteredList), { expirationTtl: 600 }));
+      }
+    }
 
     const rateKey = `ratelimit:${session.hostUserId}`;
     const cur = parseInt(await kv.get(rateKey) ?? '1');
