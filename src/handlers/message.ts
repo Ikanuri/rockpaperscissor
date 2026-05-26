@@ -1055,6 +1055,18 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   }
 
   // Commands — only when group_mode is enabled
+  // Exception: personal commands that only make sense in DM — redirect instead of silent ignore
+  if (msg.from && msg.text) {
+    const rawCmdPre = msg.text.trim().split(/\s+/)[0].toLowerCase().replace(/@\w+$/, '');
+    if (rawCmdPre === '/freemium') {
+      await sendMessage(token, chatId,
+        `⚠️ Command ini hanya bisa digunakan di DM bot.\n` +
+        `Buka chat dengan @${env.BOT_USERNAME} lalu ketik /freemium.`
+      );
+      return;
+    }
+  }
+
   if (!hasFeature(env, 'group_mode')) return;
   if (!msg.from || !msg.text) return;
 
