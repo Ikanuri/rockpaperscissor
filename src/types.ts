@@ -30,6 +30,8 @@ export interface GameSession {
   tournamentId?: string;
   tournamentMatchId?: string;
   isOpen?: boolean;
+  hostBadge?: string;
+  opponentBadge?: string;
 }
 
 export interface UserStats {

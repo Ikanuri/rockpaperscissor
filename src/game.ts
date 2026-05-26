@@ -152,7 +152,7 @@ export function waitingText(
     : (session.mode !== 'single' ? ` 🏆 ${MODE_LABEL[session.mode]}` : '');
   const lockLine = session.lockedToUsername ? `\n🔒 For @${session.lockedToUsername} only` : '';
   return (
-    `🟢 ${escHtml(session.hostName)} is ready!${gameTag}${lockLine}\n` +
+    `🟢 ${escHtml(session.hostName)}${session.hostBadge ?? ''} is ready!${gameTag}${lockLine}\n` +
     `⏰ ${remaining} min remaining`
   );
 }
@@ -161,7 +161,7 @@ export function nextRoundText(session: GameSession): string {
   const header = gameHeader(session);
   return (
     `${header ? header + '\n' : ''}` +
-    `${escHtml(session.hostName)} vs ${escHtml(session.opponentName!)}\n\n` +
+    `${escHtml(session.hostName)}${session.hostBadge ?? ''} vs ${escHtml(session.opponentName!)}${session.opponentBadge ?? ''}\n\n` +
     `Round ${session.currentRound} — pick your weapon!`
   );
 }
@@ -292,8 +292,8 @@ function resultText(
 ): string {
   const hE = choiceDisplay(session.hostChoice!, env, hostConfig);
   const oE = choiceDisplay(session.opponentChoice!, env, opponentConfig);
-  const hName = escHtml(session.hostName);
-  const oName = escHtml(session.opponentName!);
+  const hName = escHtml(session.hostName) + (session.hostBadge ?? '');
+  const oName = escHtml(session.opponentName!) + (session.opponentBadge ?? '');
 
   let verdict: string;
   if (matchOutcome === 'draw') {

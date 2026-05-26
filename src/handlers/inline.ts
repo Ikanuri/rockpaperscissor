@@ -41,7 +41,7 @@ import {
   waitingText,
 } from '../game';
 import { hasFeature, isBetaUser } from '../feature';
-import { loadDonatorTier } from '../donator';
+import { loadDonatorTier, tierBadge } from '../donator';
 
 const GAME_ID_RE = /^[A-Z2-9]{6}$/;
 const CHAIN_CODE_RE = /^R[A-Z2-9]{6}$/;
@@ -77,6 +77,11 @@ function isCustomCode(q: string): boolean {
   return CUSTOM_CODE_RE.test(q) && !RESERVED_CODES.has(q)
     && !GAME_ID_RE.test(q) && !CHAIN_CODE_RE.test(q)
     && !TEAM_CODE_RE.test(q);
+}
+
+async function fetchBadge(kv: KVNamespace, userId: number): Promise<string> {
+  const tier = await loadDonatorTier(kv, userId);
+  return tierBadge(tier);
 }
 
 async function maybeAnnounceGame(
@@ -1109,6 +1114,10 @@ export async function handleChosenInlineResult(
     }
     // Create new open challenge
     const openGameId = generateId();
+    const [hostBadgeOpen, rawOpenListPre] = await Promise.all([
+      fetchBadge(kv, result.from.id),
+      kv.get<OpenChallenge[]>('open:list', 'json'),
+    ]);
     const openSession: GameSession = {
       gameId: openGameId,
       hostUserId: result.from.id,
@@ -1127,10 +1136,10 @@ export async function handleChosenInlineResult(
       rounds: [],
       createdAt: Date.now(),
       isOpen: true,
+      hostBadge: hostBadgeOpen || undefined,
     };
-    const rawOpenList = (await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [];
     const newOpenEntry: OpenChallenge = { gameId: openGameId, hostName: formatUser(result.from), hostUserId: result.from.id, createdAt: Date.now() };
-    const updatedOpenList = [...rawOpenList.filter(c => Date.now() - c.createdAt < 9 * 60 * 1000), newOpenEntry];
+    const updatedOpenList = [...(rawOpenListPre ?? []).filter(c => Date.now() - c.createdAt < 9 * 60 * 1000), newOpenEntry];
     const rateKeyOp = `ratelimit:${result.from.id}`;
     const countOp = parseInt(await kv.get(rateKeyOp) ?? '0');
     if (countOp >= 3) {
@@ -1167,6 +1176,7 @@ export async function handleChosenInlineResult(
 
     if (!activeGameId) {
       const newGameId = generateId();
+      const hostBadgeChain = await fetchBadge(kv, result.from.id);
       const session: GameSession = {
         gameId: newGameId,
         hostUserId: result.from.id,
@@ -1185,6 +1195,7 @@ export async function handleChosenInlineResult(
         rounds: [],
         createdAt: Date.now(),
         chainId: chainCode,
+        hostBadge: hostBadgeChain || undefined,
       };
       await Promise.all([
         kv.put(`game:${newGameId}`, JSON.stringify(session), { expirationTtl: 300 }),
@@ -1211,6 +1222,7 @@ export async function handleChosenInlineResult(
         await editInlineMessage(token, result.inline_message_id, '⏳ Already waiting — your opponent needs to click Rematch too.');
         return;
       }
+      const opponentBadgeChain = await fetchBadge(kv, result.from.id);
       const updated: GameSession = {
         ...session,
         opponentUserId: result.from.id,
@@ -1218,6 +1230,7 @@ export async function handleChosenInlineResult(
         opponentChoice: choice,
         opponentInlineMessageId: result.inline_message_id,
         status: 'playing',
+        opponentBadge: opponentBadgeChain || undefined,
       };
       await Promise.all([
         kv.put(`game:${activeGameId}`, JSON.stringify(updated), { expirationTtl: 120 }),
@@ -1234,6 +1247,7 @@ export async function handleChosenInlineResult(
     const lockedToUsername = privateMatch[1].toLowerCase();
     const mode: GameMode = privateMatch[2] ? parseMode(privateMatch[2]) : 'single';
     const gameId = generateId();
+    const hostBadgePrivate = await fetchBadge(kv, result.from.id);
 
     const session: GameSession = {
       gameId,
@@ -1253,6 +1267,7 @@ export async function handleChosenInlineResult(
       rounds: [],
       createdAt: Date.now(),
       lockedToUsername,
+      hostBadge: hostBadgePrivate || undefined,
     };
 
     await Promise.all([
@@ -1280,7 +1295,11 @@ export async function handleChosenInlineResult(
     const mode: GameMode = rankedResultMatch[1] ? parseMode(rankedResultMatch[1]) : 'single';
     const gameId = generateId();
     const rateKeyR = `ratelimit:${result.from.id}`;
-    const countR = parseInt(await kv.get(rateKeyR) ?? '0');
+    const [countRStr, hostBadgeRanked] = await Promise.all([
+      kv.get(rateKeyR),
+      fetchBadge(kv, result.from.id),
+    ]);
+    const countR = parseInt(countRStr ?? '0');
     if (countR >= 3) {
       await editInlineMessage(token, result.inline_message_id, '⏳ Too many active games.');
       return;
@@ -1303,6 +1322,7 @@ export async function handleChosenInlineResult(
       rounds: [],
       createdAt: Date.now(),
       ranked: true,
+      hostBadge: hostBadgeRanked || undefined,
     };
     await Promise.all([
       kv.put(`game:${gameId}`, JSON.stringify(rankedSession), { expirationTtl: 600 }),
@@ -1325,6 +1345,7 @@ export async function handleChosenInlineResult(
     if (!session) {
       const tmInfo = await kv.get<{ tournamentId: string; matchId: string }>(`tournament:matchgame:${q}`, 'json');
       if (tmInfo) {
+        const hostBadgeTm = await fetchBadge(kv, result.from.id);
         const tmSession: GameSession = {
           gameId: q,
           hostUserId: result.from.id,
@@ -1338,6 +1359,7 @@ export async function handleChosenInlineResult(
           createdAt: Date.now(),
           tournamentId: tmInfo.tournamentId,
           tournamentMatchId: tmInfo.matchId,
+          hostBadge: hostBadgeTm || undefined,
         };
         await kv.put(`game:${q}`, JSON.stringify(tmSession), { expirationTtl: 600 });
         await editInlineMessage(token, result.inline_message_id,
@@ -1356,6 +1378,7 @@ export async function handleChosenInlineResult(
       return;
     }
 
+    const opponentBadge = await fetchBadge(kv, result.from.id);
     const updated: GameSession = {
       ...session,
       opponentUserId: result.from.id,
@@ -1363,6 +1386,7 @@ export async function handleChosenInlineResult(
       opponentChoice: choice,
       opponentInlineMessageId: result.inline_message_id,
       status: 'playing',
+      opponentBadge: opponentBadge || undefined,
     };
 
     await Promise.all([
@@ -1399,6 +1423,7 @@ export async function handleChosenInlineResult(
         await editInlineMessage(token, result.inline_message_id, `❌ This game is for @${existingCustom.lockedToUsername} only.`);
         return;
       }
+      const opponentBadgeCustom = await fetchBadge(kv, result.from.id);
       const updatedCustom: GameSession = {
         ...existingCustom,
         opponentUserId: result.from.id,
@@ -1406,6 +1431,7 @@ export async function handleChosenInlineResult(
         opponentChoice: choice,
         opponentInlineMessageId: result.inline_message_id,
         status: 'playing',
+        opponentBadge: opponentBadgeCustom || undefined,
       };
       await Promise.all([
         kv.put(`game:${q}`, JSON.stringify(updatedCustom), { expirationTtl: 120 }),
@@ -1448,6 +1474,7 @@ export async function handleChosenInlineResult(
       opponentScore: 0,
       rounds: [],
       createdAt: Date.now(),
+      hostBadge: tierBadge(tier) || undefined,
     };
     await Promise.all([
       kv.put(`game:${q}`, JSON.stringify(customSession), { expirationTtl: 600 }),
@@ -1467,6 +1494,7 @@ export async function handleChosenInlineResult(
   // New game (single / BO3 / BO5 / BO7)
   const mode: GameMode = parseMode(q);
   const gameId = generateId();
+  const hostBadgeNew = await fetchBadge(kv, result.from.id);
 
   const session: GameSession = {
     gameId,
@@ -1485,6 +1513,7 @@ export async function handleChosenInlineResult(
     opponentScore: 0,
     rounds: [],
     createdAt: Date.now(),
+    hostBadge: hostBadgeNew || undefined,
   };
 
   await Promise.all([
