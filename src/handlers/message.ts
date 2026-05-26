@@ -473,6 +473,36 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     return;
   }
 
+  if (cmd === '/freemium') {
+    const alreadyUsed = await kv.get(`freetrial:${msg.from.id}`);
+    if (alreadyUsed) {
+      await reply(token, msg.chat.id,
+        `⚠️ Free trial sudah pernah kamu gunakan.\n\n` +
+        `Untuk lanjut menikmati fitur Premium, ketik /donate.`
+      );
+      return;
+    }
+    const trialMs = 7 * 24 * 3600 * 1000;
+    await Promise.all([
+      activateTier(kv, msg.from.id, 'premium', 'stars', trialMs),
+      kv.put(`freetrial:${msg.from.id}`, '1'),
+    ]);
+    const expiry = new Date(Date.now() + trialMs + 7 * 3600 * 1000); // WIB
+    const expiryStr = expiry.toISOString().slice(0, 10);
+    await reply(token, msg.chat.id,
+      `🎉 <b>Free Trial Premium aktif!</b>\n\n` +
+      `💎 Kamu mendapat akses Premium selama <b>7 hari</b>.\n` +
+      `📅 Berlaku hingga: <b>${expiryStr} WIB</b>\n\n` +
+      `Fitur yang kamu dapat:\n` +
+      `• Animated emoji (custom_emoji_id)\n` +
+      `• Custom game code\n` +
+      `• Max 10 active games\n` +
+      `• Badge 💎 di game\n\n` +
+      `Setelah trial habis, ketik /donate untuk perpanjang.`
+    );
+    return;
+  }
+
   // ── Owner-only commands ──────────────────────────────────────────────
   if (!owner) {
     await reply(token, msg.chat.id, welcomeText(env, lang));
@@ -788,6 +818,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       { command: 'clearhost', description: 'Batalkan game yang sedang kamu host' },
       { command: 'setlang', description: 'Ganti bahasa bot' },
       { command: 'achievement', description: 'Lihat daftar achievement kamu' },
+      { command: 'freemium', description: 'Aktifkan free trial Premium 7 hari (sekali seumur hidup)' },
       { command: 'credits', description: 'Tentang bot ini' },
       { command: 'guide', description: 'Panduan mode game' },
     ];
@@ -795,6 +826,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       { command: 'clearhost', description: 'Cancel your hosted games' },
       { command: 'setlang', description: 'Change bot language' },
       { command: 'achievement', description: 'View your achievements' },
+      { command: 'freemium', description: 'Activate free Premium trial for 7 days (once per account)' },
       { command: 'credits', description: 'About this bot' },
       { command: 'guide', description: 'Game mode guide' },
     ];
@@ -856,6 +888,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       `/clearhost — Batalkan semua game yang sedang kamu host\n` +
       `/syncstats — Sinkronisasi stats mingguan\n` +
       `/achievement — Lihat daftar achievement kamu\n` +
+      `/freemium — Aktifkan free trial Premium 7 hari (sekali seumur hidup)\n` +
       `/credits — Tentang bot ini\n` +
       `\n` +
       `<b>💎 Donator (Basic/Premium)</b>\n` +
