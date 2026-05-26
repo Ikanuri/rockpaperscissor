@@ -549,19 +549,27 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
 
   // Open Challenge
   if (q === 'OPEN') {
-    const openList = ((await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [])
-      .filter(c => c.hostUserId !== from.id && Date.now() - c.createdAt < 9 * 60 * 1000);
+    const now = Date.now();
+    const rawList = ((await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [])
+      .filter(c => c.hostUserId !== from.id && now - c.createdAt < 9 * 60 * 1000);
     const configOq = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     const createResults = buildChoiceResults('🌐 Open Challenge', env, configOq);
-    if (openList.length === 0) {
+    if (rawList.length === 0) {
       await answerInlineQuery(token, query.id, createResults);
       return;
     }
-    const joinArticles: InlineResult[] = openList.slice(0, 4).map(c => ({
+    // Verify games still exist in KV — filter out expired/cancelled entries
+    const gameChecks = await Promise.all(rawList.slice(0, 4).map(c => kv.get(`game:${c.gameId}`)));
+    const liveList = rawList.slice(0, 4).filter((_, i) => gameChecks[i] !== null);
+    if (liveList.length === 0) {
+      await answerInlineQuery(token, query.id, createResults);
+      return;
+    }
+    const joinArticles: InlineResult[] = liveList.map(c => ({
       type: 'article' as const,
       id: `open_join_${c.gameId}`,
       title: `⚔️ Join ${escHtml(c.hostName)}`,
-      description: `Open challenge · ${Math.floor((Date.now() - c.createdAt) / 60000)}m ago`,
+      description: `Open challenge · ${Math.floor((now - c.createdAt) / 60000)}m ago`,
       input_message_content: { message_text: `⚔️ Joining ${escHtml(c.hostName)}'s open challenge...` },
       reply_markup: {
         inline_keyboard: [[{
@@ -791,7 +799,8 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   }
 
   const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
-  await answerInlineQuery(token, query.id, buildChoiceResults('🎮 Setting up game...', env, config));
+  const initModeText = q === 'BO3' ? '🎮 Best of 3' : q === 'BO5' ? '🎮 Best of 5' : q === 'BO7' ? '🎮 Best of 7' : '🎮 Game';
+  await answerInlineQuery(token, query.id, buildChoiceResults(initModeText, env, config));
 }
 
 export async function handleChosenInlineResult(

@@ -1,4 +1,4 @@
-import type { Choice, Env, GameSession, LeaderboardEntry, LmsSession, PendingConfig, TeamDiceWaitState, TeamSession, TelegramMessage, TournamentSession, UserStats } from '../types';
+import type { Choice, Env, GameSession, LeaderboardEntry, LmsSession, OpenChallenge, PendingConfig, TeamDiceWaitState, TeamSession, TelegramMessage, TournamentSession, UserStats } from '../types';
 import { editInlineMessage, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendPoll, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
@@ -225,6 +225,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     const listKey = `hostgames:${msg.from.id}`;
     const gameIds = await kv.get<string[]>(listKey, 'json') ?? [];
     let cancelled = 0;
+    const openGameIdsToRemove = new Set<string>();
     for (const gameId of gameIds) {
       if (gameId.startsWith('L')) {
         const s = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
@@ -252,9 +253,17 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
             editInlineMessage(token, s.hostInlineMessageId, '❌ Game dibatalkan.'),
           ];
           if (s.opponentInlineMessageId) ops.push(editInlineMessage(token, s.opponentInlineMessageId, '❌ Game dibatalkan.'));
+          if (s.isOpen) openGameIdsToRemove.add(gameId);
           await Promise.all(ops);
           cancelled++;
         }
+      }
+    }
+    if (openGameIdsToRemove.size > 0) {
+      const openList = (await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [];
+      const cleaned = openList.filter(c => !openGameIdsToRemove.has(c.gameId));
+      if (cleaned.length !== openList.length) {
+        await kv.put('open:list', JSON.stringify(cleaned), { expirationTtl: 600 });
       }
     }
     await Promise.all([

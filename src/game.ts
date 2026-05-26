@@ -305,8 +305,11 @@ function resultText(
   }
 
   const streakLine = winnerStreak && winnerStreak >= 2 ? `\n🔥 ${winnerStreak} win streak!` : '';
+  const modeTag = session.ranked
+    ? ` · 🏆 Ranked${session.mode !== 'single' ? ` ${MODE_LABEL[session.mode]}` : ''}`
+    : (session.mode !== 'single' ? ` · ${MODE_LABEL[session.mode]}` : '');
   const histBlock = history ? historyBlock(history) : '';
-  return `${verdict}${streakLine}\n${hName} ${hE} · ${oName} ${oE}${histBlock}`;
+  return `${verdict}${streakLine}${modeTag}\n${hName} ${hE} · ${oName} ${oE}${histBlock}`;
 }
 
 interface UpdateStatsResult {
