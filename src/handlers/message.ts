@@ -1054,6 +1054,21 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
     return;
   }
 
+  // Capture TKP when bot's own join article is sent in this group.
+  // Telegram forwards via_bot messages to the bot regardless of privacy mode.
+  if (msg.via_bot && msg.via_bot.username?.toLowerCase() === botName && msg.reply_markup) {
+    const button = msg.reply_markup.inline_keyboard?.[0]?.[0];
+    const gameId = button?.switch_inline_query_current_chat;
+    if (gameId && /^[A-Z2-9]{6}$/.test(gameId)) {
+      ctx.waitUntil(kv.put(`game:tkp:${gameId}`, JSON.stringify({
+        chatId,
+        messageId: msg.message_id,
+        chatTitle: msg.chat.title ?? 'Grup',
+        chatUsername: msg.chat.username ?? null,
+      }), { expirationTtl: 1800 }));
+    }
+  }
+
   // Commands — only when group_mode is enabled
   // Exception: personal commands that only make sense in DM — redirect instead of silent ignore
   if (msg.from && msg.text) {

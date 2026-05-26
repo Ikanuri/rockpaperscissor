@@ -238,7 +238,7 @@ export interface TelegramUser {
 export interface TelegramMessage {
   message_id: number;
   from?: TelegramUser;
-  chat: { id: number; type: string };
+  chat: { id: number; type: string; title?: string; username?: string };
   text?: string;
   sticker?: { file_id: string; file_unique_id: string; type?: string; custom_emoji_id?: string; is_video?: boolean; is_animated?: boolean };
   animation?: { file_id: string; file_unique_id: string };
@@ -247,6 +247,15 @@ export interface TelegramMessage {
   new_chat_members?: TelegramUser[];
   left_chat_member?: TelegramUser;
   dice?: { emoji: string; value: number };
+  via_bot?: TelegramUser;
+  reply_markup?: {
+    inline_keyboard: Array<Array<{
+      text: string;
+      callback_data?: string;
+      url?: string;
+      switch_inline_query_current_chat?: string;
+    }>>;
+  };
 }
 
 export type PendingAction =

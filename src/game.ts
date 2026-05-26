@@ -125,6 +125,13 @@ export function rematchKeyboard(chainCode: string): InlineKeyboardMarkup {
   };
 }
 
+function buildMsgLink(chatId: number, messageId: number, chatUsername: string | null): string {
+  if (chatUsername) return `https://t.me/${chatUsername}/${messageId}`;
+  const s = String(chatId);
+  if (s.startsWith('-100')) return `https://t.me/c/${s.slice(4)}/${messageId}`;
+  return '';
+}
+
 const MODE_LABEL: Record<GameMode, string> = {
   single: '',
   best_of_3: 'Best of 3',
@@ -1082,10 +1089,17 @@ async function finishGame(
   // Open challenge result DM to host
   if (session.isOpen) {
     const hostOutcomeLabel = matchOutcome === 'a' ? 'Menang 🏆' : matchOutcome === 'b' ? 'Kalah 😔' : 'Seri 🤝';
+    const tkp = await kv.get<{ chatId: number; messageId: number; chatTitle: string; chatUsername: string | null }>(`game:tkp:${session.gameId}`, 'json');
+    let tkpLine = '';
+    if (tkp) {
+      const link = buildMsgLink(tkp.chatId, tkp.messageId, tkp.chatUsername);
+      const title = escHtml(tkp.chatTitle);
+      tkpLine = `\n\nTKP: ${link ? `<a href="${link}">${title}</a>` : title}`;
+    }
     ctx.waitUntil(sendMessage(token, session.hostUserId,
       `⚔️ Open challenge diambil oleh ${escHtml(session.opponentName!)}!\n\n` +
       `${EMOJI[session.hostChoice!]} Kamu · ${EMOJI[session.opponentChoice!]} ${escHtml(session.opponentName!)}\n` +
-      `Hasil: <b>${hostOutcomeLabel}</b>`
+      `Hasil: <b>${hostOutcomeLabel}</b>${tkpLine}`
     ));
   }
 
