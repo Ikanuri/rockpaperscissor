@@ -853,10 +853,10 @@ export async function runTeamRound(
       inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${activeSession.gameId}` }]],
     };
     await sendMessage(token, activeSession.chatId,
-      `⚔️ <b>Seri internal!</b> Lempar 🎲 dengan <b>reply ke pesan ini</b>!\n\n` +
+      `⚔️ <b>Seri internal!</b> Semua lempar 🎲 di grup!\n\n` +
       tieLines.join('\n') +
-      `\n\n<i>Player yang seri: reply pesan ini dengan 🎲 — angka tertinggi menang.</i>\n` +
-      `<i>Tidak bisa reply? Tekan tombol di bawah.</i>`,
+      `\n\n<i>Player yang seri: lempar 🎲 — angka tertinggi menang.</i>\n` +
+      `<i>Tidak bisa kirim dadu? Tekan tombol di bawah.</i>`,
       resolveKb
     );
     await Promise.allSettled([...activeSession.teamA, ...activeSession.teamB].map(p =>
@@ -880,13 +880,20 @@ export async function resolveTeamDiceWait(
   env: Env,
   ctx: ExecutionContext
 ): Promise<void> {
-  if (!state.resolvedA || !state.resolvedB) return;
-  await kv.delete(`chat:dice_wait:${state.chatId}`);
-  const configs = new Map<number, GameConfig | null>();
-  await Promise.all([...state.teamSession.teamA, ...state.teamSession.teamB].map(async p => {
-    configs.set(p.userId, await loadConfigAuthorized(kv, p.userId, env));
-  }));
-  await executeTeamRound(token, kv, state.teamSession, state.resolvedA, state.resolvedB, env, ctx, configs);
+  if (!state.resolvedA || !state.resolvedB) {
+    console.error(`[resolveTeamDiceWait] abort: resolvedA=${JSON.stringify(state.resolvedA)} resolvedB=${JSON.stringify(state.resolvedB)}`);
+    return;
+  }
+  try {
+    await kv.delete(`chat:dice_wait:${state.chatId}`);
+    const configs = new Map<number, GameConfig | null>();
+    await Promise.all([...state.teamSession.teamA, ...state.teamSession.teamB].map(async p => {
+      configs.set(p.userId, await loadConfigAuthorized(kv, p.userId, env));
+    }));
+    await executeTeamRound(token, kv, state.teamSession, state.resolvedA, state.resolvedB, env, ctx, configs);
+  } catch (e) {
+    console.error(`[resolveTeamDiceWait] error: ${e}`);
+  }
 }
 
 // ── Tournament ────────────────────────────────────────────────────────────────

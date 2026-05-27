@@ -991,9 +991,13 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   // Team tiebreaker dice — works regardless of group_mode feature
   if (msg.dice && msg.from) {
     const state = await kv.get<TeamDiceWaitState>(`chat:dice_wait:${chatId}`, 'json');
+    if (!state) {
+      console.error(`[dice] no state for chatId=${chatId}`);
+    }
     if (state) {
       const userId = msg.from.id;
       const roll = msg.dice.value;
+      console.error(`[dice] chatId=${chatId} userId=${userId} roll=${roll} tieA=${JSON.stringify(state.tieA?.map(p=>p.userId))} tieB=${JSON.stringify(state.tieB?.map(p=>p.userId))} resolvedA=${!!state.resolvedA} resolvedB=${!!state.resolvedB} rollsA=${state.rollsA?.length} rollsB=${state.rollsB?.length}`);
       let updated = { ...state, rollsA: state.rollsA ?? [], rollsB: state.rollsB ?? [] };
       let changed = false;
 
@@ -1044,6 +1048,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
       if (changed) {
         const aOk = !updated.tieA || updated.resolvedA !== null;
         const bOk = !updated.tieB || updated.resolvedB !== null;
+        console.error(`[dice] changed: aOk=${aOk} bOk=${bOk} resolvedA=${!!updated.resolvedA} resolvedB=${!!updated.resolvedB}`);
         if (aOk && bOk && updated.resolvedA && updated.resolvedB) {
           ctx.waitUntil(resolveTeamDiceWait(token, kv, updated, env, ctx));
         } else {
