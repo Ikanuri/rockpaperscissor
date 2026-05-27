@@ -6,7 +6,6 @@ import type {
   GameConfig,
   GameMode,
   GameSession,
-  InlineKeyboardMarkup,
   InlineQuery,
   InlineResult,
   LastGameRecord,
@@ -28,11 +27,13 @@ import {
   generateId,
   lmsHostKeyboard,
   lmsJoinKeyboard,
+  lmsWaitPickedKeyboard,
   lmsWaitingText,
   loadConfigAuthorized,
   runLmsRound,
   runRevealAndResult,
   runTeamRound,
+  teamMemberWaitingKeyboard,
   teamWaitingKeyboard,
   teamWaitingText,
   trackHostedGame,
@@ -983,7 +984,8 @@ export async function handleChosenInlineResult(
               return `• ${escHtml(up.name)}: ${up.choice ? '🔒' : '❓'}`;
             }).join('\n') +
             `\n\nMenunggu ${lmsWaitLeft} pemain lagi...`;
-          await editInlineMessage(token, result.inline_message_id, lmsRoundWaitText);
+          const isLmsHost = result.from.id === lmsJoin.hostUserId;
+          await editInlineMessage(token, result.inline_message_id, lmsRoundWaitText, lmsWaitPickedKeyboard(lmsJoin.gameId, isLmsHost));
         }
         return;
       }
@@ -1018,10 +1020,11 @@ export async function handleChosenInlineResult(
         ctx.waitUntil(runLmsRound(token, kv, updatedLms, ctx, env));
       } else {
         const canForce = updatedLmsPlayers.length >= 2;
+        const hasOthersLms = updatedLmsPlayers.some(p => p.userId !== updatedLms.hostUserId);
         await Promise.allSettled(
           updatedLmsPlayers.map(p =>
             editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updatedLms),
-              p.userId === updatedLms.hostUserId ? lmsHostKeyboard(q, canForce) : lmsJoinKeyboard(q))
+              p.userId === updatedLms.hostUserId ? lmsHostKeyboard(q, canForce, hasOthersLms) : lmsJoinKeyboard(q))
           )
         );
       }
@@ -1105,11 +1108,12 @@ export async function handleChosenInlineResult(
     } else {
       const slotsA = teamSess.teamSize - updatedA.length;
       const slotsB = teamSess.teamSize - updatedB.length;
-      const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB);
-      const memberKb: InlineKeyboardMarkup = { inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]] };
+      const allTeamPlayers = [...updatedA, ...updatedB];
+      const hasOthersTeam = allTeamPlayers.some(p => p.userId !== updated.hostUserId);
+      const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthersTeam);
       const waitText = teamWaitingText(updated);
-      await Promise.allSettled([...updatedA, ...updatedB].map(p =>
-        editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : memberKb)
+      await Promise.allSettled(allTeamPlayers.map(p =>
+        editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : teamMemberWaitingKeyboard(gameId))
       ));
     }
     return;

@@ -1,4 +1,4 @@
-import type { CallbackQuery, Choice, Env, GameSession, InlineKeyboardMarkup, LmsSession, TeamDiceWaitState, TeamSession, TournamentSession } from '../types';
+import type { CallbackQuery, Choice, Env, GameSession, LmsSession, TeamDiceWaitState, TeamSession, TournamentSession } from '../types';
 import { answerCallbackQuery, editInlineMessage, editMessage, getChatMember } from '../telegram';
 import {
   EMOJI,
@@ -8,6 +8,7 @@ import {
   lmsHostKeyboard,
   lmsJoinKeyboard,
   lmsPickKeyboard,
+  lmsWaitPickedKeyboard,
   lmsWaitingText,
   nextRoundText,
   pickKeyboard,
@@ -16,6 +17,7 @@ import {
   runRevealAndResult,
   runTeamRound,
   startTournamentBracket,
+  teamMemberWaitingKeyboard,
   teamPickKeyboard,
   teamWaitingKeyboard,
   teamWaitingText,
@@ -55,6 +57,18 @@ export async function handleCallbackQuery(
     await handleExtendLms(query, env, parts[1]);
   } else if (action === 'lmsforce' && parts.length === 2) {
     await handleLmsForce(query, env, ctx, parts[1]);
+  } else if (action === 'lmssmite' && (parts.length === 2 || parts.length === 3)) {
+    await handleLmsSmite(query, env, ctx, parts[1], parts.length === 3 ? Number(parts[2]) : undefined);
+  } else if (action === 'lmssmitecancel' && parts.length === 2) {
+    await handleLmsSmiteCancel(query, env, parts[1]);
+  } else if (action === 'lmsflee' && parts.length === 2) {
+    await handleLmsFlee(query, env, ctx, parts[1]);
+  } else if (action === 'teamsmite' && (parts.length === 2 || parts.length === 3)) {
+    await handleTeamSmite(query, env, ctx, parts[1], parts.length === 3 ? Number(parts[2]) : undefined);
+  } else if (action === 'teamsmitecancel' && parts.length === 2) {
+    await handleTeamSmiteCancel(query, env, parts[1]);
+  } else if (action === 'teamflee' && parts.length === 2) {
+    await handleTeamFlee(query, env, ctx, parts[1]);
   } else if (action === 'extteam' && parts.length === 2) {
     await handleExtendTeam(query, env, parts[1]);
   } else if (action === 'teamdice' && parts[1] === 'resolve' && parts.length === 3) {
@@ -175,10 +189,9 @@ async function handleLmsPick(
         return `• ${escHtml(up.name)}: ${up.choice ? '🔒' : '❓'}`;
       }).join('\n') +
       `\n\nMenunggu ${waitCount} pemain lagi...`;
-    const pickKb = lmsPickKeyboard(gameId);
     await Promise.allSettled(
       activePlayers.map(p =>
-        editInlineMessage(token, p.inlineMessageId, pickText, pickKb)
+        editInlineMessage(token, p.inlineMessageId, pickText, lmsPickKeyboard(gameId, p.userId === session.hostUserId))
       )
     );
   }
@@ -230,10 +243,383 @@ async function handleTeamPick(
       `⚔️ <b>Round ${session.currentRound}</b>\n` +
       `${statusLine(updatedA, '🔵 Tim A')}\n${statusLine(updatedB, '🔴 Tim B')}\n\n` +
       `⏳ ${picked}/${total} sudah pilih...`;
-    const pickKb = teamPickKeyboard(gameId);
     await Promise.allSettled([...updatedA, ...updatedB].map(p =>
-      editInlineMessage(token, p.inlineMessageId, waitText, pickKb)
+      editInlineMessage(token, p.inlineMessageId, waitText, teamPickKeyboard(gameId, p.userId === session.hostUserId))
     ));
+  }
+}
+
+async function handleLmsSmite(
+  query: CallbackQuery,
+  env: Env,
+  ctx: ExecutionContext,
+  gameId: string,
+  targetUserId?: number
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+  if (!session || session.status === 'done') {
+    await answerCallbackQuery(token, query.id, '❌ Game tidak aktif.', true);
+    return;
+  }
+  if (query.from.id !== session.hostUserId) {
+    await answerCallbackQuery(token, query.id, '❌ Hanya host yang bisa smite.', true);
+    return;
+  }
+
+  if (!targetUserId) {
+    const targets = session.status === 'waiting'
+      ? session.players.filter(p => p.userId !== session.hostUserId)
+      : session.players.filter(p => p.active && p.userId !== session.hostUserId);
+    if (targets.length === 0) {
+      await answerCallbackQuery(token, query.id, '⚠️ Tidak ada pemain yang bisa disingkirkan.', true);
+      return;
+    }
+    const rows = targets.map(p => [{ text: `⚡ ${p.name}`, callback_data: `lmssmite:${gameId}:${p.userId}` }]);
+    rows.push([{ text: '❌ Batal', callback_data: `lmssmitecancel:${gameId}` }]);
+    await editInlineMessage(token, query.inline_message_id!, '⚡ <b>Pilih pemain yang mau disingkirkan:</b>', { inline_keyboard: rows });
+    await answerCallbackQuery(token, query.id);
+    return;
+  }
+
+  const target = session.players.find(p => p.userId === targetUserId);
+  if (!target) {
+    await answerCallbackQuery(token, query.id, '❌ Pemain tidak ditemukan.', true);
+    return;
+  }
+
+  if (session.status === 'waiting') {
+    const updatedPlayers = session.players.filter(p => p.userId !== targetUserId);
+    const updated: LmsSession = { ...session, players: updatedPlayers };
+    await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
+    await answerCallbackQuery(token, query.id, `⚡ ${target.name} dikeluarkan!`);
+    await editInlineMessage(token, target.inlineMessageId, '⚡ Kamu dikeluarkan dari lobby oleh host.');
+    const canForce = updatedPlayers.length >= 2;
+    const hasOthers = updatedPlayers.some(p => p.userId !== session.hostUserId);
+    await editInlineMessage(token, query.inline_message_id!, lmsWaitingText(updated), lmsHostKeyboard(gameId, canForce, hasOthers));
+    await Promise.allSettled(
+      updatedPlayers.filter(p => p.userId !== session.hostUserId).map(p =>
+        editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updated), lmsJoinKeyboard(gameId))
+      )
+    );
+  } else {
+    if (!target.active) {
+      await answerCallbackQuery(token, query.id, '❌ Pemain sudah eliminasi.', true);
+      return;
+    }
+    const updatedPlayers = session.players.map(p =>
+      p.userId === targetUserId ? { ...p, active: false } : p
+    );
+    const updated: LmsSession = { ...session, players: updatedPlayers };
+    const activePlayers = updatedPlayers.filter(p => p.active);
+    await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
+    await answerCallbackQuery(token, query.id, `⚡ ${target.name} dieliminasi!`);
+    await editInlineMessage(token, target.inlineMessageId, '⚡ Kamu dieliminasi oleh host.');
+    if (activePlayers.length <= 1 || activePlayers.every(p => p.choice !== null)) {
+      ctx.waitUntil(runLmsRound(token, kv, updated, ctx, env));
+    } else {
+      const waitCount = activePlayers.filter(p => p.choice === null).length;
+      const pickText = `⚔️ <b>Round ${session.currentRound}</b>\n` +
+        activePlayers.map(p => `• ${escHtml(p.name)}: ${p.choice ? '🔒' : '❓'}`).join('\n') +
+        `\n\n⚡ ${escHtml(target.name)} dieliminasi.\nMenunggu ${waitCount} pemain lagi...`;
+      await editInlineMessage(token, query.inline_message_id!, pickText, lmsWaitPickedKeyboard(gameId, true));
+    }
+  }
+}
+
+async function handleLmsSmiteCancel(
+  query: CallbackQuery,
+  env: Env,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+  if (!session || query.from.id !== session.hostUserId) {
+    await answerCallbackQuery(token, query.id);
+    return;
+  }
+  if (session.status === 'waiting') {
+    const canForce = session.players.length >= 2;
+    const hasOthers = session.players.some(p => p.userId !== session.hostUserId);
+    await editInlineMessage(token, query.inline_message_id!, lmsWaitingText(session), lmsHostKeyboard(gameId, canForce, hasOthers));
+  } else {
+    const activePlayers = session.players.filter(p => p.active);
+    const waitCount = activePlayers.filter(p => p.choice === null).length;
+    const pickText = `⚔️ <b>Round ${session.currentRound}</b>\n` +
+      activePlayers.map(p => `• ${escHtml(p.name)}: ${p.choice ? '🔒' : '❓'}`).join('\n') +
+      `\n\nMenunggu ${waitCount} pemain lagi...`;
+    await editInlineMessage(token, query.inline_message_id!, pickText, lmsWaitPickedKeyboard(gameId, true));
+  }
+  await answerCallbackQuery(token, query.id);
+}
+
+async function handleLmsFlee(
+  query: CallbackQuery,
+  env: Env,
+  ctx: ExecutionContext,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+  if (!session || session.status === 'done') {
+    await answerCallbackQuery(token, query.id, '❌ Game sudah selesai.', true);
+    return;
+  }
+  const player = session.players.find(p => p.userId === query.from.id);
+  if (!player) {
+    await answerCallbackQuery(token, query.id, '❌ Kamu bukan peserta game ini.', true);
+    return;
+  }
+
+  if (session.status === 'waiting') {
+    if (query.from.id === session.hostUserId) {
+      await kv.delete(`lms:${gameId}`);
+      await Promise.allSettled(session.players.map(p => editInlineMessage(token, p.inlineMessageId, '🏳️ Host membatalkan game.')));
+      await answerCallbackQuery(token, query.id, '🏳️ Game dibatalkan.');
+    } else {
+      const updatedPlayers = session.players.filter(p => p.userId !== query.from.id);
+      const updated: LmsSession = { ...session, players: updatedPlayers };
+      await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
+      await answerCallbackQuery(token, query.id, '🏳️ Kamu keluar dari lobby.');
+      await editInlineMessage(token, player.inlineMessageId, '🏳️ Kamu meninggalkan lobby.');
+      const canForce = updatedPlayers.length >= 2;
+      const hasOthers = updatedPlayers.some(p => p.userId !== session.hostUserId);
+      await Promise.allSettled(
+        updatedPlayers.map(p =>
+          editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updated),
+            p.userId === session.hostUserId ? lmsHostKeyboard(gameId, canForce, hasOthers) : lmsJoinKeyboard(gameId))
+        )
+      );
+    }
+    return;
+  }
+
+  if (!player.active) {
+    await answerCallbackQuery(token, query.id, '❌ Kamu sudah eliminasi.', true);
+    return;
+  }
+  const updatedPlayers = session.players.map(p =>
+    p.userId === query.from.id ? { ...p, active: false } : p
+  );
+  const updated: LmsSession = { ...session, players: updatedPlayers };
+  const activePlayers = updatedPlayers.filter(p => p.active);
+  await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
+  await answerCallbackQuery(token, query.id, '🏳️ Kamu meninggalkan game.');
+  await editInlineMessage(token, player.inlineMessageId, '🏳️ Kamu meninggalkan game.');
+  if (activePlayers.length <= 1 || activePlayers.every(p => p.choice !== null)) {
+    ctx.waitUntil(runLmsRound(token, kv, updated, ctx, env));
+  } else {
+    const waitCount = activePlayers.filter(p => p.choice === null).length;
+    const fleeText = `⚔️ <b>Round ${session.currentRound}</b>\n` +
+      activePlayers.map(p => `• ${escHtml(p.name)}: ${p.choice ? '🔒' : '❓'}`).join('\n') +
+      `\n\n🏳️ ${escHtml(player.name)} meninggalkan game.\nMenunggu ${waitCount} pemain lagi...`;
+    await Promise.allSettled(
+      activePlayers.filter(p => p.choice !== null).map(p =>
+        editInlineMessage(token, p.inlineMessageId, fleeText, lmsWaitPickedKeyboard(gameId, p.userId === session.hostUserId))
+      )
+    );
+  }
+}
+
+async function handleTeamSmite(
+  query: CallbackQuery,
+  env: Env,
+  ctx: ExecutionContext,
+  gameId: string,
+  targetUserId?: number
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+  if (!session || session.status === 'done') {
+    await answerCallbackQuery(token, query.id, '❌ Game tidak aktif.', true);
+    return;
+  }
+  if (query.from.id !== session.hostUserId) {
+    await answerCallbackQuery(token, query.id, '❌ Hanya host yang bisa smite.', true);
+    return;
+  }
+
+  if (!targetUserId) {
+    const allNonHost = [...session.teamA, ...session.teamB].filter(p => p.userId !== session.hostUserId);
+    if (allNonHost.length === 0) {
+      await answerCallbackQuery(token, query.id, '⚠️ Tidak ada pemain yang bisa disingkirkan.', true);
+      return;
+    }
+    const rows = [
+      ...session.teamA.filter(p => p.userId !== session.hostUserId).map(p => [{ text: `⚡ ${p.name} (🔵 Tim A)`, callback_data: `teamsmite:${gameId}:${p.userId}` }]),
+      ...session.teamB.filter(p => p.userId !== session.hostUserId).map(p => [{ text: `⚡ ${p.name} (🔴 Tim B)`, callback_data: `teamsmite:${gameId}:${p.userId}` }]),
+      [{ text: '❌ Batal', callback_data: `teamsmitecancel:${gameId}` }],
+    ];
+    await editInlineMessage(token, query.inline_message_id!, '⚡ <b>Pilih pemain yang mau disingkirkan:</b>', { inline_keyboard: rows });
+    await answerCallbackQuery(token, query.id);
+    return;
+  }
+
+  const inA = session.teamA.find(p => p.userId === targetUserId);
+  const inB = session.teamB.find(p => p.userId === targetUserId);
+  const target = inA ?? inB;
+  if (!target) {
+    await answerCallbackQuery(token, query.id, '❌ Pemain tidak ditemukan.', true);
+    return;
+  }
+
+  const updatedA = session.teamA.filter(p => p.userId !== targetUserId);
+  const updatedB = session.teamB.filter(p => p.userId !== targetUserId);
+  await answerCallbackQuery(token, query.id, `⚡ ${target.name} disingkirkan!`);
+  await editInlineMessage(token, target.inlineMessageId, '⚡ Kamu disingkirkan dari game oleh host.');
+
+  if (session.status === 'waiting') {
+    const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
+    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
+    const slotsA = session.teamSize - updatedA.length;
+    const slotsB = session.teamSize - updatedB.length;
+    const allRemaining = [...updatedA, ...updatedB];
+    const hasOthers = allRemaining.some(p => p.userId !== session.hostUserId);
+    const waitText = teamWaitingText(updated);
+    await Promise.allSettled(allRemaining.map(p =>
+      editInlineMessage(token, p.inlineMessageId, waitText,
+        p.userId === session.hostUserId ? teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers) : teamMemberWaitingKeyboard(gameId))
+    ));
+  } else {
+    if (updatedA.length === 0 || updatedB.length === 0) {
+      const winnerTeam = updatedA.length > 0 ? 'A' : 'B';
+      const finalText = `🏳️ <b>Tim ${winnerTeam === 'A' ? 'B' : 'A'} meninggalkan game. Tim ${winnerTeam} menang!</b>`;
+      const allRemaining = [...updatedA, ...updatedB];
+      const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB, status: 'done' };
+      await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
+      await Promise.allSettled(allRemaining.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
+      return;
+    }
+    const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
+    const allRemaining = [...updatedA, ...updatedB];
+    const allPicked = allRemaining.every(p => p.choice !== null);
+    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
+    if (allPicked) {
+      ctx.waitUntil(runTeamRound(token, kv, updated, env, ctx));
+    } else {
+      const picked = allRemaining.filter(p => p.choice !== null).length;
+      const statusLine = (team: typeof updatedA, label: string) =>
+        `${label}: ${team.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}`;
+      const waitText =
+        `⚔️ <b>Round ${session.currentRound}</b>\n` +
+        `${statusLine(updatedA, '🔵 Tim A')}\n${statusLine(updatedB, '🔴 Tim B')}\n\n` +
+        `⚡ ${escHtml(target.name)} disingkirkan.\n⏳ ${picked}/${allRemaining.length} sudah pilih...`;
+      await editInlineMessage(token, query.inline_message_id!, waitText, teamPickKeyboard(gameId, true));
+    }
+  }
+}
+
+async function handleTeamSmiteCancel(
+  query: CallbackQuery,
+  env: Env,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+  if (!session || query.from.id !== session.hostUserId) {
+    await answerCallbackQuery(token, query.id);
+    return;
+  }
+  if (session.status === 'waiting') {
+    const slotsA = session.teamSize - session.teamA.length;
+    const slotsB = session.teamSize - session.teamB.length;
+    const allPlayers = [...session.teamA, ...session.teamB];
+    const hasOthers = allPlayers.some(p => p.userId !== session.hostUserId);
+    await editInlineMessage(token, query.inline_message_id!, teamWaitingText(session), teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers));
+  } else {
+    const allPlayers = [...session.teamA, ...session.teamB];
+    const picked = allPlayers.filter(p => p.choice !== null).length;
+    const statusLine = (team: typeof session.teamA, label: string) =>
+      `${label}: ${team.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}`;
+    const waitText =
+      `⚔️ <b>Round ${session.currentRound}</b>\n` +
+      `${statusLine(session.teamA, '🔵 Tim A')}\n${statusLine(session.teamB, '🔴 Tim B')}\n\n` +
+      `⏳ ${picked}/${allPlayers.length} sudah pilih...`;
+    await editInlineMessage(token, query.inline_message_id!, waitText, teamPickKeyboard(gameId, true));
+  }
+  await answerCallbackQuery(token, query.id);
+}
+
+async function handleTeamFlee(
+  query: CallbackQuery,
+  env: Env,
+  ctx: ExecutionContext,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+  if (!session || session.status === 'done') {
+    await answerCallbackQuery(token, query.id, '❌ Game sudah selesai.', true);
+    return;
+  }
+  const inA = session.teamA.find(p => p.userId === query.from.id);
+  const inB = session.teamB.find(p => p.userId === query.from.id);
+  const player = inA ?? inB;
+  if (!player) {
+    await answerCallbackQuery(token, query.id, '❌ Kamu bukan peserta game ini.', true);
+    return;
+  }
+
+  const updatedA = session.teamA.filter(p => p.userId !== query.from.id);
+  const updatedB = session.teamB.filter(p => p.userId !== query.from.id);
+  await answerCallbackQuery(token, query.id, '🏳️ Kamu meninggalkan game.');
+  await editInlineMessage(token, player.inlineMessageId, '🏳️ Kamu meninggalkan game.');
+
+  if (session.status === 'waiting') {
+    const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
+    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
+    if (query.from.id === session.hostUserId) {
+      await kv.delete(`team:${gameId}`);
+      const others = [...updatedA, ...updatedB];
+      await Promise.allSettled(others.map(p => editInlineMessage(token, p.inlineMessageId, '🏳️ Host membatalkan team game.')));
+      return;
+    }
+    const slotsA = session.teamSize - updatedA.length;
+    const slotsB = session.teamSize - updatedB.length;
+    const allRemaining = [...updatedA, ...updatedB];
+    const hasOthers = allRemaining.some(p => p.userId !== session.hostUserId);
+    const waitText = teamWaitingText(updated);
+    await Promise.allSettled(allRemaining.map(p =>
+      editInlineMessage(token, p.inlineMessageId, waitText,
+        p.userId === session.hostUserId ? teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers) : teamMemberWaitingKeyboard(gameId))
+    ));
+    return;
+  }
+
+  if (updatedA.length === 0 || updatedB.length === 0) {
+    const winnerTeam = updatedA.length > 0 ? 'A' : 'B';
+    const finalText = `🏳️ <b>Tim ${winnerTeam === 'A' ? 'B' : 'A'} meninggalkan game. Tim ${winnerTeam} menang!</b>`;
+    const allRemaining = [...updatedA, ...updatedB];
+    const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB, status: 'done' };
+    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
+    await Promise.allSettled(allRemaining.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
+    return;
+  }
+  const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
+  const allRemaining = [...updatedA, ...updatedB];
+  const allPicked = allRemaining.every(p => p.choice !== null);
+  await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
+  if (allPicked) {
+    ctx.waitUntil(runTeamRound(token, kv, updated, env, ctx));
+  } else {
+    const picked = allRemaining.filter(p => p.choice !== null).length;
+    const statusLine = (team: typeof updatedA, label: string) =>
+      `${label}: ${team.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}`;
+    const fleeText =
+      `⚔️ <b>Round ${session.currentRound}</b>\n` +
+      `${statusLine(updatedA, '🔵 Tim A')}\n${statusLine(updatedB, '🔴 Tim B')}\n\n` +
+      `🏳️ ${escHtml(player.name)} meninggalkan game.\n⏳ ${picked}/${allRemaining.length} sudah pilih...`;
+    await Promise.allSettled(
+      allRemaining.filter(p => p.choice !== null).map(p =>
+        editInlineMessage(token, p.inlineMessageId, fleeText, teamPickKeyboard(gameId, p.userId === session.hostUserId))
+      )
+    );
   }
 }
 
@@ -257,10 +643,11 @@ async function handleExtendLms(
   await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
   await answerCallbackQuery(token, query.id, '⏰ Waktu diperpanjang 10 menit!');
   const canForceExt = session.players.length >= 2;
+  const hasOthersExt = session.players.some(p => p.userId !== session.hostUserId);
   await Promise.allSettled(
     session.players.map(p =>
       editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updated),
-        p.userId === updated.hostUserId ? lmsHostKeyboard(gameId, canForceExt) : lmsJoinKeyboard(gameId))
+        p.userId === updated.hostUserId ? lmsHostKeyboard(gameId, canForceExt, hasOthersExt) : lmsJoinKeyboard(gameId))
     )
   );
 }
@@ -316,12 +703,13 @@ async function handleExtendTeam(
   await answerCallbackQuery(token, query.id, '⏰ Waktu diperpanjang 10 menit!');
   const slotsA = session.teamSize - session.teamA.length;
   const slotsB = session.teamSize - session.teamB.length;
-  const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB);
-  const memberKb: InlineKeyboardMarkup = { inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]] };
+  const allExtPlayers = [...session.teamA, ...session.teamB];
+  const hasOthersTeamExt = allExtPlayers.some(p => p.userId !== session.hostUserId);
+  const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthersTeamExt);
   const waitText = teamWaitingText(updated);
   await Promise.allSettled(
-    [...session.teamA, ...session.teamB].map(p =>
-      editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : memberKb)
+    allExtPlayers.map(p =>
+      editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : teamMemberWaitingKeyboard(gameId))
     )
   );
 }
