@@ -12,7 +12,7 @@ import {
 } from '../config';
 import { activateTier, loadDonatorTier, parseDuration, TIER_PERKS, tierBadge } from '../donator';
 import { handleDonate, handleSuccessfulPayment } from './payment';
-import { ACHIEVEMENT_DEFS, EMOJI, escHtml, fmtEmoji, generateId, getLang, resolveTeamDiceWait, tournamentSignupKeyboard, tournamentSignupText } from '../game';
+import { ACHIEVEMENT_DEFS, escHtml, fmtEmoji, generateId, getLang, resolveTeamDiceWait, tournamentSignupKeyboard, tournamentSignupText } from '../game';
 
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
@@ -1007,13 +1007,13 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
             const topRollers = updated.rollsA.filter(r => r.roll === maxRoll);
             const winner = topRollers[Math.floor(Math.random() * topRollers.length)];
             const winnerPlayer = state.tieA.find(tp => tp.userId === winner.userId)!;
-            const rollStr = updated.rollsA.map(r => {
+            const rolls = updated.rollsA.map(r => {
               const rp = state.tieA!.find(tp => tp.userId === r.userId)!;
-              return `${escHtml(rp.name)} ${EMOJI[rp.choice]} 🎲${r.roll}`;
-            }).join(', ');
+              return { name: rp.name, choice: rp.choice, roll: r.roll };
+            });
             updated = { ...updated, resolvedA: {
               choice: winnerPlayer.choice,
-              notes: [`${rollStr} → Tim A pilih ${EMOJI[winnerPlayer.choice]}${topRollers.length > 1 ? ' (dadu seri → acak)' : ''}`],
+              diceNote: { rolls, winnerName: winnerPlayer.name, isRandom: topRollers.length > 1 },
             }};
           }
         }
@@ -1029,13 +1029,13 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
             const topRollers = updated.rollsB.filter(r => r.roll === maxRoll);
             const winner = topRollers[Math.floor(Math.random() * topRollers.length)];
             const winnerPlayer = state.tieB.find(tp => tp.userId === winner.userId)!;
-            const rollStr = updated.rollsB.map(r => {
+            const rolls = updated.rollsB.map(r => {
               const rp = state.tieB!.find(tp => tp.userId === r.userId)!;
-              return `${escHtml(rp.name)} ${EMOJI[rp.choice]} 🎲${r.roll}`;
-            }).join(', ');
+              return { name: rp.name, choice: rp.choice, roll: r.roll };
+            });
             updated = { ...updated, resolvedB: {
               choice: winnerPlayer.choice,
-              notes: [`${rollStr} → Tim B pilih ${EMOJI[winnerPlayer.choice]}${topRollers.length > 1 ? ' (dadu seri → acak)' : ''}`],
+              diceNote: { rolls, winnerName: winnerPlayer.name, isRandom: topRollers.length > 1 },
             }};
           }
         }

@@ -200,6 +200,23 @@ export interface TournamentSession {
   createdAt: number;
 }
 
+export interface DiceNotePlayer {
+  name: string;
+  choice: Choice;
+  roll: number;
+}
+
+export interface DiceNote {
+  rolls: DiceNotePlayer[];
+  winnerName: string;
+  isRandom: boolean;
+}
+
+export interface TeamResolution {
+  choice: Choice;
+  diceNote: DiceNote | null;
+}
+
 export interface TeamDiceWaitState {
   gameId: string;
   chatId: number;
@@ -208,8 +225,8 @@ export interface TeamDiceWaitState {
   tieB: Array<{ userId: number; name: string; choice: Choice }> | null;
   rollsA: Array<{ userId: number; roll: number }>;
   rollsB: Array<{ userId: number; roll: number }>;
-  resolvedA: { choice: Choice; notes: string[] } | null;
-  resolvedB: { choice: Choice; notes: string[] } | null;
+  resolvedA: TeamResolution | null;
+  resolvedB: TeamResolution | null;
 }
 
 export interface Env {
