@@ -69,6 +69,8 @@ export async function handleCallbackQuery(
     await handleTeamSmiteCancel(query, env, parts[1]);
   } else if (action === 'teamflee' && parts.length === 2) {
     await handleTeamFlee(query, env, ctx, parts[1]);
+  } else if (action === 'teamforce' && parts.length === 2) {
+    await handleTeamForce(query, env, ctx, parts[1]);
   } else if (action === 'extteam' && parts.length === 2) {
     await handleExtendTeam(query, env, parts[1]);
   } else if (action === 'teamdice' && parts[1] === 'resolve' && parts.length === 3) {
@@ -479,10 +481,11 @@ async function handleTeamSmite(
     const slotsB = session.teamSize - updatedB.length;
     const allRemaining = [...updatedA, ...updatedB];
     const hasOthers = allRemaining.some(p => p.userId !== session.hostUserId);
+    const canForce = updatedA.length === updatedB.length && updatedA.length >= 1;
     const waitText = teamWaitingText(updated);
     await Promise.allSettled(allRemaining.map(p =>
       editInlineMessage(token, p.inlineMessageId, waitText,
-        p.userId === session.hostUserId ? teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers) : teamMemberWaitingKeyboard(gameId))
+        p.userId === session.hostUserId ? teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers, canForce) : teamMemberWaitingKeyboard(gameId))
     ));
   } else {
     if (updatedA.length === 0 || updatedB.length === 0) {
@@ -530,7 +533,8 @@ async function handleTeamSmiteCancel(
     const slotsB = session.teamSize - session.teamB.length;
     const allPlayers = [...session.teamA, ...session.teamB];
     const hasOthers = allPlayers.some(p => p.userId !== session.hostUserId);
-    await editInlineMessage(token, query.inline_message_id!, teamWaitingText(session), teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers));
+    const canForceSmite = session.teamA.length === session.teamB.length && session.teamA.length >= 1;
+    await editInlineMessage(token, query.inline_message_id!, teamWaitingText(session), teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers, canForceSmite));
   } else {
     const allPlayers = [...session.teamA, ...session.teamB];
     const picked = allPlayers.filter(p => p.choice !== null).length;
@@ -584,10 +588,11 @@ async function handleTeamFlee(
     const slotsB = session.teamSize - updatedB.length;
     const allRemaining = [...updatedA, ...updatedB];
     const hasOthers = allRemaining.some(p => p.userId !== session.hostUserId);
+    const canForceFlee = updatedA.length === updatedB.length && updatedA.length >= 1;
     const waitText = teamWaitingText(updated);
     await Promise.allSettled(allRemaining.map(p =>
       editInlineMessage(token, p.inlineMessageId, waitText,
-        p.userId === session.hostUserId ? teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers) : teamMemberWaitingKeyboard(gameId))
+        p.userId === session.hostUserId ? teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers, canForceFlee) : teamMemberWaitingKeyboard(gameId))
     ));
     return;
   }
@@ -682,6 +687,36 @@ async function handleLmsForce(
   ctx.waitUntil(runLmsRound(token, kv, forcedSession, ctx, env));
 }
 
+async function handleTeamForce(
+  query: CallbackQuery,
+  env: Env,
+  ctx: ExecutionContext,
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  const session = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+  if (!session || session.status !== 'waiting') {
+    await answerCallbackQuery(token, query.id, '❌ Game sudah dimulai.', true);
+    return;
+  }
+  if (query.from.id !== session.hostUserId) {
+    await answerCallbackQuery(token, query.id, '❌ Hanya host yang bisa force start.', true);
+    return;
+  }
+  if (session.teamA.length !== session.teamB.length || session.teamA.length < 1) {
+    await answerCallbackQuery(token, query.id, '⚠️ Kedua tim harus seimbang dan minimal 1v1.', true);
+    return;
+  }
+  const forcedSession: TeamSession = { ...session, status: 'playing' };
+  await kv.put(`team:${gameId}`, JSON.stringify(forcedSession), { expirationTtl: 300 });
+  const fsRateKey = `ratelimit:${session.hostUserId}`;
+  const fsRateCur = parseInt(await kv.get(fsRateKey) ?? '0');
+  if (fsRateCur > 0) await kv.put(fsRateKey, String(fsRateCur - 1), { expirationTtl: 600 });
+  await answerCallbackQuery(token, query.id, '▶️ Game dimulai!');
+  ctx.waitUntil(runTeamRound(token, kv, forcedSession, env, ctx));
+}
+
 async function handleExtendTeam(
   query: CallbackQuery,
   env: Env,
@@ -705,7 +740,8 @@ async function handleExtendTeam(
   const slotsB = session.teamSize - session.teamB.length;
   const allExtPlayers = [...session.teamA, ...session.teamB];
   const hasOthersTeamExt = allExtPlayers.some(p => p.userId !== session.hostUserId);
-  const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthersTeamExt);
+  const canForceExt = session.teamA.length === session.teamB.length && session.teamA.length >= 1;
+  const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthersTeamExt, canForceExt);
   const waitText = teamWaitingText(updated);
   await Promise.allSettled(
     allExtPlayers.map(p =>

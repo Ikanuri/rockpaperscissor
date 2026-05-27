@@ -22,7 +22,7 @@ import type {
   UserStats,
   VsStats,
 } from './types';
-import { editInlineMessage, editMessage, pinChatMessage, sendDice, sendMessage, sendMessageForId } from './telegram';
+import { editInlineMessage, editMessage, pinChatMessage, sendDice, sendMessage, sendMessageForId, unpinChatMessage } from './telegram';
 import { loadConfig } from './config';
 import { hasFeature, isBetaUser } from './feature';
 
@@ -98,9 +98,9 @@ export function fmtEmoji(customId: string | undefined, fallback: string): string
 export function pickKeyboard(gameId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [[
-      { text: '✊', callback_data: `pick:${gameId}:rock` },
-      { text: '✋', callback_data: `pick:${gameId}:paper` },
-      { text: '✌️', callback_data: `pick:${gameId}:scissors` },
+      { text: '✊', callback_data: `pick:${gameId}:rock`, style: 'primary' },
+      { text: '✋', callback_data: `pick:${gameId}:paper`, style: 'primary' },
+      { text: '✌️', callback_data: `pick:${gameId}:scissors`, style: 'primary' },
     ]],
   };
 }
@@ -109,10 +109,10 @@ export function waitingKeyboard(gameId: string, joinQuery?: string, showRefresh 
   return {
     inline_keyboard: [
       [
-        { text: '🎮 Join', switch_inline_query_current_chat: joinQuery ?? gameId },
+        { text: '🎮 Join', switch_inline_query_current_chat: joinQuery ?? gameId, style: 'success' },
         ...(showRefresh ? [{ text: '🔄', callback_data: `refresh:${gameId}` }] : []),
       ],
-      [{ text: '❌ Cancel', callback_data: `cancel:${gameId}` }],
+      [{ text: '❌ Cancel', callback_data: `cancel:${gameId}`, style: 'danger' }],
     ],
   };
 }
@@ -120,7 +120,7 @@ export function waitingKeyboard(gameId: string, joinQuery?: string, showRefresh 
 export function rematchKeyboard(chainCode: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [[
-      { text: '🔄 Rematch', switch_inline_query_current_chat: chainCode },
+      { text: '🔄 Rematch', switch_inline_query_current_chat: chainCode, style: 'success' },
     ]],
   };
 }
@@ -531,62 +531,63 @@ async function updateDailyLeaderboard(
 
 export function teamPickKeyboard(gameId: string, isHost = false): InlineKeyboardMarkup {
   const rows: InlineKeyboardMarkup['inline_keyboard'] = [[
-    { text: '✊', callback_data: `tpick:${gameId}:rock` },
-    { text: '✋', callback_data: `tpick:${gameId}:paper` },
-    { text: '✌️', callback_data: `tpick:${gameId}:scissors` },
+    { text: '✊', callback_data: `tpick:${gameId}:rock`, style: 'primary' },
+    { text: '✋', callback_data: `tpick:${gameId}:paper`, style: 'primary' },
+    { text: '✌️', callback_data: `tpick:${gameId}:scissors`, style: 'primary' },
   ]];
-  if (isHost) rows.push([{ text: '⚡ Smite', callback_data: `teamsmite:${gameId}` }]);
-  rows.push([{ text: '🏳️ Flee', callback_data: `teamflee:${gameId}` }]);
+  if (isHost) rows.push([{ text: '⚡ Smite', callback_data: `teamsmite:${gameId}`, style: 'danger' }]);
+  rows.push([{ text: '🏳️ Flee', callback_data: `teamflee:${gameId}`, style: 'danger' }]);
   return { inline_keyboard: rows };
 }
 
-export function teamWaitingKeyboard(gameId: string, slotsA: number, slotsB: number, hasNonHostPlayers = false): InlineKeyboardMarkup {
-  const joinRow: Array<{ text: string; switch_inline_query_current_chat: string }> = [];
-  if (slotsA > 0) joinRow.push({ text: `🤝 Tim A (${slotsA})`, switch_inline_query_current_chat: `TJOIN ${gameId} A` });
-  if (slotsB > 0) joinRow.push({ text: `⚔️ Tim B (${slotsB})`, switch_inline_query_current_chat: `TJOIN ${gameId} B` });
+export function teamWaitingKeyboard(gameId: string, slotsA: number, slotsB: number, hasNonHostPlayers = false, canForce = false): InlineKeyboardMarkup {
+  const joinRow: InlineKeyboardMarkup['inline_keyboard'][0] = [];
+  if (slotsA > 0) joinRow.push({ text: `🤝 Tim A (${slotsA})`, switch_inline_query_current_chat: `TJOIN ${gameId} A`, style: 'success' });
+  if (slotsB > 0) joinRow.push({ text: `⚔️ Tim B (${slotsB})`, switch_inline_query_current_chat: `TJOIN ${gameId} B`, style: 'success' });
   const rows: InlineKeyboardMarkup['inline_keyboard'] = [];
   if (joinRow.length) rows.push(joinRow);
+  if (canForce) rows.push([{ text: '▶️ Force Start', callback_data: `teamforce:${gameId}`, style: 'success' }]);
   rows.push([
-    { text: '⏰ Extend', callback_data: `extteam:${gameId}` },
-    { text: '❌ Batal', callback_data: `tcancel:${gameId}` },
+    { text: '⏰ Extend', callback_data: `extteam:${gameId}`, style: 'primary' },
+    { text: '❌ Batal', callback_data: `tcancel:${gameId}`, style: 'danger' },
   ]);
-  if (hasNonHostPlayers) rows.push([{ text: '⚡ Smite', callback_data: `teamsmite:${gameId}` }]);
+  if (hasNonHostPlayers) rows.push([{ text: '⚡ Smite', callback_data: `teamsmite:${gameId}`, style: 'danger' }]);
   return { inline_keyboard: rows };
 }
 
 export function teamMemberWaitingKeyboard(gameId: string): InlineKeyboardMarkup {
-  return { inline_keyboard: [[{ text: '🏳️ Flee', callback_data: `teamflee:${gameId}` }]] };
+  return { inline_keyboard: [[{ text: '🏳️ Flee', callback_data: `teamflee:${gameId}`, style: 'danger' }]] };
 }
 
 export function lmsJoinKeyboard(gameId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
       [
-        { text: '⚔️ Join', switch_inline_query_current_chat: gameId },
-        { text: '⏰ Extend', callback_data: `extlms:${gameId}` },
+        { text: '⚔️ Join', switch_inline_query_current_chat: gameId, style: 'success' },
+        { text: '⏰ Extend', callback_data: `extlms:${gameId}`, style: 'primary' },
       ],
-      [{ text: '🏳️ Flee', callback_data: `lmsflee:${gameId}` }],
+      [{ text: '🏳️ Flee', callback_data: `lmsflee:${gameId}`, style: 'danger' }],
     ],
   };
 }
 
 export function lmsHostKeyboard(gameId: string, canForce: boolean, hasNonHostPlayers = false): InlineKeyboardMarkup {
   const rows: InlineKeyboardMarkup['inline_keyboard'] = [[
-    { text: '⚔️ Join', switch_inline_query_current_chat: gameId },
-    { text: '⏰ Extend', callback_data: `extlms:${gameId}` },
+    { text: '⚔️ Join', switch_inline_query_current_chat: gameId, style: 'success' },
+    { text: '⏰ Extend', callback_data: `extlms:${gameId}`, style: 'primary' },
   ]];
-  if (canForce) rows.push([{ text: '▶️ Force Start', callback_data: `lmsforce:${gameId}` }]);
+  if (canForce) rows.push([{ text: '▶️ Force Start', callback_data: `lmsforce:${gameId}`, style: 'success' }]);
   const actionRow: InlineKeyboardMarkup['inline_keyboard'][0] = [];
-  if (hasNonHostPlayers) actionRow.push({ text: '⚡ Smite', callback_data: `lmssmite:${gameId}` });
-  actionRow.push({ text: '🏳️ Flee', callback_data: `lmsflee:${gameId}` });
+  if (hasNonHostPlayers) actionRow.push({ text: '⚡ Smite', callback_data: `lmssmite:${gameId}`, style: 'danger' });
+  actionRow.push({ text: '🏳️ Flee', callback_data: `lmsflee:${gameId}`, style: 'danger' });
   rows.push(actionRow);
   return { inline_keyboard: rows };
 }
 
 export function lmsWaitPickedKeyboard(gameId: string, isHost = false): InlineKeyboardMarkup {
   const rows: InlineKeyboardMarkup['inline_keyboard'] = [];
-  if (isHost) rows.push([{ text: '⚡ Smite', callback_data: `lmssmite:${gameId}` }]);
-  rows.push([{ text: '🏳️ Flee', callback_data: `lmsflee:${gameId}` }]);
+  if (isHost) rows.push([{ text: '⚡ Smite', callback_data: `lmssmite:${gameId}`, style: 'danger' }]);
+  rows.push([{ text: '🏳️ Flee', callback_data: `lmsflee:${gameId}`, style: 'danger' }]);
   return { inline_keyboard: rows };
 }
 
@@ -714,12 +715,21 @@ async function executeTeamRound(
   const teamBLine = `🔴 Tim B ${EMOJI[choiceB]}: ${session.teamB.map(p => `${escHtml(p.name)} ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}`).join(', ')}`;
   const notesText = [...resA.notes, ...resB.notes].map(n => `<i>${n}</i>`).join('\n');
 
+  const groupMsgId = session.groupMsgId;
+
   if (isDone) {
     const winner = newScoreA > newScoreB ? 'A' : 'B';
     const finalText = `🏆 <b>Tim ${winner} menang!</b>\n${teamALine}\n${teamBLine}` +
       (notesText ? `\n${notesText}` : '');
     await Promise.allSettled(allPlayers.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
-    await sendMessage(token, session.chatId, finalText);
+    if (groupMsgId) {
+      await Promise.allSettled([
+        editMessage(token, session.chatId, groupMsgId, finalText),
+        unpinChatMessage(token, session.chatId, groupMsgId),
+      ]);
+    } else {
+      await sendMessage(token, session.chatId, finalText);
+    }
     const winTeam = winner === 'A' ? session.teamA : session.teamB;
     const loseTeam = winner === 'A' ? session.teamB : session.teamA;
     for (const p of winTeam) {
@@ -745,13 +755,15 @@ async function executeTeamRound(
       `Round ${session.currentRound}: ${outcomeText}\n${teamALine}\n${teamBLine}` +
       (notesText ? `\n${notesText}` : '') +
       `\n\nScore: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}:`;
-    const groupRoundText =
+    const groupScoreText =
       `⚔️ <b>Round ${session.currentRound}</b> · <code>${session.gameId}</code>\n` +
       `${teamALine}\n${teamBLine}` +
       (notesText ? `\n${notesText}` : '') +
-      `\n${outcomeText}\n📊 Score: 🔵 ${newScoreA} – ${newScoreB} 🔴`;
+      `\n${outcomeText}\n📊 Score: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}...`;
     await Promise.all([
-      sendMessage(token, session.chatId, groupRoundText),
+      groupMsgId
+        ? editMessage(token, session.chatId, groupMsgId, groupScoreText)
+        : sendMessage(token, session.chatId, groupScoreText),
       ...allPlayers.map(p =>
         editInlineMessage(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId))
       ),
@@ -766,17 +778,31 @@ export async function runTeamRound(
   env: Env,
   ctx: ExecutionContext
 ): Promise<void> {
-  const resA = resolveChoiceNoDice(session.teamA);
-  const resB = resolveChoiceNoDice(session.teamB);
+  let activeSession = session;
+  if (!session.groupMsgId) {
+    const initText =
+      `⚔️ <b>Team ${session.teamSize}v${session.teamSize}</b> · <code>${session.gameId}</code> dimulai!\n` +
+      `🔵 Tim A: ${session.teamA.map(p => escHtml(p.name)).join(', ')}\n` +
+      `🔴 Tim B: ${session.teamB.map(p => escHtml(p.name)).join(', ')}`;
+    const groupMsgId = await sendMessageForId(token, session.chatId, initText);
+    if (groupMsgId) {
+      await pinChatMessage(token, session.chatId, groupMsgId);
+      activeSession = { ...session, groupMsgId };
+      await kv.put(`team:${session.gameId}`, JSON.stringify(activeSession), { expirationTtl: 300 });
+    }
+  }
+
+  const resA = resolveChoiceNoDice(activeSession.teamA);
+  const resB = resolveChoiceNoDice(activeSession.teamB);
 
   if (resA === null || resB === null) {
-    const tieA = resA === null ? getTiedPlayers(session.teamA) : null;
-    const tieB = resB === null ? getTiedPlayers(session.teamB) : null;
+    const tieA = resA === null ? getTiedPlayers(activeSession.teamA) : null;
+    const tieB = resB === null ? getTiedPlayers(activeSession.teamB) : null;
 
     const state: TeamDiceWaitState = {
-      gameId: session.gameId,
-      chatId: session.chatId,
-      teamSession: session,
+      gameId: activeSession.gameId,
+      chatId: activeSession.chatId,
+      teamSession: activeSession,
       tieA,
       tieB,
       rollsA: [],
@@ -784,33 +810,33 @@ export async function runTeamRound(
       resolvedA: resA,
       resolvedB: resB,
     };
-    await kv.put(`chat:dice_wait:${session.chatId}`, JSON.stringify(state), { expirationTtl: 300 });
+    await kv.put(`chat:dice_wait:${activeSession.chatId}`, JSON.stringify(state), { expirationTtl: 300 });
 
     const tieLines: string[] = [];
     if (tieA) tieLines.push(`🔵 Tim A seri: ${tieA.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
     if (tieB) tieLines.push(`🔴 Tim B seri: ${tieB.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
 
     const resolveKb: InlineKeyboardMarkup = {
-      inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${session.gameId}` }]],
+      inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${activeSession.gameId}` }]],
     };
-    await sendMessage(token, session.chatId,
+    await sendMessage(token, activeSession.chatId,
       `⚔️ <b>Seri internal!</b> Semua lempar 🎲 di grup!\n\n` +
       tieLines.join('\n') +
       `\n\n<i>Semua player yang seri harus lempar dadu — 🎲 tertinggi menang.</i>\n` +
       `<i>Tidak ada yang lempar? Tekan tombol di bawah.</i>`,
       resolveKb
     );
-    await Promise.allSettled([...session.teamA, ...session.teamB].map(p =>
+    await Promise.allSettled([...activeSession.teamA, ...activeSession.teamB].map(p =>
       editInlineMessage(token, p.inlineMessageId, '⏳ Menunggu tiebreaker dadu di grup...')
     ));
     return;
   }
 
   const configs = new Map<number, GameConfig | null>();
-  await Promise.all([...session.teamA, ...session.teamB].map(async p => {
+  await Promise.all([...activeSession.teamA, ...activeSession.teamB].map(async p => {
     configs.set(p.userId, await loadConfigAuthorized(kv, p.userId, env));
   }));
-  await executeTeamRound(token, kv, session, resA, resB, env, ctx, configs);
+  await executeTeamRound(token, kv, activeSession, resA, resB, env, ctx, configs);
 }
 
 // Called once all ties are resolved (by player dice or bot fallback).
@@ -1307,12 +1333,12 @@ export function runLmsElimination(activePlayers: LmsPlayer[]): {
 
 export function lmsPickKeyboard(gameId: string, isHost = false): InlineKeyboardMarkup {
   const rows: InlineKeyboardMarkup['inline_keyboard'] = [[
-    { text: '✊', callback_data: `lmspick:${gameId}:rock` },
-    { text: '✋', callback_data: `lmspick:${gameId}:paper` },
-    { text: '✌️', callback_data: `lmspick:${gameId}:scissors` },
+    { text: '✊', callback_data: `lmspick:${gameId}:rock`, style: 'primary' },
+    { text: '✋', callback_data: `lmspick:${gameId}:paper`, style: 'primary' },
+    { text: '✌️', callback_data: `lmspick:${gameId}:scissors`, style: 'primary' },
   ]];
-  if (isHost) rows.push([{ text: '⚡ Smite', callback_data: `lmssmite:${gameId}` }]);
-  rows.push([{ text: '🏳️ Flee', callback_data: `lmsflee:${gameId}` }]);
+  if (isHost) rows.push([{ text: '⚡ Smite', callback_data: `lmssmite:${gameId}`, style: 'danger' }]);
+  rows.push([{ text: '🏳️ Flee', callback_data: `lmsflee:${gameId}`, style: 'danger' }]);
   return { inline_keyboard: rows };
 }
 

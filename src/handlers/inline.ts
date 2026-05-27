@@ -435,7 +435,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       }]);
       return;
     }
-    const n = Math.min(4, Math.max(1, parseInt(teamQueryMatch[1])));
+    const n = Math.min(6, Math.max(1, parseInt(teamQueryMatch[1])));
     const modeLabel = teamQueryMatch[3] ? ` ${teamQueryMatch[3]}` : '';
     const config = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
     await answerInlineQuery(token, query.id, buildChoiceResults(`⚔️ Team ${n}v${n}${modeLabel}`, env, config));
@@ -1043,7 +1043,7 @@ export async function handleChosenInlineResult(
     }
     const chatId = parseInt(chatIdStr);
     if (isNaN(chatId)) { await editInlineMessage(token, result.inline_message_id, '❌ chatId tidak valid.'); return; }
-    const teamSize = Math.min(4, Math.max(1, parseInt(teamResultMatch[1])));
+    const teamSize = Math.min(6, Math.max(1, parseInt(teamResultMatch[1])));
     const mode: GameMode = teamResultMatch[3] ? parseMode(teamResultMatch[3]) : 'single';
     const gameId = `T${generateId()}`;
     const rateKeyT = `ratelimit:${result.from.id}`;
@@ -1064,7 +1064,7 @@ export async function handleChosenInlineResult(
     ]);
     const slotsA = teamSize - 1;
     const slotsB = teamSize;
-    await editInlineMessage(token, result.inline_message_id, teamWaitingText(teamSession), teamWaitingKeyboard(gameId, slotsA, slotsB));
+    await editInlineMessage(token, result.inline_message_id, teamWaitingText(teamSession), teamWaitingKeyboard(gameId, slotsA, slotsB, false, false));
     return;
   }
 
@@ -1110,7 +1110,8 @@ export async function handleChosenInlineResult(
       const slotsB = teamSess.teamSize - updatedB.length;
       const allTeamPlayers = [...updatedA, ...updatedB];
       const hasOthersTeam = allTeamPlayers.some(p => p.userId !== updated.hostUserId);
-      const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthersTeam);
+      const canForceTeam = updatedA.length === updatedB.length && updatedA.length >= 1;
+      const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthersTeam, canForceTeam);
       const waitText = teamWaitingText(updated);
       await Promise.allSettled(allTeamPlayers.map(p =>
         editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : teamMemberWaitingKeyboard(gameId))
