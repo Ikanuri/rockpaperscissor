@@ -202,9 +202,16 @@ export async function sendMessageForId(
         ...(replyMarkup && { reply_markup: replyMarkup }),
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error('[tg:sendMessageForId]', await res.text());
+      return null;
+    }
     const data = await res.json<{ ok: boolean; result?: { message_id: number } }>();
-    return data.ok ? (data.result?.message_id ?? null) : null;
+    if (!data.ok) {
+      console.error('[tg:sendMessageForId] ok=false', JSON.stringify(data));
+      return null;
+    }
+    return data.result?.message_id ?? null;
   } catch {
     return null;
   }

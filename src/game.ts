@@ -791,6 +791,8 @@ export async function runTeamRound(
       await pinChatMessage(token, session.chatId, groupMsgId);
       activeSession = { ...session, groupMsgId };
       await kv.put(`team:${session.gameId}`, JSON.stringify(activeSession), { expirationTtl: 300 });
+    } else {
+      console.error(`[team:pin] sendMessageForId returned null — chatId=${session.chatId} gameId=${session.gameId}`);
     }
   }
 
