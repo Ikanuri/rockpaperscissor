@@ -256,3 +256,11 @@ export function pinChatMessage(
     disable_notification: true,
   });
 }
+
+export function unpinChatMessage(
+  token: string,
+  chatId: number,
+  messageId: number
+): Promise<void> {
+  return call(token, 'unpinChatMessage', { chat_id: chatId, message_id: messageId });
+}

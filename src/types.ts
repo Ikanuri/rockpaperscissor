@@ -170,6 +170,7 @@ export interface TeamSession {
   mode: GameMode;
   hostUserId: number;
   createdAt: number;
+  groupMsgId?: number;  // pinned scoreboard message in group
 }
 
 export interface TournamentPlayer {
@@ -311,6 +312,7 @@ export interface InlineKeyboardButton {
   callback_data?: string;
   url?: string;
   switch_inline_query_current_chat?: string;
+  style?: 'primary' | 'success' | 'danger';
 }
 
 export interface InlineKeyboardMarkup {
