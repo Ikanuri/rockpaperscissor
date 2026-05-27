@@ -745,9 +745,17 @@ async function executeTeamRound(
       `Round ${session.currentRound}: ${outcomeText}\n${teamALine}\n${teamBLine}` +
       (notesText ? `\n${notesText}` : '') +
       `\n\nScore: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}:`;
-    await Promise.allSettled(allPlayers.map(p =>
-      editInlineMessage(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId))
-    ));
+    const groupRoundText =
+      `⚔️ <b>Round ${session.currentRound}</b> · <code>${session.gameId}</code>\n` +
+      `${teamALine}\n${teamBLine}` +
+      (notesText ? `\n${notesText}` : '') +
+      `\n${outcomeText}\n📊 Score: 🔵 ${newScoreA} – ${newScoreB} 🔴`;
+    await Promise.all([
+      sendMessage(token, session.chatId, groupRoundText),
+      ...allPlayers.map(p =>
+        editInlineMessage(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId))
+      ),
+    ]);
   }
 }
 
