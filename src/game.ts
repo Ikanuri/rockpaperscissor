@@ -831,37 +831,22 @@ export async function runTeamRound(
   if (resA === null || resB === null) {
     const tieA = resA === null ? getTiedPlayers(activeSession.teamA) : null;
     const tieB = resB === null ? getTiedPlayers(activeSession.teamB) : null;
-
-    const state: TeamDiceWaitState = {
-      gameId: activeSession.gameId,
-      chatId: activeSession.chatId,
-      teamSession: activeSession,
-      tieA,
-      tieB,
-      rollsA: [],
-      rollsB: [],
-      resolvedA: resA,
-      resolvedB: resB,
-    };
-    await kv.put(`chat:dice_wait:${activeSession.chatId}`, JSON.stringify(state), { expirationTtl: 300 });
-
     const tieLines: string[] = [];
     if (tieA) tieLines.push(`🔵 Tim A seri: ${tieA.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
     if (tieB) tieLines.push(`🔴 Tim B seri: ${tieB.map(p => `${escHtml(p.name)} ${EMOJI[p.choice]}`).join(' vs ')}`);
-
-    const resolveKb: InlineKeyboardMarkup = {
-      inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${activeSession.gameId}` }]],
-    };
-    await sendMessage(token, activeSession.chatId,
-      `⚔️ <b>Seri internal!</b> Semua lempar 🎲 di grup!\n\n` +
-      tieLines.join('\n') +
-      `\n\n<i>Semua player yang seri harus lempar dadu — 🎲 tertinggi menang.</i>\n` +
-      `<i>Tidak ada yang lempar? Tekan tombol di bawah.</i>`,
-      resolveKb
-    );
     await Promise.allSettled([...activeSession.teamA, ...activeSession.teamB].map(p =>
-      editInlineMessage(token, p.inlineMessageId, '⏳ Menunggu tiebreaker dadu di grup...')
+      editInlineMessage(token, p.inlineMessageId, '⚔️ Seri internal! Menentukan pilihan tim...')
     ));
+    await sendMessage(token, activeSession.chatId,
+      `⚔️ <b>Seri internal!</b> Bot melempar dadu...\n\n${tieLines.join('\n')}`
+    );
+    const resolvedA = resA ?? await botResolveTie(tieA!, activeSession.chatId, token);
+    const resolvedB = resB ?? await botResolveTie(tieB!, activeSession.chatId, token);
+    const configs = new Map<number, GameConfig | null>();
+    await Promise.all([...activeSession.teamA, ...activeSession.teamB].map(async p => {
+      configs.set(p.userId, await loadConfigAuthorized(kv, p.userId, env));
+    }));
+    await executeTeamRound(token, kv, activeSession, resolvedA, resolvedB, env, ctx, configs);
     return;
   }
 
