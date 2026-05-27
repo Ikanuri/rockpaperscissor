@@ -559,6 +559,10 @@ export function teamMemberWaitingKeyboard(gameId: string): InlineKeyboardMarkup 
   return { inline_keyboard: [[{ text: '🏳️ Flee', callback_data: `teamflee:${gameId}`, style: 'danger' }]] };
 }
 
+export function teamGroupRoundKeyboard(gameId: string): InlineKeyboardMarkup {
+  return { inline_keyboard: [[{ text: '🎮 Pick senjata', switch_inline_query_current_chat: gameId, style: 'success' }]] };
+}
+
 export function lmsJoinKeyboard(gameId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
@@ -760,12 +764,13 @@ async function executeTeamRound(
       `${teamALine}\n${teamBLine}` +
       (notesText ? `\n${notesText}` : '') +
       `\n${outcomeText}\n📊 Score: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}...`;
+    const roundKb = teamGroupRoundKeyboard(session.gameId);
     const pinUpdate = groupMsgId
-      ? editMessage(token, session.chatId, groupMsgId, groupRoundText)
+      ? editMessage(token, session.chatId, groupMsgId, groupRoundText, roundKb)
       : Promise.resolve();
     await Promise.all([
       pinUpdate,
-      sendMessage(token, session.chatId, groupRoundText),
+      sendMessage(token, session.chatId, groupRoundText, roundKb),
       ...allPlayers.map(p =>
         editInlineMessage(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId))
       ),

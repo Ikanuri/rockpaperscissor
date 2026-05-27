@@ -548,6 +548,33 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     // LMS game not found or done — fall through to custom code / new game
   }
 
+  // Team round pick by code (playing) — same pattern as LMS
+  if (TEAM_CODE_RE.test(q)) {
+    const teamQ = await kv.get<TeamSession>(`team:${q}`, 'json');
+    if (teamQ?.status === 'playing') {
+      const teamQPlayer = [...teamQ.teamA, ...teamQ.teamB].find(p => p.userId === from.id);
+      if (!teamQPlayer) {
+        await answerInlineQuery(token, query.id, [{
+          type: 'article', id: 'not_in', title: '❌ Kamu bukan peserta game ini',
+          description: 'Hanya peserta yang bisa pick.',
+          input_message_content: { message_text: '❌ Kamu bukan peserta game ini.' },
+        }]);
+        return;
+      }
+      if (teamQPlayer.choice !== null) {
+        await answerInlineQuery(token, query.id, [{
+          type: 'article', id: 'team_wait', title: `✅ ${EMOJI[teamQPlayer.choice]} dikunci`,
+          description: 'Menunggu pemain lain memilih...',
+          input_message_content: { message_text: `✅ ${EMOJI[teamQPlayer.choice]} sudah dikunci. Menunggu pemain lain...` },
+        }]);
+        return;
+      }
+      const configTqP = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
+      await answerInlineQuery(token, query.id, buildChoiceResults(`⚔️ Round ${teamQ.currentRound}`, env, configTqP));
+      return;
+    }
+  }
+
   // Open Challenge
   if (q === 'OPEN') {
     const now = Date.now();
@@ -1031,6 +1058,49 @@ export async function handleChosenInlineResult(
       return;
     }
     // lms:${q} not found — fall through to custom code / new game path
+  }
+
+  // Team round pick by code (playing) — same pattern as LMS
+  if (TEAM_CODE_RE.test(q)) {
+    const teamJoin = await kv.get<TeamSession>(`team:${q}`, 'json');
+    if (teamJoin?.status === 'playing') {
+      const teamPickPlayer = [...teamJoin.teamA, ...teamJoin.teamB].find(p => p.userId === result.from.id);
+      if (!teamPickPlayer) {
+        await editInlineMessage(token, result.inline_message_id, '❌ Kamu bukan peserta game ini.');
+        return;
+      }
+      if (teamPickPlayer.choice !== null) {
+        await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[teamPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+        return;
+      }
+      const oldMsgId = teamPickPlayer.inlineMessageId;
+      const teamPickA = teamJoin.teamA.map(p =>
+        p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
+      );
+      const teamPickB = teamJoin.teamB.map(p =>
+        p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
+      );
+      const teamPickAll = [...teamPickA, ...teamPickB];
+      const teamPickAllPicked = teamPickAll.every(p => p.choice !== null);
+      const teamPickCount = teamPickAll.filter(p => p.choice !== null).length;
+      const teamPickSession: TeamSession = { ...teamJoin, teamA: teamPickA, teamB: teamPickB };
+      await kv.put(`team:${q}`, JSON.stringify(teamPickSession), { expirationTtl: 300 });
+      if (oldMsgId !== result.inline_message_id) {
+        await editInlineMessage(token, oldMsgId, `🔒 ${EMOJI[choice]} dikunci! ⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`);
+      }
+      if (teamPickAllPicked) {
+        await editInlineMessage(token, result.inline_message_id, `🔒 ${EMOJI[choice]} dikunci! Semua sudah pilih!`);
+        ctx.waitUntil(runTeamRound(token, kv, teamPickSession, env, ctx));
+      } else {
+        const teamPickWaitText = `⚔️ <b>Round ${teamJoin.currentRound}</b> · <code>${q}</code>\n` +
+          `🔵 Tim A: ${teamPickA.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}\n` +
+          `🔴 Tim B: ${teamPickB.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}\n\n` +
+          `⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`;
+        await editInlineMessage(token, result.inline_message_id, teamPickWaitText);
+      }
+      return;
+    }
+    // team game not found or not playing — fall through
   }
 
   // Team creation: TEAM NvN [BO3]
