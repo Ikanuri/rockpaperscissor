@@ -853,10 +853,10 @@ export async function runTeamRound(
       inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${activeSession.gameId}` }]],
     };
     await sendMessage(token, activeSession.chatId,
-      `⚔️ <b>Seri internal!</b> Semua lempar 🎲 di grup!\n\n` +
+      `⚔️ <b>Seri internal!</b> Lempar 🎲 dengan <b>reply ke pesan ini</b>!\n\n` +
       tieLines.join('\n') +
-      `\n\n<i>Semua player yang seri harus lempar dadu — 🎲 tertinggi menang.</i>\n` +
-      `<i>Tidak ada yang lempar? Tekan tombol di bawah.</i>`,
+      `\n\n<i>Player yang seri: reply pesan ini dengan 🎲 — angka tertinggi menang.</i>\n` +
+      `<i>Tidak bisa reply? Tekan tombol di bawah.</i>`,
       resolveKb
     );
     await Promise.allSettled([...activeSession.teamA, ...activeSession.teamB].map(p =>
