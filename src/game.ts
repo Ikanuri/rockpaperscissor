@@ -14,6 +14,7 @@ import type {
   LmsSession,
   TeamDiceWaitState,
   TeamPlayer,
+  TeamResolution,
   TeamSession,
   TelegramUser,
   TournamentMatch,
@@ -636,18 +637,15 @@ export function teamWaitingText(session: TeamSession): string {
 }
 
 // Returns the majority choice if unambiguous, null if tied.
-function resolveChoiceNoDice(team: TeamPlayer[]): { choice: Choice; notes: string[] } | null {
+function resolveChoiceNoDice(team: TeamPlayer[]): TeamResolution | null {
   const votes: Record<Choice, TeamPlayer[]> = { rock: [], paper: [], scissors: [] };
   for (const p of team) if (p.choice) votes[p.choice].push(p);
   const sorted = (['rock', 'paper', 'scissors'] as Choice[])
     .filter(c => votes[c].length > 0)
     .sort((a, b) => votes[b].length - votes[a].length);
-  if (sorted.length === 0) return { choice: 'rock', notes: [] };
+  if (sorted.length === 0) return { choice: 'rock', diceNote: null };
   if (sorted.length === 1 || votes[sorted[0]].length > votes[sorted[1]].length) {
-    return {
-      choice: sorted[0],
-      notes: sorted.slice(1).flatMap(c => votes[c].map(p => `${escHtml(p.name)} ${EMOJI[c]} tidak dipakai`)),
-    };
+    return { choice: sorted[0], diceNote: null };
   }
   return null;
 }
@@ -671,23 +669,49 @@ export async function botResolveTie(
   tied: Array<{ userId: number; name: string; choice: Choice }>,
   chatId: number,
   token: string
-): Promise<{ choice: Choice; notes: string[] }> {
+): Promise<TeamResolution> {
+  let lastRolls: Array<{ name: string; choice: Choice; roll: number }> = [];
   for (let attempt = 0; attempt < 3; attempt++) {
     const rolls = await Promise.all(tied.map(async e => ({ ...e, roll: await sendDice(token, chatId) })));
+    lastRolls = rolls.map(r => ({ name: r.name, choice: r.choice, roll: r.roll }));
     const maxRoll = Math.max(...rolls.map(r => r.roll));
     const winners = rolls.filter(r => r.roll === maxRoll);
     if (winners.length === 1) {
       const w = winners[0];
       return {
         choice: w.choice,
-        notes: rolls
-          .filter(r => r.userId !== w.userId)
-          .map(r => `${escHtml(r.name)} 🎲${r.roll} ${EMOJI[r.choice]} tidak dipakai`),
+        diceNote: { rolls: lastRolls, winnerName: w.name, isRandom: false },
       };
     }
   }
   const fallback = tied[Math.floor(Math.random() * tied.length)];
-  return { choice: fallback.choice, notes: ['Dadu seri 3x — pilihan acak'] };
+  return {
+    choice: fallback.choice,
+    diceNote: { rolls: lastRolls, winnerName: fallback.name, isRandom: true },
+  };
+}
+
+function buildNotesSection(resA: TeamResolution, resB: TeamResolution, choiceA: Choice, choiceB: Choice): string {
+  const renderTeam = (res: TeamResolution, label: string, teamChoice: Choice): string => {
+    if (!res.diceNote) return '';
+    const { rolls, winnerName, isRandom } = res.diceNote;
+    const lines = [label];
+    for (const p of rolls) {
+      const isWinner = p.name === winnerName;
+      let line = `${escHtml(p.name)} ${EMOJI[p.choice]}`;
+      if (p.roll > 0) line += ` 🎲${p.roll}`;
+      if (isWinner) {
+        line += ` → ${EMOJI[teamChoice]}`;
+        if (isRandom) line += ' (🔀)';
+      }
+      lines.push(line);
+    }
+    return lines.join('\n');
+  };
+  const partsA = renderTeam(resA, '🔵', choiceA);
+  const partsB = renderTeam(resB, '🔴', choiceB);
+  const inner = [partsA, partsB].filter(Boolean).join('\n');
+  return inner ? `\n———\n${inner}\n———` : '';
 }
 
 // Core round resolution — called once both team choices are determined.
@@ -695,8 +719,8 @@ async function executeTeamRound(
   token: string,
   kv: KVNamespace,
   session: TeamSession,
-  resA: { choice: Choice; notes: string[] },
-  resB: { choice: Choice; notes: string[] },
+  resA: TeamResolution,
+  resB: TeamResolution,
   env: Env,
   ctx: ExecutionContext,
   configs = new Map<number, GameConfig | null>()
@@ -715,16 +739,16 @@ async function executeTeamRound(
   const newScoreB = session.scoreB + (roundOutcome === 'b' ? 1 : 0);
   const maxWins = getMaxWins(session.mode);
   const isDone = roundOutcome !== 'draw' && (newScoreA >= maxWins || newScoreB >= maxWins);
-  const teamALine = `🔵 Tim A ${EMOJI[choiceA]}: ${session.teamA.map(p => `${escHtml(p.name)} ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}`).join(', ')}`;
-  const teamBLine = `🔴 Tim B ${EMOJI[choiceB]}: ${session.teamB.map(p => `${escHtml(p.name)} ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}`).join(', ')}`;
-  const notesText = [...resA.notes, ...resB.notes].map(n => `<i>${n}</i>`).join('\n');
+  const teamALine = `🔵 Tim A ${EMOJI[choiceA]}: \n${session.teamA.map(p => `${escHtml(p.name)} ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}`).join('\n')}`;
+  const teamBLine = `🔴 Tim B ${EMOJI[choiceB]}: \n${session.teamB.map(p => `${escHtml(p.name)} ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}`).join('\n')}`;
+  const notesText = buildNotesSection(resA, resB, choiceA, choiceB);
 
   const groupMsgId = session.groupMsgId;
 
   if (isDone) {
     const winner = newScoreA > newScoreB ? 'A' : 'B';
     const finalText = `🏆 <b>Tim ${winner} menang!</b>\n${teamALine}\n${teamBLine}` +
-      (notesText ? `\n${notesText}` : '') +
+      notesText +
       `\n📊 Skor akhir: 🔵 ${newScoreA} – ${newScoreB} 🔴`;
     await Promise.allSettled(allPlayers.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
     if (groupMsgId) {
@@ -757,12 +781,12 @@ async function executeTeamRound(
     await kv.put(`team:${session.gameId}`, JSON.stringify(nextSession), { expirationTtl: 300 });
     const roundText =
       `Round ${session.currentRound}: ${outcomeText}\n${teamALine}\n${teamBLine}` +
-      (notesText ? `\n${notesText}` : '') +
+      notesText +
       `\n\nScore: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}:`;
     const groupRoundText =
       `⚔️ <b>Round ${session.currentRound}</b> · <code>${session.gameId}</code>\n` +
       `${teamALine}\n${teamBLine}` +
-      (notesText ? `\n${notesText}` : '') +
+      notesText +
       `\n${outcomeText}\n📊 Score: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}...`;
     const roundKb = teamGroupRoundKeyboard(session.gameId);
     const pinUpdate = groupMsgId
