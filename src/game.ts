@@ -803,17 +803,6 @@ export async function runTeamRound(
     await Promise.allSettled([...session.teamA, ...session.teamB].map(p =>
       editInlineMessage(token, p.inlineMessageId, '⏳ Menunggu tiebreaker dadu di grup...')
     ));
-
-    // Auto-resolve after 10s in case players don't throw dice (privacy mode blocks them)
-    ctx.waitUntil((async () => {
-      await sleep(10000);
-      const fresh = await kv.get<TeamDiceWaitState>(`chat:dice_wait:${session.chatId}`, 'json');
-      if (!fresh || fresh.gameId !== session.gameId) return; // already resolved
-      let { resolvedA, resolvedB } = fresh;
-      if (fresh.tieA && !resolvedA) resolvedA = await botResolveTie(fresh.tieA, fresh.chatId, token);
-      if (fresh.tieB && !resolvedB) resolvedB = await botResolveTie(fresh.tieB, fresh.chatId, token);
-      await resolveTeamDiceWait(token, kv, { ...fresh, resolvedA, resolvedB }, env, ctx);
-    })());
     return;
   }
 
