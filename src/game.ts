@@ -720,16 +720,16 @@ async function executeTeamRound(
   if (isDone) {
     const winner = newScoreA > newScoreB ? 'A' : 'B';
     const finalText = `🏆 <b>Tim ${winner} menang!</b>\n${teamALine}\n${teamBLine}` +
-      (notesText ? `\n${notesText}` : '');
+      (notesText ? `\n${notesText}` : '') +
+      `\n📊 Skor akhir: 🔵 ${newScoreA} – ${newScoreB} 🔴`;
     await Promise.allSettled(allPlayers.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
     if (groupMsgId) {
       await Promise.allSettled([
         editMessage(token, session.chatId, groupMsgId, finalText),
         unpinChatMessage(token, session.chatId, groupMsgId),
       ]);
-    } else {
-      await sendMessage(token, session.chatId, finalText);
     }
+    await sendMessage(token, session.chatId, finalText);
     const winTeam = winner === 'A' ? session.teamA : session.teamB;
     const loseTeam = winner === 'A' ? session.teamB : session.teamA;
     for (const p of winTeam) {
@@ -755,15 +755,17 @@ async function executeTeamRound(
       `Round ${session.currentRound}: ${outcomeText}\n${teamALine}\n${teamBLine}` +
       (notesText ? `\n${notesText}` : '') +
       `\n\nScore: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}:`;
-    const groupScoreText =
+    const groupRoundText =
       `⚔️ <b>Round ${session.currentRound}</b> · <code>${session.gameId}</code>\n` +
       `${teamALine}\n${teamBLine}` +
       (notesText ? `\n${notesText}` : '') +
       `\n${outcomeText}\n📊 Score: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}...`;
+    const pinUpdate = groupMsgId
+      ? editMessage(token, session.chatId, groupMsgId, groupRoundText)
+      : Promise.resolve();
     await Promise.all([
-      groupMsgId
-        ? editMessage(token, session.chatId, groupMsgId, groupScoreText)
-        : sendMessage(token, session.chatId, groupScoreText),
+      pinUpdate,
+      sendMessage(token, session.chatId, groupRoundText),
       ...allPlayers.map(p =>
         editInlineMessage(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId))
       ),
