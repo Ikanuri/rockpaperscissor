@@ -1072,9 +1072,10 @@ async function updatePinnedScoreboard(
     kv.get<{ pinnedMsgId?: number }>(`group:settings:${chatId}`, 'json'),
   ]);
   if (!board || board.length === 0) return;
-  const lines = board.slice(0, 10).map((e, i) =>
-    `${i + 1}. ${escHtml(e.name)} — ${e.wins}W / ${e.total - e.wins}L`
-  );
+  const lines = board.slice(0, 10).map((e, i) => {
+    const name = e.name.startsWith('@') ? e.name.slice(1) : e.name;
+    return `${i + 1}. ${escHtml(name)} — ${e.wins}W / ${e.total - e.wins}L`;
+  });
   const updateTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
   const text = `📊 <b>SCOREBOARD GRUP</b>\nUpdate: ${updateTime} UTC\n━━━━━━━━━━━━━━\n${lines.join('\n')}`;
   if (settings?.pinnedMsgId) {
