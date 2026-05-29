@@ -150,7 +150,7 @@ export function waitingText(session: GameSession): string {
     ? ` 🏆 Ranked${modeStr}`
     : (session.mode !== 'single' ? ` 🏆 ${MODE_LABEL[session.mode]}` : '');
   const lockLine = session.lockedToUsername ? `\n🔒 For @${session.lockedToUsername} only` : '';
-  return `${session.hostBadge ?? ''}${escHtml(session.hostName)} is ready!${gameTag}${lockLine}`;
+  return `${session.hostBadge ? session.hostBadge + ' ' : ''}${escHtml(session.hostName)} is ready!${gameTag}${lockLine}`;
 }
 
 export function nextRoundText(session: GameSession): string {
