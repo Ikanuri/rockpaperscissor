@@ -65,7 +65,7 @@ export function escHtml(s: string): string {
 }
 
 export function formatUser(user: TelegramUser): string {
-  return user.username ? `@${user.username}` : user.first_name;
+  return user.first_name;
 }
 
 export function sleep(ms: number): Promise<void> {
@@ -632,7 +632,7 @@ export function teamWaitingText(session: TeamSession): string {
     `${slotLine(session.teamA, '🔵 Tim A')}\n` +
     `${slotLine(session.teamB, '🔴 Tim B')}\n\n` +
     `⏰ Berlaku hingga ${expiryStr}\n` +
-    `👇 Bergabung untuk main!`
+    `👇 Bergabung!`
   );
 }
 
@@ -1400,7 +1400,24 @@ export async function runLmsRound(
   env: Env
 ): Promise<void> {
   const activePlayers = session.players.filter(p => p.active);
-  if (activePlayers.length <= 1) return;
+
+  if (activePlayers.length === 0) {
+    await kv.put(`lms:${session.gameId}`, JSON.stringify({ ...session, status: 'done' as const }), { expirationTtl: 300 });
+    return;
+  }
+
+  if (activePlayers.length === 1) {
+    const winner = activePlayers[0];
+    const winText = `🏆 <b>${escHtml(winner.name)} wins Last Man Standing!</b>\nSemua pemain lain meninggalkan game.`;
+    const doneSession: LmsSession = { ...session, status: 'done' as const };
+    await kv.put(`lms:${session.gameId}`, JSON.stringify(doneSession), { expirationTtl: 600 });
+    await Promise.allSettled(session.players.map(p => editInlineMessage(token, p.inlineMessageId, winText)));
+    ctx.waitUntil(updateStats(kv, winner.userId, 'win', winner.choice ?? 'rock', 0, 'LMS', 1000, false, false));
+    for (const loser of session.players.filter(p => p.userId !== winner.userId)) {
+      ctx.waitUntil(updateStats(kv, loser.userId, 'loss', loser.choice ?? 'rock', winner.userId, winner.name, 1000, false, false));
+    }
+    return;
+  }
 
   const configs = new Map<number, GameConfig | null>();
   await Promise.all(session.players.map(async p => {

@@ -934,7 +934,7 @@ export async function handleChosenInlineResult(
     const botStreakPart = botOutcome === 'win' && (botUpdateResult.stats.currentStreak ?? 0) >= 2
       ? `\n🔥 ${botUpdateResult.stats.currentStreak} win streak!` : '';
     const playAgainKeyboard = {
-      inline_keyboard: [[{ text: '🔄 Main lagi vs Bot', switch_inline_query_current_chat: 'BOT' }]],
+      inline_keyboard: [[{ text: '🔄 Lagi vs Bot', switch_inline_query_current_chat: 'BOT' }]],
     };
     await editInlineMessage(token, result.inline_message_id,
       `🤖 <b>vs Bot</b>\nKamu: ${EMOJI[choice]}  ·  Bot: ${EMOJI[botChoice]}\n${outcomeText}${botStreakPart}`,
