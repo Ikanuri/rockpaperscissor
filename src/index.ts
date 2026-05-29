@@ -21,7 +21,8 @@ async function handleDailyChallenge(env: Env): Promise<void> {
   let text = `🎮 <b>Daily RPS Challenge!</b>\nSiapa yang bisa menang paling banyak hari ini?\n\n`;
   if (yesterdayBoard && yesterdayBoard.length > 0) {
     const champ = yesterdayBoard[0];
-    const champName = champ.name.startsWith('@') ? champ.name.slice(1) : champ.name;
+    const champInfo = await env.GAME_SESSIONS.get<{ name: string }>(`user:info:${champ.userId}`, 'json');
+    const champName = champInfo?.name ?? (champ.name.startsWith('@') ? champ.name.slice(1) : champ.name);
     text += `👑 Juara kemarin: <b>${escHtml(champName)}</b> (${champ.wins}W / ${champ.total} game)\n\n`;
   }
   text += `Ketik <code>@${env.BOT_USERNAME}</code> untuk mulai! ✊✋✌️`;

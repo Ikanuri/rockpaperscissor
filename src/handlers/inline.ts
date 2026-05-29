@@ -313,9 +313,14 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
 
   if (q === 'TOP' && hasFeature(env, 'leaderboard')) {
     const board = (await kv.get<LeaderboardEntry[]>('leaderboard', 'json')) ?? [];
-    const displayName = (n: string) => n.startsWith('@') ? n.slice(1) : n;
-    const lines = board.slice(0, 20).map((e, i) =>
-      `${i + 1}. ${escHtml(displayName(e.name))} — ${e.wins}W / ${e.total - e.wins}L`
+    const top = board.slice(0, 20);
+    const infos = await Promise.all(top.map(e =>
+      kv.get<{ name: string; username: string | null }>(`user:info:${e.userId}`, 'json')
+    ));
+    const resolveName = (e: LeaderboardEntry, info: { name: string } | null) =>
+      info?.name ?? (e.name.startsWith('@') ? e.name.slice(1) : e.name);
+    const lines = top.map((e, i) =>
+      `${i + 1}. ${escHtml(resolveName(e, infos[i]))} — ${e.wins}W / ${e.total - e.wins}L`
     );
     const text = board.length === 0
       ? '📊 Leaderboard is empty. Play some games!'
@@ -323,7 +328,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
     await answerInlineQuery(token, query.id, [{
       type: 'article',
       id: 'leaderboard',
-      title: board.length > 0 ? `🏆 #1: ${displayName(board[0].name)} (${board[0].wins}W)` : '🏆 Leaderboard',
+      title: board.length > 0 ? `🏆 #1: ${escHtml(resolveName(top[0], infos[0]))} (${top[0].wins}W)` : '🏆 Leaderboard',
       description: board.length > 0 ? `Top ${board.length} players this season` : 'No data yet',
       input_message_content: { message_text: text, parse_mode: 'HTML' },
     }]);
