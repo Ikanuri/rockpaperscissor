@@ -23,8 +23,6 @@ import {
   teamWaitingText,
   tournamentSignupKeyboard,
   tournamentSignupText,
-  waitingKeyboard,
-  waitingText,
 } from '../game';
 import { hasFeature } from '../feature';
 import { handleDonateCallback } from './payment';
@@ -81,8 +79,6 @@ export async function handleCallbackQuery(
     await handleTourStart(query, env, ctx, parts[1]);
   } else if (action === 'cancel' && parts.length === 2) {
     await handleCancel(query, env, parts[1]);
-  } else if (action === 'refresh' && parts.length === 2) {
-    await handleRefresh(query, env, parts[1]);
   } else if (action === 'guide') {
     await handleGuide(query, env);
   } else if (action === 'setlang' && parts.length === 2) {
@@ -883,24 +879,6 @@ async function handleTourStart(
   ctx.waitUntil(startTournamentBracket(token, kv, paddedTournament, env.BOT_USERNAME));
 }
 
-async function handleRefresh(
-  query: CallbackQuery,
-  env: Env,
-  gameId: string
-): Promise<void> {
-  const token = env.BOT_TOKEN;
-  const session = await env.GAME_SESSIONS.get<GameSession>(`game:${gameId}`, 'json');
-  if (!session || session.status !== 'waiting') {
-    await answerCallbackQuery(token, query.id, '❌ Game tidak aktif.', true);
-    return;
-  }
-  const joinQuery = session.chainId ?? undefined;
-  const showRefresh = hasFeature(env, 'refresh_button');
-  await Promise.all([
-    editInlineMessage(token, query.inline_message_id!, waitingText(session, env.BOT_USERNAME), waitingKeyboard(session.gameId, joinQuery, showRefresh)),
-    answerCallbackQuery(token, query.id, '🔄 Refreshed!'),
-  ]);
-}
 
 async function handleGuide(query: CallbackQuery, env: Env): Promise<void> {
   const token = env.BOT_TOKEN;

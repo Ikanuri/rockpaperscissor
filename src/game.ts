@@ -106,13 +106,10 @@ export function pickKeyboard(gameId: string): InlineKeyboardMarkup {
   };
 }
 
-export function waitingKeyboard(gameId: string, joinQuery?: string, showRefresh = false): InlineKeyboardMarkup {
+export function waitingKeyboard(gameId: string, joinQuery?: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
-      [
-        { text: '🎮 Join', switch_inline_query_current_chat: joinQuery ?? gameId, style: 'success' },
-        ...(showRefresh ? [{ text: '🔄', callback_data: `refresh:${gameId}` }] : []),
-      ],
+      [{ text: '🎮 Join', switch_inline_query_current_chat: joinQuery ?? gameId, style: 'success' }],
       [{ text: '❌ Cancel', callback_data: `cancel:${gameId}`, style: 'danger' }],
     ],
   };
@@ -147,22 +144,13 @@ function gameHeader(session: GameSession): string {
   return `🏆 <b>${label}</b> • ${session.hostScore}-${session.opponentScore} • Round ${session.currentRound}/${maxRounds}`;
 }
 
-export function waitingText(
-  session: GameSession,
-  _botUsername: string,
-  now = Date.now()
-): string {
-  const ttlMs = session.chainId ? 300_000 : 600_000;
-  const remaining = Math.max(1, Math.ceil((session.createdAt + ttlMs - now) / 60_000));
+export function waitingText(session: GameSession): string {
   const modeStr = session.mode !== 'single' ? ` · ${MODE_LABEL[session.mode]}` : '';
   const gameTag = session.ranked
     ? ` 🏆 Ranked${modeStr}`
     : (session.mode !== 'single' ? ` 🏆 ${MODE_LABEL[session.mode]}` : '');
   const lockLine = session.lockedToUsername ? `\n🔒 For @${session.lockedToUsername} only` : '';
-  return (
-    `🟢 ${escHtml(session.hostName)}${session.hostBadge ?? ''} is ready!${gameTag}${lockLine}\n` +
-    `⏰ ${remaining} min remaining`
-  );
+  return `${session.hostBadge ?? ''}${escHtml(session.hostName)} is ready!${gameTag}${lockLine}`;
 }
 
 export function nextRoundText(session: GameSession): string {

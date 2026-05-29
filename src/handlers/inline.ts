@@ -732,8 +732,8 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       await editInlineMessage(
         token,
         session.hostInlineMessageId,
-        waitingText(session, env.BOT_USERNAME, Date.now()),
-        waitingKeyboard(session.gameId, joinQuery, hasFeature(env, 'refresh_button'))
+        waitingText(session),
+        waitingKeyboard(session.gameId, joinQuery)
       );
     }
 
@@ -778,8 +778,8 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
       }
       if (Date.now() - existingC.createdAt > 9 * 60 * 1000) {
         await editInlineMessage(token, existingC.hostInlineMessageId,
-          waitingText(existingC, env.BOT_USERNAME, Date.now()),
-          waitingKeyboard(existingC.gameId, undefined, hasFeature(env, 'refresh_button'))
+          waitingText(existingC),
+          waitingKeyboard(existingC.gameId)
         );
       }
       const configCJ = hasFeature(env, 'gif_thumb') ? await loadConfigAuthorized(kv, from.id, env) : null;
@@ -1243,7 +1243,7 @@ export async function handleChosenInlineResult(
       kv.put(rateKeyOp, String(countOp + 1), { expirationTtl: 600 }),
     ]);
     await editInlineMessage(token, result.inline_message_id,
-      waitingText(openSession, env.BOT_USERNAME), waitingKeyboard(openGameId, undefined, hasFeature(env, 'refresh_button'))
+      waitingText(openSession), waitingKeyboard(openGameId)
     );
     ctx.waitUntil(maybeAnnounceGame(token, kv, openSession, env.BOT_USERNAME));
     return;
@@ -1299,8 +1299,8 @@ export async function handleChosenInlineResult(
       await editInlineMessage(
         token,
         result.inline_message_id,
-        waitingText(session, env.BOT_USERNAME),
-        waitingKeyboard(newGameId, chainCode, hasFeature(env, 'refresh_button'))
+        waitingText(session),
+        waitingKeyboard(newGameId, chainCode)
       );
     } else {
       const session = await kv.get<GameSession>(`game:${activeGameId}`, 'json');
@@ -1372,8 +1372,8 @@ export async function handleChosenInlineResult(
     await editInlineMessage(
       token,
       result.inline_message_id,
-      waitingText(session, env.BOT_USERNAME),
-      waitingKeyboard(gameId, undefined, hasFeature(env, 'refresh_button'))
+      waitingText(session),
+      waitingKeyboard(gameId)
     );
     ctx.waitUntil(maybeAnnounceGame(token, kv, session, env.BOT_USERNAME));
     return;
@@ -1420,8 +1420,8 @@ export async function handleChosenInlineResult(
     ]);
     await kv.put(rateKeyR, String(countR + 1), { expirationTtl: 600 });
     await editInlineMessage(token, result.inline_message_id,
-      waitingText(rankedSession, env.BOT_USERNAME),
-      waitingKeyboard(gameId, undefined, hasFeature(env, 'refresh_button'))
+      waitingText(rankedSession),
+      waitingKeyboard(gameId)
     );
     ctx.waitUntil(maybeAnnounceGame(token, kv, rankedSession, env.BOT_USERNAME));
     return;
@@ -1574,8 +1574,8 @@ export async function handleChosenInlineResult(
     const countCustom = parseInt(await kv.get(rateKeyCustom) ?? '0');
     await kv.put(rateKeyCustom, String(countCustom + 1), { expirationTtl: 600 });
     await editInlineMessage(token, result.inline_message_id,
-      waitingText(customSession, env.BOT_USERNAME),
-      waitingKeyboard(q, undefined, hasFeature(env, 'refresh_button'))
+      waitingText(customSession),
+      waitingKeyboard(q)
     );
     ctx.waitUntil(maybeAnnounceGame(token, kv, customSession, env.BOT_USERNAME));
     return;
@@ -1618,8 +1618,8 @@ export async function handleChosenInlineResult(
   await editInlineMessage(
     token,
     result.inline_message_id,
-    waitingText(session, env.BOT_USERNAME),
-    waitingKeyboard(gameId, undefined, hasFeature(env, 'refresh_button'))
+    waitingText(session),
+    waitingKeyboard(gameId)
   );
   ctx.waitUntil(maybeAnnounceGame(token, kv, session, env.BOT_USERNAME));
 }
