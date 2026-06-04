@@ -492,9 +492,11 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       return;
     }
     const trialMs = 7 * 24 * 3600 * 1000;
+    await activateTier(kv, msg.from.id, 'premium', 'stars', trialMs);
+    const idList = await kv.get<number[]>('donators:ids', 'json') ?? [];
     await Promise.all([
-      activateTier(kv, msg.from.id, 'premium', 'stars', trialMs),
       kv.put(`freetrial:${msg.from.id}`, '1'),
+      ...(idList.includes(msg.from.id) ? [] : [kv.put('donators:ids', JSON.stringify([...idList, msg.from.id]))]),
     ]);
     const expiry = new Date(Date.now() + trialMs + 7 * 3600 * 1000); // WIB
     const expiryStr = expiry.toISOString().slice(0, 10);
@@ -723,12 +725,16 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       await reply(token, msg.chat.id, '📋 Belum ada donator.');
       return;
     }
-    const records = await Promise.all(idList.map(uid => kv.get<{ tier: string; expiry: number; method: string }>(`donator:${uid}`, 'json')));
+    const [records, freetrials] = await Promise.all([
+      Promise.all(idList.map(uid => kv.get<{ tier: string; expiry: number; method: string }>(`donator:${uid}`, 'json'))),
+      Promise.all(idList.map(uid => kv.get(`freetrial:${uid}`))),
+    ]);
     const now = Date.now();
     const lines = await Promise.all(idList.map(async (uid, i) => {
       const rec = records[i];
+      const isTrial = !!freetrials[i];
       const display = await resolveUserDisplay(kv, token, uid);
-      if (!rec || now > rec.expiry) return `  ❌ ${display} — expired`;
+      if (!rec || now > rec.expiry) return `  ❌ ${display}${isTrial ? ' (freemium)' : ''} — expired`;
       const expiryWib = new Date(rec.expiry + 7 * 3600 * 1000);
       const expiryStr = expiryWib.toISOString().slice(0, 10);
       let badge: string;
@@ -739,7 +745,8 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       } else {
         badge = '(✊)';
       }
-      return `  ${badge} ${display}\n     until ${expiryStr} WIB`;
+      const label = isTrial ? ' (freemium)' : '';
+      return `  ${badge} ${display}${label}\n     until ${expiryStr} WIB`;
     }));
     await reply(token, msg.chat.id,
       `📋 <b>Donator list (${idList.length}):</b>\n` + lines.join('\n')
