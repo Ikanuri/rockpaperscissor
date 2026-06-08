@@ -1392,6 +1392,27 @@ export async function runLmsRound(
   ctx: ExecutionContext,
   env: Env
 ): Promise<void> {
+  try {
+    await _runLmsRound(token, kv, session, ctx, env);
+  } catch (e) {
+    console.error(`[runLmsRound] error gameId=${session.gameId}:`, e);
+  }
+}
+
+async function _runLmsRound(
+  token: string,
+  kv: KVNamespace,
+  session: LmsSession,
+  ctx: ExecutionContext,
+  env: Env
+): Promise<void> {
+  // Re-read from KV to catch concurrent flee/smite updates
+  const fresh = await kv.get<LmsSession>(`lms:${session.gameId}`, 'json');
+  if (!fresh || fresh.status === 'done') {
+    console.error(`[runLmsRound] abort: gameId=${session.gameId} status=${fresh?.status ?? 'missing'}`);
+    return;
+  }
+  session = fresh;
   const activePlayers = session.players.filter(p => p.active);
 
   if (activePlayers.length === 0) {
@@ -1409,6 +1430,12 @@ export async function runLmsRound(
     for (const loser of session.players.filter(p => p.userId !== winner.userId)) {
       ctx.waitUntil(updateStats(kv, loser.userId, 'loss', loser.choice ?? 'rock', winner.userId, winner.name, 1000, false, false));
     }
+    return;
+  }
+
+  // Guard: all active players must have chosen before elimination can run
+  if (!activePlayers.every(p => p.choice !== null)) {
+    console.error(`[runLmsRound] abort: not all active players have picked, gameId=${session.gameId}`);
     return;
   }
 

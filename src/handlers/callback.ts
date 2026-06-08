@@ -310,12 +310,16 @@ async function handleLmsSmite(
       p.userId === targetUserId ? { ...p, active: false } : p
     );
     const updated: LmsSession = { ...session, players: updatedPlayers };
-    const activePlayers = updatedPlayers.filter(p => p.active);
     await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
     await answerCallbackQuery(token, query.id, `⚡ ${target.name} dieliminasi!`);
     await editInlineMessage(token, target.inlineMessageId, '⚡ Kamu dieliminasi oleh host.');
+
+    const current = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+    if (!current || current.status === 'done') return;
+    const activePlayers = current.players.filter(p => p.active);
+
     if (activePlayers.length <= 1 || activePlayers.every(p => p.choice !== null)) {
-      ctx.waitUntil(runLmsRound(token, kv, updated, ctx, env));
+      ctx.waitUntil(runLmsRound(token, kv, current, ctx, env));
     } else {
       const waitCount = activePlayers.filter(p => p.choice === null).length;
       const pickText = `⚔️ <b>Round ${session.currentRound}</b>\n` +
@@ -403,12 +407,17 @@ async function handleLmsFlee(
     p.userId === query.from.id ? { ...p, active: false } : p
   );
   const updated: LmsSession = { ...session, players: updatedPlayers };
-  const activePlayers = updatedPlayers.filter(p => p.active);
   await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
   await answerCallbackQuery(token, query.id, '🏳️ Kamu meninggalkan game.');
   await editInlineMessage(token, player.inlineMessageId, '🏳️ Kamu meninggalkan game.');
+
+  // Re-read from KV after save to get the most current state (handles concurrent flees)
+  const current = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+  if (!current || current.status === 'done') return;
+  const activePlayers = current.players.filter(p => p.active);
+
   if (activePlayers.length <= 1 || activePlayers.every(p => p.choice !== null)) {
-    ctx.waitUntil(runLmsRound(token, kv, updated, ctx, env));
+    ctx.waitUntil(runLmsRound(token, kv, current, ctx, env));
   } else {
     const waitCount = activePlayers.filter(p => p.choice === null).length;
     const fleeText = `⚔️ <b>Round ${session.currentRound}</b>\n` +
