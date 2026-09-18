@@ -23,7 +23,7 @@ import type {
   UserStats,
   VsStats,
 } from './types';
-import { editEphemeralMessageText, editInlineMessage, editMessage, pinChatMessage, sendDice, sendEphemeralMessage, sendMessage, sendMessageForId, unpinChatMessage } from './telegram';
+import { editEphemeralMessageText, editInlineMessage, editInlineMessageRich, editMessage, pinChatMessage, sendDice, sendEphemeralMessage, sendMessage, sendMessageForId, unpinChatMessage } from './telegram';
 import { loadConfig, getResultFooter } from './config';
 import { hasFeature, isBetaUser } from './feature';
 
@@ -1288,8 +1288,8 @@ async function finishGame(
   const text = withFooter(resultText(matchOutcome, done, env, history, hostConfig, opponentConfig, winnerStreak), footer);
 
   await Promise.all([
-    editInlineMessage(token, session.hostInlineMessageId, text, keyboard),
-    editInlineMessage(token, session.opponentInlineMessageId!, text, keyboard),
+    editInlineMessageRich(token, session.hostInlineMessageId, text, keyboard),
+    editInlineMessageRich(token, session.opponentInlineMessageId!, text, keyboard),
   ]);
 
   if (session.tournamentId && session.tournamentMatchId) {

@@ -70,6 +70,35 @@ export function editInlineMessage(
   }, maxRetryWait);
 }
 
+// Bot API 10.1+ rich message experiment: renders via InputRichMessage.html (same HTML string
+// we already build for parse_mode: 'HTML') on top of an inline message. reply_markup stays a
+// separate, unchanged parameter (confirmed in the API spec), so existing callback buttons are
+// unaffected. Falls back to plain editInlineMessage if the API rejects rich_message for any
+// reason, so an imperfect guess at formatting nuances never breaks the result display.
+export async function editInlineMessageRich(
+  token: string,
+  inlineMessageId: string,
+  html: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<void> {
+  try {
+    const res = await fetch(`${API}${token}/editMessageText`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        inline_message_id: inlineMessageId,
+        rich_message: { html },
+        ...(replyMarkup && { reply_markup: replyMarkup }),
+      }),
+    });
+    if (res.ok) return;
+    console.error('[tg:editInlineMessageRich] rejected, falling back to plain text:', await res.text());
+  } catch (e) {
+    console.error('[tg:editInlineMessageRich] error, falling back to plain text:', e);
+  }
+  await editInlineMessage(token, inlineMessageId, html, replyMarkup);
+}
+
 export function sendMessage(
   token: string,
   chatId: number,
