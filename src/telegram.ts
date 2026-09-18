@@ -81,18 +81,22 @@ export async function editInlineMessageRich(
   html: string,
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
+  // DEBUG marker (beta only) — proves visually whether rich_message actually rendered vs
+  // silently falling back. Remove once confirmed working.
+  const markedHtml = `✨<i>rich</i>\n${html}`;
   try {
     const res = await fetch(`${API}${token}/editMessageText`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         inline_message_id: inlineMessageId,
-        rich_message: { html },
+        rich_message: { html: markedHtml },
         ...(replyMarkup && { reply_markup: replyMarkup }),
       }),
     });
-    if (res.ok) return;
-    console.error('[tg:editInlineMessageRich] rejected, falling back to plain text:', await res.text());
+    const data = await res.json<{ ok: boolean; description?: string }>();
+    if (res.ok && data.ok) return;
+    console.error('[tg:editInlineMessageRich] rejected, falling back to plain text:', JSON.stringify(data));
   } catch (e) {
     console.error('[tg:editInlineMessageRich] error, falling back to plain text:', e);
   }
