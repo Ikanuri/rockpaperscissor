@@ -70,11 +70,50 @@ export function editInlineMessage(
   }, maxRetryWait);
 }
 
-// Bot API 10.1+ rich message experiment: renders via InputRichMessage.html (same HTML string
-// we already build for parse_mode: 'HTML') on top of an inline message. reply_markup stays a
-// separate, unchanged parameter (confirmed in the API spec), so existing callback buttons are
-// unaffected. Falls back to plain editInlineMessage if the API rejects rich_message for any
-// reason, so an imperfect guess at formatting nuances never breaks the result display.
+interface RichMessageButton {
+  text: string;
+  style?: 'primary' | 'success' | 'danger';
+  callback_data?: string;
+  url?: string;
+  switch_inline_query_current_chat?: string;
+}
+
+type RichBlock =
+  | { type: 'paragraph'; text: string }
+  | { type: 'buttons'; buttons: RichMessageButton[] };
+
+// RichText plain-string leaves aren't HTML-parsed, so undo the &amp;/&lt;/&gt; escaping our
+// callers already applied via escHtml() before we ever built the html string.
+function unescapeBasicHtml(s: string): string {
+  return s.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+}
+
+function htmlToParagraphBlocks(html: string): RichBlock[] {
+  return html.split('\n').map(line => ({ type: 'paragraph', text: unescapeBasicHtml(line) }));
+}
+
+// InlineKeyboardButton fields map 1:1 onto RichMessageButton (confirmed against the Bot API
+// spec) — callback_data still fires a normal callback_query, so handleCallbackQuery needs no
+// changes. One InputRichBlockButtons block == one button row.
+function keyboardToButtonBlocks(kb: InlineKeyboardMarkup): RichBlock[] {
+  return kb.inline_keyboard.map(row => ({
+    type: 'buttons',
+    buttons: row.map(btn => ({
+      text: btn.text,
+      ...(btn.style && { style: btn.style }),
+      ...(btn.callback_data && { callback_data: btn.callback_data }),
+      ...(btn.url && { url: btn.url }),
+      ...(btn.switch_inline_query_current_chat !== undefined && { switch_inline_query_current_chat: btn.switch_inline_query_current_chat }),
+    })),
+  }));
+}
+
+// Bot API 10.1+ rich message experiment on inline messages. Text renders via InputRichMessage
+// blocks (paragraphs), and — when replyMarkup is given — buttons render as InputRichBlockButtons
+// embedded in the same content instead of the classic reply_markup parameter. Falls back to
+// plain editInlineMessage (identical html + the original InlineKeyboardMarkup) if the API
+// rejects rich_message for any reason, so an imperfect guess at formatting nuances never breaks
+// the message or its buttons.
 export async function editInlineMessageRich(
   token: string,
   inlineMessageId: string,
@@ -83,22 +122,24 @@ export async function editInlineMessageRich(
 ): Promise<void> {
   // DEBUG marker (beta only) — proves visually whether rich_message actually rendered vs
   // silently falling back. Remove once confirmed working.
-  const markedHtml = `✨<i>rich</i>\n${html}`;
+  const marked = `✨ RICH\n${html}`;
+  const richMessage = replyMarkup
+    ? { blocks: [...htmlToParagraphBlocks(marked), ...keyboardToButtonBlocks(replyMarkup)] }
+    : { html: marked };
   try {
     const res = await fetch(`${API}${token}/editMessageText`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         inline_message_id: inlineMessageId,
-        rich_message: { html: markedHtml },
-        ...(replyMarkup && { reply_markup: replyMarkup }),
+        rich_message: richMessage,
       }),
     });
     const data = await res.json<{ ok: boolean; description?: string }>();
     if (res.ok && data.ok) return;
-    console.error('[tg:editInlineMessageRich] rejected, falling back to plain text:', JSON.stringify(data));
+    console.error('[tg:editInlineMessageRich] rejected, falling back to plain text/buttons:', JSON.stringify(data));
   } catch (e) {
-    console.error('[tg:editInlineMessageRich] error, falling back to plain text:', e);
+    console.error('[tg:editInlineMessageRich] error, falling back to plain text/buttons:', e);
   }
   await editInlineMessage(token, inlineMessageId, html, replyMarkup);
 }
