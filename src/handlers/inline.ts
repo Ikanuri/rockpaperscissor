@@ -33,6 +33,7 @@ import {
   runLmsRound,
   runRevealAndResult,
   runTeamRound,
+  sendTeamPickReminders,
   teamMemberWaitingKeyboard,
   teamWaitingKeyboard,
   teamWaitingText,
@@ -1139,6 +1140,7 @@ export async function handleChosenInlineResult(
           `🔴 Tim B: ${teamPickB.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}\n\n` +
           `⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`;
         await editInlineMessage(token, result.inline_message_id, teamPickWaitText);
+        ctx.waitUntil(sendTeamPickReminders(token, kv, teamPickSession));
       }
       return;
     }

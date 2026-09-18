@@ -84,6 +84,72 @@ export function sendMessage(
   });
 }
 
+// Bot API 10.2+ ephemeral messages: visible only to receiverUserId within the group chat.
+export async function sendEphemeralMessage(
+  token: string,
+  chatId: number,
+  receiverUserId: number,
+  text: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<number | null> {
+  try {
+    const res = await fetch(`${API}${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        ephemeral_message_parameters: { receiver_user_id: receiverUserId },
+        ...(replyMarkup && { reply_markup: replyMarkup }),
+      }),
+    });
+    if (!res.ok) {
+      console.error('[tg:sendEphemeralMessage]', await res.text());
+      return null;
+    }
+    const data = await res.json<{ ok: boolean; result?: { ephemeral_message_id?: number } }>();
+    if (!data.ok) {
+      console.error('[tg:sendEphemeralMessage] ok=false', JSON.stringify(data));
+      return null;
+    }
+    return data.result?.ephemeral_message_id ?? null;
+  } catch (e) {
+    console.error('[tg:sendEphemeralMessage] error', e);
+    return null;
+  }
+}
+
+export async function editEphemeralMessageText(
+  token: string,
+  chatId: number,
+  ephemeralMessageId: number,
+  text: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${API}${token}/editEphemeralMessageText`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        ephemeral_message_id: ephemeralMessageId,
+        text,
+        parse_mode: 'HTML',
+        ...(replyMarkup && { reply_markup: replyMarkup }),
+      }),
+    });
+    if (!res.ok) {
+      console.error('[tg:editEphemeralMessageText]', await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('[tg:editEphemeralMessageText] error', e);
+    return false;
+  }
+}
+
 export function answerPreCheckoutQuery(
   token: string,
   preCheckoutQueryId: string,

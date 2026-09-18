@@ -23,7 +23,7 @@ import type {
   UserStats,
   VsStats,
 } from './types';
-import { editInlineMessage, editMessage, pinChatMessage, sendDice, sendMessage, sendMessageForId, unpinChatMessage } from './telegram';
+import { editEphemeralMessageText, editInlineMessage, editMessage, pinChatMessage, sendDice, sendEphemeralMessage, sendMessage, sendMessageForId, unpinChatMessage } from './telegram';
 import { loadConfig, getResultFooter } from './config';
 import { hasFeature, isBetaUser } from './feature';
 
@@ -793,6 +793,39 @@ async function executeTeamRound(
       ),
     ]);
   }
+}
+
+// Best-effort ephemeral "please pick" nudge (Bot API 10.2+) for teammates still waiting to
+// choose. Not correctness-critical — failures are logged and swallowed inside the telegram.ts
+// helpers, so a missing chatId or an API rejection never blocks the actual game flow.
+export async function sendTeamPickReminders(
+  token: string,
+  kv: KVNamespace,
+  session: TeamSession
+): Promise<void> {
+  const pending = [...session.teamA, ...session.teamB].filter(p => p.choice === null);
+  if (pending.length === 0) return;
+  const text = `⏳ <b>Giliranmu!</b> Tim kamu menunggu pilihan senjata di <code>${session.gameId}</code>.`;
+  const updates: Array<{ userId: number; msgId: number }> = [];
+  await Promise.all(pending.map(async p => {
+    if (p.reminderMsgId) {
+      const edited = await editEphemeralMessageText(token, session.chatId, p.reminderMsgId, text);
+      if (edited) return;
+    }
+    const msgId = await sendEphemeralMessage(token, session.chatId, p.userId, text);
+    if (msgId) updates.push({ userId: p.userId, msgId });
+  }));
+  if (updates.length === 0) return;
+  const fresh = await kv.get<TeamSession>(`team:${session.gameId}`, 'json');
+  if (!fresh || fresh.status !== 'playing') return;
+  const apply = (arr: TeamPlayer[]) => arr.map(p => {
+    const u = updates.find(x => x.userId === p.userId);
+    return u ? { ...p, reminderMsgId: u.msgId } : p;
+  });
+  await kv.put(`team:${session.gameId}`,
+    JSON.stringify({ ...fresh, teamA: apply(fresh.teamA), teamB: apply(fresh.teamB) }),
+    { expirationTtl: 300 }
+  );
 }
 
 export async function runTeamRound(

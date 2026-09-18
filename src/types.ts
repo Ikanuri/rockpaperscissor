@@ -155,6 +155,7 @@ export interface TeamPlayer {
   name: string;
   choice: Choice | null;
   inlineMessageId: string;
+  reminderMsgId?: number; // ephemeral "please pick" reminder — edited in place on repeat reminders
 }
 
 export interface TeamSession {
