@@ -70,20 +70,97 @@ export function editInlineMessage(
   }, maxRetryWait);
 }
 
-// Bot API 10.1+ rich message experiment on inline messages, via InputRichMessage.html — this
-// reuses Telegram's own HTML parser (same as classic parse_mode: 'HTML'), so every tag our
-// codebase already emits (<b>, <tg-emoji emoji-id="...">, etc.) keeps working unmodified.
-//
-// Buttons intentionally stay on the separate, classic reply_markup parameter. Bot API 10.3 also
-// offers RichMessageButton/InputRichBlockButtons to embed buttons inside rich_message.blocks —
-// callback_data there maps 1:1 onto ours and still fires a normal callback_query, so that path
-// is safe for routing. But blocks require ALL text content to be built from typed RichText
-// segments (plain strings inside blocks are literal, not HTML-parsed), and this codebase injects
-// dynamic HTML fragments in places (e.g. choiceDisplay()'s <tg-emoji> tag for a donator's custom
-// emoji) that a hand-rolled HTML→RichText converter can't reliably reproduce — tried this once,
-// it rendered <tg-emoji ...> as literal text instead of the emoji. Not worth the risk versus the
-// near-zero cosmetic upside, so reply_markup stays classic until Telegram exposes an HTML-based
-// way to declare rich buttons too.
+interface RichMessageButton {
+  text: string;
+  style?: 'primary' | 'success' | 'danger';
+  callback_data?: string;
+  url?: string;
+  switch_inline_query_current_chat?: string;
+}
+
+type RichText = string | RichText[] | { type: 'custom_emoji'; custom_emoji_id: string; alternative_text: string };
+
+type RichBlock =
+  | { type: 'paragraph'; text: RichText }
+  | { type: 'expandable_blockquote'; text: RichText }
+  | { type: 'buttons'; buttons: RichMessageButton[] };
+
+// escHtml() only ever escapes &, <, > — reverse exactly that (nothing more) for the plain-text
+// portions once real tags have been pulled out below.
+function unescapeBasicHtml(s: string): string {
+  return s.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+}
+
+// The ONLY inline tag this codebase emits into rich-eligible text is
+// fmtEmoji()'s <tg-emoji emoji-id="ID">FALLBACK</tg-emoji> (game.ts). Anything else in a text
+// segment is literal, escHtml()-escaped content.
+const TG_EMOJI_RE = /<tg-emoji emoji-id="(\d+)">(.*?)<\/tg-emoji>/g;
+
+function parseInlineRichText(segment: string): RichText {
+  const parts: RichText[] = [];
+  let lastIndex = 0;
+  for (const m of segment.matchAll(TG_EMOJI_RE)) {
+    if (m.index! > lastIndex) parts.push(unescapeBasicHtml(segment.slice(lastIndex, m.index)));
+    parts.push({ type: 'custom_emoji', custom_emoji_id: m[1], alternative_text: unescapeBasicHtml(m[2]) });
+    lastIndex = m.index! + m[0].length;
+  }
+  if (lastIndex < segment.length) parts.push(unescapeBasicHtml(segment.slice(lastIndex)));
+  if (parts.length === 0) return '';
+  return parts.length === 1 ? parts[0] : parts;
+}
+
+// The only BLOCK-level tag this codebase emits is historyBlock()'s
+// <blockquote expandable>...multi-line...</blockquote> (game.ts). Everything outside of it is
+// plain paragraphs, one per '\n'-separated line (blank lines become empty paragraphs, preserving
+// the original spacing).
+const BLOCKQUOTE_RE = /<blockquote expandable>([\s\S]*?)<\/blockquote>/g;
+
+function htmlToBlocks(html: string): RichBlock[] {
+  const blocks: RichBlock[] = [];
+  let lastIndex = 0;
+  for (const m of html.matchAll(BLOCKQUOTE_RE)) {
+    if (m.index! > lastIndex) {
+      for (const line of html.slice(lastIndex, m.index).split('\n')) {
+        blocks.push({ type: 'paragraph', text: parseInlineRichText(line) });
+      }
+    }
+    blocks.push({ type: 'expandable_blockquote', text: parseInlineRichText(m[1]) });
+    lastIndex = m.index! + m[0].length;
+  }
+  if (lastIndex < html.length) {
+    for (const line of html.slice(lastIndex).split('\n')) {
+      blocks.push({ type: 'paragraph', text: parseInlineRichText(line) });
+    }
+  }
+  return blocks;
+}
+
+// InlineKeyboardButton fields map 1:1 onto RichMessageButton (confirmed against the Bot API
+// spec) — callback_data still fires a normal callback_query, so handleCallbackQuery needs no
+// changes. One InputRichBlockButtons block == one button row.
+function keyboardToButtonBlocks(kb: InlineKeyboardMarkup): RichBlock[] {
+  return kb.inline_keyboard.map(row => ({
+    type: 'buttons',
+    buttons: row.map(btn => ({
+      text: btn.text,
+      ...(btn.style && { style: btn.style }),
+      ...(btn.callback_data && { callback_data: btn.callback_data }),
+      ...(btn.url && { url: btn.url }),
+      ...(btn.switch_inline_query_current_chat !== undefined && { switch_inline_query_current_chat: btn.switch_inline_query_current_chat }),
+    })),
+  }));
+}
+
+// Bot API 10.1+ rich message experiment on inline messages. Text and buttons both render through
+// InputRichMessage.blocks: text as paragraphs/expandable-blockquotes (see htmlToBlocks — scoped
+// exactly to the two tags this codebase actually emits into rich-eligible text, <tg-emoji> and
+// <blockquote expandable>, since RichText plain-string leaves are never HTML-parsed and a
+// general-purpose HTML→RichText converter isn't a safe bet to keep in sync with arbitrary future
+// markup), buttons as InputRichBlockButtons (RichMessageButton fields map 1:1 onto
+// InlineKeyboardButton, callback_data still fires a normal callback_query). Falls back to plain
+// editInlineMessage (identical html + the original InlineKeyboardMarkup) if the API rejects
+// rich_message for any reason, so an imperfect guess at formatting nuances never breaks the
+// message or its buttons.
 export async function editInlineMessageRich(
   token: string,
   inlineMessageId: string,
@@ -92,22 +169,22 @@ export async function editInlineMessageRich(
 ): Promise<void> {
   // DEBUG marker (beta only) — proves visually whether rich_message actually rendered vs
   // silently falling back. Remove once confirmed working.
-  const markedHtml = `✨<i>rich</i>\n${html}`;
+  const marked = `✨ RICH\n${html}`;
+  const blocks = [...htmlToBlocks(marked), ...(replyMarkup ? keyboardToButtonBlocks(replyMarkup) : [])];
   try {
     const res = await fetch(`${API}${token}/editMessageText`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         inline_message_id: inlineMessageId,
-        rich_message: { html: markedHtml },
-        ...(replyMarkup && { reply_markup: replyMarkup }),
+        rich_message: { blocks },
       }),
     });
     const data = await res.json<{ ok: boolean; description?: string }>();
     if (res.ok && data.ok) return;
-    console.error('[tg:editInlineMessageRich] rejected, falling back to plain text:', JSON.stringify(data));
+    console.error('[tg:editInlineMessageRich] rejected, falling back to plain text/buttons:', JSON.stringify(data));
   } catch (e) {
-    console.error('[tg:editInlineMessageRich] error, falling back to plain text:', e);
+    console.error('[tg:editInlineMessageRich] error, falling back to plain text/buttons:', e);
   }
   await editInlineMessage(token, inlineMessageId, html, replyMarkup);
 }
