@@ -1000,10 +1000,21 @@ export async function handleChosenInlineResult(
           await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[lmsPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
           return;
         }
-        const lmsPickUpdated = lmsJoin.players.map(p =>
+        // Re-read right before mutating to shrink the race window (concurrent picks)
+        const freshLmsPick = (await kv.get<LmsSession>(`lms:${q}`, 'json')) ?? lmsJoin;
+        const freshPickPlayer = freshLmsPick.players.find(p => p.userId === result.from.id);
+        if (!freshPickPlayer || !freshPickPlayer.active) {
+          await editInlineMessage(token, result.inline_message_id, '❌ Kamu sudah eliminasi dari game ini.');
+          return;
+        }
+        if (freshPickPlayer.choice !== null) {
+          await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[freshPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+          return;
+        }
+        const lmsPickUpdated = freshLmsPick.players.map(p =>
           p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
         );
-        const lmsPickSession: LmsSession = { ...lmsJoin, players: lmsPickUpdated };
+        const lmsPickSession: LmsSession = { ...freshLmsPick, players: lmsPickUpdated };
         const lmsActive = lmsPickUpdated.filter(p => p.active);
         const lmsAllPicked = lmsActive.every(p => p.choice !== null);
         await kv.put(`lms:${q}`, JSON.stringify(lmsPickSession), { expirationTtl: 300 });
@@ -1011,14 +1022,14 @@ export async function handleChosenInlineResult(
           ctx.waitUntil(runLmsRound(token, kv, lmsPickSession, ctx, env));
         } else {
           const lmsWaitLeft = lmsActive.filter(p => p.choice === null).length;
-          const lmsRoundWaitText = `⚔️ <b>Round ${lmsJoin.currentRound}</b>\n` +
+          const lmsRoundWaitText = `⚔️ <b>Round ${freshLmsPick.currentRound}</b>\n` +
             lmsActive.map(p => {
               const up = lmsPickUpdated.find(u => u.userId === p.userId)!;
               return `• ${escHtml(up.name)}: ${up.choice ? '🔒' : '❓'}`;
             }).join('\n') +
             `\n\nMenunggu ${lmsWaitLeft} pemain lagi...`;
-          const isLmsHost = result.from.id === lmsJoin.hostUserId;
-          await editInlineMessage(token, result.inline_message_id, lmsRoundWaitText, lmsWaitPickedKeyboard(lmsJoin.gameId, isLmsHost));
+          const isLmsHost = result.from.id === freshLmsPick.hostUserId;
+          await editInlineMessage(token, result.inline_message_id, lmsRoundWaitText, lmsWaitPickedKeyboard(freshLmsPick.gameId, isLmsHost));
         }
         return;
       }
@@ -1034,6 +1045,20 @@ export async function handleChosenInlineResult(
         await editInlineMessage(token, result.inline_message_id, '❌ LMS game is full.');
         return;
       }
+      // Re-read right before mutating to shrink the race window (concurrent joins)
+      const freshLmsJoin = (await kv.get<LmsSession>(`lms:${q}`, 'json')) ?? lmsJoin;
+      if (freshLmsJoin.status !== 'waiting') {
+        await editInlineMessage(token, result.inline_message_id, '❌ LMS game tidak ditemukan.');
+        return;
+      }
+      if (freshLmsJoin.players.some(p => p.userId === result.from.id)) {
+        await editInlineMessage(token, result.inline_message_id, lmsWaitingText(freshLmsJoin));
+        return;
+      }
+      if (freshLmsJoin.players.length >= freshLmsJoin.maxPlayers) {
+        await editInlineMessage(token, result.inline_message_id, '❌ LMS game is full.');
+        return;
+      }
       const newLmsPlayer: LmsPlayer = {
         userId: result.from.id,
         name: formatUser(result.from),
@@ -1041,9 +1066,9 @@ export async function handleChosenInlineResult(
         inlineMessageId: result.inline_message_id,
         active: true,
       };
-      const updatedLmsPlayers = [...lmsJoin.players, newLmsPlayer];
-      const lmsIsFull = updatedLmsPlayers.length >= lmsJoin.maxPlayers;
-      const updatedLms: LmsSession = { ...lmsJoin, players: updatedLmsPlayers, status: lmsIsFull ? 'playing' : 'waiting' };
+      const updatedLmsPlayers = [...freshLmsJoin.players, newLmsPlayer];
+      const lmsIsFull = updatedLmsPlayers.length >= freshLmsJoin.maxPlayers;
+      const updatedLms: LmsSession = { ...freshLmsJoin, players: updatedLmsPlayers, status: lmsIsFull ? 'playing' : 'waiting' };
       await kv.put(`lms:${q}`, JSON.stringify(updatedLms), { expirationTtl: lmsIsFull ? 300 : 600 });
       if (lmsIsFull) {
         // Free rate limit slot — game is now active, same pattern as 1v1 opponent-join
@@ -1079,17 +1104,28 @@ export async function handleChosenInlineResult(
         await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[teamPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
         return;
       }
-      const oldMsgId = teamPickPlayer.inlineMessageId;
-      const teamPickA = teamJoin.teamA.map(p =>
+      // Re-read right before mutating to shrink the race window (concurrent teammate picks)
+      const freshTeamJoin = (await kv.get<TeamSession>(`team:${q}`, 'json')) ?? teamJoin;
+      const freshTeamPickPlayer = [...freshTeamJoin.teamA, ...freshTeamJoin.teamB].find(p => p.userId === result.from.id);
+      if (!freshTeamPickPlayer) {
+        await editInlineMessage(token, result.inline_message_id, '❌ Kamu bukan peserta game ini.');
+        return;
+      }
+      if (freshTeamPickPlayer.choice !== null) {
+        await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[freshTeamPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+        return;
+      }
+      const oldMsgId = freshTeamPickPlayer.inlineMessageId;
+      const teamPickA = freshTeamJoin.teamA.map(p =>
         p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
       );
-      const teamPickB = teamJoin.teamB.map(p =>
+      const teamPickB = freshTeamJoin.teamB.map(p =>
         p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
       );
       const teamPickAll = [...teamPickA, ...teamPickB];
       const teamPickAllPicked = teamPickAll.every(p => p.choice !== null);
       const teamPickCount = teamPickAll.filter(p => p.choice !== null).length;
-      const teamPickSession: TeamSession = { ...teamJoin, teamA: teamPickA, teamB: teamPickB };
+      const teamPickSession: TeamSession = { ...freshTeamJoin, teamA: teamPickA, teamB: teamPickB };
       await kv.put(`team:${q}`, JSON.stringify(teamPickSession), { expirationTtl: 300 });
       if (oldMsgId !== result.inline_message_id) {
         await editInlineMessage(token, oldMsgId, `🔒 ${EMOJI[choice]} dikunci! ⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`);
@@ -1098,7 +1134,7 @@ export async function handleChosenInlineResult(
         await editInlineMessage(token, result.inline_message_id, `🔒 ${EMOJI[choice]} dikunci! Semua sudah pilih!`);
         ctx.waitUntil(runTeamRound(token, kv, teamPickSession, env, ctx));
       } else {
-        const teamPickWaitText = `⚔️ <b>Round ${teamJoin.currentRound}</b> · <code>${q}</code>\n` +
+        const teamPickWaitText = `⚔️ <b>Round ${freshTeamJoin.currentRound}</b> · <code>${q}</code>\n` +
           `🔵 Tim A: ${teamPickA.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}\n` +
           `🔴 Tim B: ${teamPickB.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}\n\n` +
           `⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`;
@@ -1164,16 +1200,26 @@ export async function handleChosenInlineResult(
       await editInlineMessage(token, result.inline_message_id, teamWaitingText(teamSess));
       return;
     }
+    // Re-read right before mutating to shrink the race window (concurrent team joins; getChatMember above widens it)
+    const freshTeamSess = (await kv.get<TeamSession>(`team:${gameId}`, 'json')) ?? teamSess;
+    if (freshTeamSess.status !== 'waiting') {
+      await editInlineMessage(token, result.inline_message_id, '❌ Team game tidak ditemukan.');
+      return;
+    }
+    if ([...freshTeamSess.teamA, ...freshTeamSess.teamB].some(p => p.userId === result.from.id)) {
+      await editInlineMessage(token, result.inline_message_id, teamWaitingText(freshTeamSess));
+      return;
+    }
     const newPlayer: TeamPlayer = { userId: result.from.id, name: formatUser(result.from), choice, inlineMessageId: result.inline_message_id };
-    const updatedA = teamLabel === 'A' ? [...teamSess.teamA, newPlayer] : teamSess.teamA;
-    const updatedB = teamLabel === 'B' ? [...teamSess.teamB, newPlayer] : teamSess.teamB;
-    if ((teamLabel === 'A' && updatedA.length > teamSess.teamSize) ||
-        (teamLabel === 'B' && updatedB.length > teamSess.teamSize)) {
+    const updatedA = teamLabel === 'A' ? [...freshTeamSess.teamA, newPlayer] : freshTeamSess.teamA;
+    const updatedB = teamLabel === 'B' ? [...freshTeamSess.teamB, newPlayer] : freshTeamSess.teamB;
+    if ((teamLabel === 'A' && updatedA.length > freshTeamSess.teamSize) ||
+        (teamLabel === 'B' && updatedB.length > freshTeamSess.teamSize)) {
       await editInlineMessage(token, result.inline_message_id, `❌ Tim ${teamLabel} sudah penuh.`);
       return;
     }
-    const isFull = updatedA.length === teamSess.teamSize && updatedB.length === teamSess.teamSize;
-    const updated: TeamSession = { ...teamSess, teamA: updatedA, teamB: updatedB, status: isFull ? 'playing' : 'waiting' };
+    const isFull = updatedA.length === freshTeamSess.teamSize && updatedB.length === freshTeamSess.teamSize;
+    const updated: TeamSession = { ...freshTeamSess, teamA: updatedA, teamB: updatedB, status: isFull ? 'playing' : 'waiting' };
     await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: isFull ? 300 : 600 });
     if (isFull) {
       // Free host's rate limit slot — game is now active
