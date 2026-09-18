@@ -79,4 +79,16 @@ export async function resetGlobalConfig(kv: KVNamespace): Promise<void> {
   await kv.delete('config:global');
 }
 
+export async function getResultFooter(kv: KVNamespace): Promise<string | null> {
+  return kv.get('config:result_footer');
+}
+
+export async function setResultFooter(kv: KVNamespace, text: string): Promise<void> {
+  await kv.put('config:result_footer', text);
+}
+
+export async function clearResultFooter(kv: KVNamespace): Promise<void> {
+  await kv.delete('config:result_footer');
+}
+
 export type { ThumbConfig };

@@ -24,7 +24,7 @@ import type {
   VsStats,
 } from './types';
 import { editInlineMessage, editMessage, pinChatMessage, sendDice, sendMessage, sendMessageForId, unpinChatMessage } from './telegram';
-import { loadConfig } from './config';
+import { loadConfig, getResultFooter } from './config';
 import { hasFeature, isBetaUser } from './feature';
 
 export const EMOJI: Record<Choice, string> = {
@@ -66,6 +66,10 @@ export function escHtml(s: string): string {
 
 export function formatUser(user: TelegramUser): string {
   return user.first_name;
+}
+
+export function withFooter(text: string, footer: string | null): string {
+  return footer ? `${text}\n\n${escHtml(footer)}` : text;
 }
 
 export function sleep(ms: number): Promise<void> {
@@ -735,9 +739,10 @@ async function executeTeamRound(
 
   if (isDone) {
     const winner = newScoreA > newScoreB ? 'A' : 'B';
-    const finalText = `🏆 <b>Tim ${winner} menang!</b>\n${teamALine}\n${teamBLine}` +
+    const teamFooter = await getResultFooter(kv);
+    const finalText = withFooter(`🏆 <b>Tim ${winner} menang!</b>\n${teamALine}\n${teamBLine}` +
       notesText +
-      `\n📊 Skor akhir: 🔵 ${newScoreA} – ${newScoreB} 🔴`;
+      `\n📊 Skor akhir: 🔵 ${newScoreA} – ${newScoreB} 🔴`, teamFooter);
     await Promise.allSettled(allPlayers.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
     if (groupMsgId) {
       await Promise.allSettled([
@@ -993,8 +998,9 @@ export async function advanceTournament(
       JSON.stringify({ ...tournament, rounds: updatedRounds, status: 'done', winner: finalWinner }),
       { expirationTtl: 3600 }
     );
+    const tourneyFooter = await getResultFooter(kv);
     await sendMessage(token, tournament.chatId,
-      `🏆 <b>Juara Tournament: ${escHtml(finalWinner.name)}!</b>\nSelamat! 🎉`
+      withFooter(`🏆 <b>Juara Tournament: ${escHtml(finalWinner.name)}!</b>\nSelamat! 🎉`, tourneyFooter)
     );
     return;
   }
@@ -1245,7 +1251,8 @@ async function finishGame(
 
   const keyboard = rematchKeyboard(chainCode);
   const winnerStreak = matchOutcome === 'a' ? hostStats.currentStreak : matchOutcome === 'b' ? opponentStats.currentStreak : undefined;
-  const text = resultText(matchOutcome, done, env, history, hostConfig, opponentConfig, winnerStreak);
+  const footer = await getResultFooter(kv);
+  const text = withFooter(resultText(matchOutcome, done, env, history, hostConfig, opponentConfig, winnerStreak), footer);
 
   await Promise.all([
     editInlineMessage(token, session.hostInlineMessageId, text, keyboard),
@@ -1422,7 +1429,8 @@ async function _runLmsRound(
 
   if (activePlayers.length === 1) {
     const winner = activePlayers[0];
-    const winText = `🏆 <b>${escHtml(winner.name)} wins Last Man Standing!</b>\nSemua pemain lain meninggalkan game.`;
+    const forfeitFooter = await getResultFooter(kv);
+    const winText = withFooter(`🏆 <b>${escHtml(winner.name)} wins Last Man Standing!</b>\nSemua pemain lain meninggalkan game.`, forfeitFooter);
     const doneSession: LmsSession = { ...session, status: 'done' as const };
     await kv.put(`lms:${session.gameId}`, JSON.stringify(doneSession), { expirationTtl: 600 });
     await Promise.allSettled(session.players.map(p => editInlineMessage(token, p.inlineMessageId, winText)));
@@ -1467,7 +1475,8 @@ async function _runLmsRound(
       const isOut = !p.active || eliminatedIds.has(p.userId);
       return `${escHtml(p.name)}: ${choiceDisplay(p.choice!, env, configs.get(p.userId) ?? null)}${isOut ? ' ❌' : ' 🏆'}`;
     }).join('\n');
-    const winText = `🏆 <b>${escHtml(winner.name)} wins Last Man Standing!</b>\n━━━━━━━━━━━━━━\n${allLines}`;
+    const lmsFooter = await getResultFooter(kv);
+    const winText = withFooter(`🏆 <b>${escHtml(winner.name)} wins Last Man Standing!</b>\n━━━━━━━━━━━━━━\n${allLines}`, lmsFooter);
 
     const doneSession: LmsSession = {
       ...session,

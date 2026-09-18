@@ -9,6 +9,9 @@ import {
   getGlobalConfigRaw,
   resetUserConfig,
   resetGlobalConfig,
+  getResultFooter,
+  setResultFooter,
+  clearResultFooter,
 } from '../config';
 import { activateTier, loadDonatorTier, parseDuration, TIER_PERKS, tierBadge } from '../donator';
 import { handleDonate, handleSuccessfulPayment } from './payment';
@@ -584,6 +587,25 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     return;
   }
 
+  if (cmd === '/setfooter') {
+    const arg = msg.text.trim().slice(cmd.length).trim();
+    if (!arg) {
+      const current = await getResultFooter(kv);
+      await reply(token, msg.chat.id, current
+        ? `📝 <b>Footer saat ini:</b>\n${escHtml(current)}\n\nUsage: /setfooter &lt;text&gt; — ganti\n/setfooter off — hapus`
+        : `📝 Belum ada footer.\nUsage: /setfooter &lt;text&gt;`);
+      return;
+    }
+    if (arg.toLowerCase() === 'off' || arg.toLowerCase() === 'clear') {
+      await clearResultFooter(kv);
+      await reply(token, msg.chat.id, '✅ Footer dihapus.');
+      return;
+    }
+    await setResultFooter(kv, arg);
+    await reply(token, msg.chat.id, `✅ Footer diset:\n${escHtml(arg)}`);
+    return;
+  }
+
   if (cmd === '/globalconfig') {
     const global = await getGlobalConfigRaw(kv);
     if (!global || Object.keys(global).length === 0) {
@@ -923,6 +945,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       `/setglobal [emoji|sticker|thumb] ... — Set config global\n` +
       `/globalconfig — Lihat config global saat ini\n` +
       `/resetglobal — Reset config global\n` +
+      `/setfooter &lt;text&gt; — Set footer di akhir setiap hasil game (/setfooter off untuk hapus)\n` +
       `/betaadd &lt;userId&gt; — Tambah beta tester\n` +
       `/betaremove &lt;userId&gt; — Hapus beta tester\n` +
       `/betalist — Lihat daftar beta tester\n` +
