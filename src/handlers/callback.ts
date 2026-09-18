@@ -40,7 +40,9 @@ export async function handleCallbackQuery(
 
   const VALID_CHOICES = ['rock', 'paper', 'scissors'];
 
-  if (action === 'pick' && parts.length === 3) {
+  if (action === 'mypick' && parts.length === 3) {
+    await handleMyPick(query, env, parts[1] as 'game' | 'lms' | 'team', parts[2]);
+  } else if (action === 'pick' && parts.length === 3) {
     if (!VALID_CHOICES.includes(parts[2])) { await answerCallbackQuery(env.BOT_TOKEN, query.id); return; }
     await handlePick(query, env, ctx, parts[1], parts[2] as Choice);
   } else if (action === 'lmspick' && parts.length === 3) {
@@ -88,6 +90,39 @@ export async function handleCallbackQuery(
   } else {
     await answerCallbackQuery(env.BOT_TOKEN, query.id);
   }
+}
+
+// Private, self-only "what did I pick?" check — answerCallbackQuery's popup is always shown
+// only to the presser, regardless of chat context, so this works with zero group/chatId
+// requirement anywhere a keyboard already has a callback button attached.
+async function handleMyPick(
+  query: CallbackQuery,
+  env: Env,
+  sessionType: 'game' | 'lms' | 'team',
+  gameId: string
+): Promise<void> {
+  const token = env.BOT_TOKEN;
+  const kv = env.GAME_SESSIONS;
+  let choice: Choice | null | undefined;
+
+  if (sessionType === 'game') {
+    const session = await kv.get<GameSession>(`game:${gameId}`, 'json');
+    if (session?.hostUserId === query.from.id) choice = session.hostChoice;
+    else if (session?.opponentUserId === query.from.id) choice = session.opponentChoice;
+  } else if (sessionType === 'lms') {
+    const session = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+    choice = session?.players.find(p => p.userId === query.from.id)?.choice;
+  } else if (sessionType === 'team') {
+    const session = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+    const player = session && [...session.teamA, ...session.teamB].find(p => p.userId === query.from.id);
+    choice = player?.choice;
+  }
+
+  if (choice === undefined) {
+    await answerCallbackQuery(token, query.id, '❌ Kamu bukan peserta game ini.', true);
+    return;
+  }
+  await answerCallbackQuery(token, query.id, choice ? `🔒 Pilihanmu: ${EMOJI[choice]}` : '❓ Kamu belum pilih senjata.');
 }
 
 async function handlePick(
