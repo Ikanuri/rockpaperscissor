@@ -68,8 +68,11 @@ export function formatUser(user: TelegramUser): string {
   return user.first_name;
 }
 
+// footer is already-escaped/formatted HTML by construction (built from the owner's own message
+// entities via entitiesToHtml in message.ts, never raw user input), so it must NOT be re-escaped
+// here — doing so would double-escape it and show literal &lt;b&gt; instead of bold text.
 export function withFooter(text: string, footer: string | null): string {
-  return footer ? `${text}\n\n${escHtml(footer)}` : text;
+  return footer ? `${text}\n\n${footer}` : text;
 }
 
 export function sleep(ms: number): Promise<void> {

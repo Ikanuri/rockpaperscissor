@@ -78,61 +78,133 @@ interface RichMessageButton {
   switch_inline_query_current_chat?: string;
 }
 
-type RichText = string | RichText[] | { type: 'custom_emoji'; custom_emoji_id: string; alternative_text: string };
+type RichText =
+  | string
+  | RichText[]
+  | { type: 'bold' | 'italic' | 'underline' | 'strikethrough' | 'spoiler' | 'code'; text: RichText }
+  | { type: 'url'; text: RichText; url: string }
+  | { type: 'custom_emoji'; custom_emoji_id: string; alternative_text: string };
 
 type RichBlock =
   | { type: 'paragraph'; text: RichText }
   | { type: 'expandable_blockquote'; text: RichText }
+  | { type: 'blockquote'; blocks: RichBlock[] }
+  | { type: 'pre'; text: RichText; language?: string }
   | { type: 'buttons'; buttons: RichMessageButton[] };
 
-// escHtml() only ever escapes &, <, > — reverse exactly that (nothing more) for the plain-text
-// portions once real tags have been pulled out below.
+// escHtml() only ever escapes &, <, > — reverse exactly that (nothing more) for plain-text leaves.
 function unescapeBasicHtml(s: string): string {
   return s.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
 }
 
-// The ONLY inline tag this codebase emits into rich-eligible text is
-// fmtEmoji()'s <tg-emoji emoji-id="ID">FALLBACK</tg-emoji> (game.ts). Anything else in a text
-// segment is literal, escHtml()-escaped content.
-const TG_EMOJI_RE = /<tg-emoji emoji-id="(\d+)">(.*?)<\/tg-emoji>/g;
+// Generic parser for classic-HTML-mode content, matching exactly the tag set Telegram's own
+// parse_mode: 'HTML' supports (see entitiesToHtml() in message.ts, which is the only producer of
+// this markup — owner-authored footer text converted from their native Telegram formatting, plus
+// the bot's own hardcoded <b>/<tg-emoji>/<blockquote> strings). Handles arbitrary nesting (e.g.
+// <b>bold <i>and italic</i></b>), unlike a single-pattern regex scan.
+interface TextNode { kind: 'text'; text: string }
+interface TagNode { kind: 'tag'; tag: string; attrs: Record<string, string | true>; children: ParsedNode[] }
+type ParsedNode = TextNode | TagNode;
 
-function parseInlineRichText(segment: string): RichText {
-  const parts: RichText[] = [];
+const TAG_RE = /<\/([a-zA-Z][a-zA-Z0-9-]*)\s*>|<([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[a-zA-Z-]+(?:="[^"]*")?)*)\s*\/?>/g;
+const ATTR_RE = /([a-zA-Z-]+)(?:="([^"]*)")?/g;
+
+function parseNodes(html: string): ParsedNode[] {
+  const root: ParsedNode[] = [];
+  const stack: ParsedNode[][] = [root];
   let lastIndex = 0;
-  for (const m of segment.matchAll(TG_EMOJI_RE)) {
-    if (m.index! > lastIndex) parts.push(unescapeBasicHtml(segment.slice(lastIndex, m.index)));
-    parts.push({ type: 'custom_emoji', custom_emoji_id: m[1], alternative_text: unescapeBasicHtml(m[2]) });
+  for (const m of html.matchAll(TAG_RE)) {
+    if (m.index! > lastIndex) stack[stack.length - 1].push({ kind: 'text', text: html.slice(lastIndex, m.index) });
+    const [, closeTag, openTag, attrStr] = m;
+    if (closeTag) {
+      if (stack.length > 1) stack.pop();
+    } else if (openTag) {
+      const attrs: Record<string, string | true> = {};
+      for (const am of (attrStr ?? '').matchAll(ATTR_RE)) attrs[am[1]] = am[2] !== undefined ? am[2] : true;
+      const node: TagNode = { kind: 'tag', tag: openTag.toLowerCase(), attrs, children: [] };
+      stack[stack.length - 1].push(node);
+      stack.push(node.children);
+    }
     lastIndex = m.index! + m[0].length;
   }
-  if (lastIndex < segment.length) parts.push(unescapeBasicHtml(segment.slice(lastIndex)));
+  if (lastIndex < html.length) stack[stack.length - 1].push({ kind: 'text', text: html.slice(lastIndex) });
+  return root;
+}
+
+function nodesToRichText(nodes: ParsedNode[]): RichText {
+  const parts = nodes.map(nodeToRichText).filter(p => !(typeof p === 'string' && p === ''));
   if (parts.length === 0) return '';
   return parts.length === 1 ? parts[0] : parts;
 }
 
-// The only BLOCK-level tag this codebase emits is historyBlock()'s
-// <blockquote expandable>...multi-line...</blockquote> (game.ts). Everything outside of it is
-// plain paragraphs, one per '\n'-separated line (blank lines become empty paragraphs, preserving
-// the original spacing).
-const BLOCKQUOTE_RE = /<blockquote expandable>([\s\S]*?)<\/blockquote>/g;
+function nodeToRichText(node: ParsedNode): RichText {
+  if (node.kind === 'text') return unescapeBasicHtml(node.text);
+  switch (node.tag) {
+    case 'b': case 'strong': return { type: 'bold', text: nodesToRichText(node.children) };
+    case 'i': case 'em': return { type: 'italic', text: nodesToRichText(node.children) };
+    case 'u': case 'ins': return { type: 'underline', text: nodesToRichText(node.children) };
+    case 's': case 'strike': case 'del': return { type: 'strikethrough', text: nodesToRichText(node.children) };
+    case 'tg-spoiler': return { type: 'spoiler', text: nodesToRichText(node.children) };
+    case 'code': return { type: 'code', text: nodesToRichText(node.children) };
+    case 'a': {
+      const href = typeof node.attrs.href === 'string' ? node.attrs.href : '';
+      return href ? { type: 'url', text: nodesToRichText(node.children), url: href } : nodesToRichText(node.children);
+    }
+    case 'tg-emoji': {
+      const id = typeof node.attrs['emoji-id'] === 'string' ? node.attrs['emoji-id'] : '';
+      const alt = node.children.map(c => c.kind === 'text' ? unescapeBasicHtml(c.text) : '').join('');
+      return id ? { type: 'custom_emoji', custom_emoji_id: id, alternative_text: alt } : alt;
+    }
+    default: return nodesToRichText(node.children);
+  }
+}
+
+function nodesToBlocks(nodes: ParsedNode[]): RichBlock[] {
+  const blocks: RichBlock[] = [];
+  let paragraph: ParsedNode[] = [];
+  const flush = () => {
+    if (paragraph.length > 0) {
+      blocks.push({ type: 'paragraph', text: nodesToRichText(paragraph) });
+      paragraph = [];
+    }
+  };
+
+  for (const node of nodes) {
+    if (node.kind === 'text') {
+      const lines = node.text.split('\n');
+      lines.forEach((line, i) => {
+        if (i > 0) flush();
+        if (line) paragraph.push({ kind: 'text', text: line });
+      });
+    } else if (node.tag === 'blockquote') {
+      flush();
+      if (node.attrs.expandable) {
+        blocks.push({ type: 'expandable_blockquote', text: nodesToRichText(node.children) });
+      } else {
+        blocks.push({ type: 'blockquote', blocks: nodesToBlocks(node.children) });
+      }
+    } else if (node.tag === 'pre') {
+      flush();
+      let content = node.children;
+      let language: string | undefined;
+      if (content.length === 1 && content[0].kind === 'tag' && content[0].tag === 'code') {
+        const codeNode = content[0];
+        const cls = typeof codeNode.attrs.class === 'string' ? codeNode.attrs.class : '';
+        const langMatch = /language-(\S+)/.exec(cls);
+        if (langMatch) language = langMatch[1];
+        content = codeNode.children;
+      }
+      blocks.push({ type: 'pre', text: nodesToRichText(content), ...(language && { language }) });
+    } else {
+      paragraph.push(node);
+    }
+  }
+  flush();
+  return blocks;
+}
 
 function htmlToBlocks(html: string): RichBlock[] {
-  const blocks: RichBlock[] = [];
-  let lastIndex = 0;
-  for (const m of html.matchAll(BLOCKQUOTE_RE)) {
-    if (m.index! > lastIndex) {
-      for (const line of html.slice(lastIndex, m.index).split('\n')) {
-        blocks.push({ type: 'paragraph', text: parseInlineRichText(line) });
-      }
-    }
-    blocks.push({ type: 'expandable_blockquote', text: parseInlineRichText(m[1]) });
-    lastIndex = m.index! + m[0].length;
-  }
-  if (lastIndex < html.length) {
-    for (const line of html.slice(lastIndex).split('\n')) {
-      blocks.push({ type: 'paragraph', text: parseInlineRichText(line) });
-    }
-  }
-  return blocks;
+  return nodesToBlocks(parseNodes(html));
 }
 
 // InlineKeyboardButton fields map 1:1 onto RichMessageButton (confirmed against the Bot API

@@ -20,6 +20,56 @@ import { ACHIEVEMENT_DEFS, escHtml, fmtEmoji, generateId, getLang, resolveTeamDi
 const CHOICES: Choice[] = ['rock', 'paper', 'scissors'];
 const CHOICE_EMOJI: Record<Choice, string> = { rock: '✊', paper: '✋', scissors: '✌️' };
 
+type MessageEntity = NonNullable<TelegramMessage['entities']>[number];
+
+// Converts a message's raw text + Telegram's own formatting entities (produced automatically
+// when someone bolds/italicizes/quotes text using the client's native formatting tools — no
+// manual tag-typing involved) into the equivalent classic-HTML-mode string. Entities can nest
+// (e.g. bold containing italic), so this recurses per entity, wrapping only the tags this bot's
+// rich-message pipeline (see telegram.ts htmlToBlocks) knows how to render.
+function entitiesToHtml(text: string, entities: MessageEntity[] | undefined): string {
+  if (!entities || entities.length === 0) return escHtml(text);
+  const sorted = [...entities].sort((a, b) => a.offset - b.offset || b.length - a.length);
+
+  function wrap(e: MessageEntity, inner: string): string {
+    switch (e.type) {
+      case 'bold': return `<b>${inner}</b>`;
+      case 'italic': return `<i>${inner}</i>`;
+      case 'underline': return `<u>${inner}</u>`;
+      case 'strikethrough': return `<s>${inner}</s>`;
+      case 'spoiler': return `<tg-spoiler>${inner}</tg-spoiler>`;
+      case 'code': return `<code>${inner}</code>`;
+      case 'pre': return e.language ? `<pre><code class="language-${e.language}">${inner}</code></pre>` : `<pre>${inner}</pre>`;
+      case 'blockquote': return `<blockquote>${inner}</blockquote>`;
+      case 'expandable_blockquote': return `<blockquote expandable>${inner}</blockquote>`;
+      case 'custom_emoji': return e.custom_emoji_id ? `<tg-emoji emoji-id="${e.custom_emoji_id}">${inner}</tg-emoji>` : inner;
+      case 'text_link': return e.url ? `<a href="${escHtml(e.url)}">${inner}</a>` : inner;
+      default: return inner; // url/mention/hashtag/bot_command/etc — Telegram recognizes these in plain text already
+    }
+  }
+
+  function render(start: number, end: number, list: MessageEntity[]): string {
+    let result = '';
+    let pos = start;
+    let i = 0;
+    while (i < list.length) {
+      const e = list[i];
+      if (e.offset > pos) result += escHtml(text.slice(pos, e.offset));
+      const eEnd = e.offset + e.length;
+      const nested: MessageEntity[] = [];
+      let j = i + 1;
+      while (j < list.length && list[j].offset < eEnd) nested.push(list[j++]);
+      result += wrap(e, render(e.offset, eEnd, nested));
+      pos = eEnd;
+      i = j;
+    }
+    if (pos < end) result += escHtml(text.slice(pos, end));
+    return result;
+  }
+
+  return render(0, text.length, sorted);
+}
+
 async function resolveUserDisplay(
   kv: KVNamespace,
   token: string,
@@ -199,6 +249,18 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     }
   }
 
+  // ── Pending setfooter ─────────────────────────────────────────────────
+  if (msg.text && !msg.text.startsWith('/')) {
+    const pendingFooter = await kv.get(`pending:setfooter:${msg.from.id}`);
+    if (pendingFooter) {
+      await kv.delete(`pending:setfooter:${msg.from.id}`);
+      const html = entitiesToHtml(msg.text, msg.entities);
+      await setResultFooter(kv, html);
+      await reply(token, msg.chat.id, `✅ Footer diperbarui:\n\n${html}`);
+      return;
+    }
+  }
+
   if (!msg.text) return;
 
   const parts = msg.text.trim().split(/\s+/);
@@ -206,15 +268,17 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
 
   // ── Available to all users ───────────────────────────────────────────
   if (cmd === '/cancel') {
-    const [had, hadCr] = await Promise.all([
+    const [had, hadCr, hadFooter] = await Promise.all([
       kv.get(`pending:config:${msg.from.id}`),
       kv.get(`pending:setcredits:${msg.from.id}`),
+      kv.get(`pending:setfooter:${msg.from.id}`),
     ]);
     await Promise.all([
       kv.delete(`pending:config:${msg.from.id}`),
       kv.delete(`pending:setcredits:${msg.from.id}`),
+      kv.delete(`pending:setfooter:${msg.from.id}`),
     ]);
-    await reply(token, msg.chat.id, (had || hadCr) ? '❌ Dibatalkan.' : '❌ Tidak ada yang perlu dibatalkan.');
+    await reply(token, msg.chat.id, (had || hadCr || hadFooter) ? '❌ Dibatalkan.' : '❌ Tidak ada yang perlu dibatalkan.');
     return;
   }
 
@@ -589,20 +653,18 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
 
   if (cmd === '/setfooter') {
     const arg = msg.text.trim().slice(cmd.length).trim();
-    if (!arg) {
-      const current = await getResultFooter(kv);
-      await reply(token, msg.chat.id, current
-        ? `📝 <b>Footer saat ini:</b>\n${escHtml(current)}\n\nUsage: /setfooter &lt;text&gt; — ganti\n/setfooter off — hapus`
-        : `📝 Belum ada footer.\nUsage: /setfooter &lt;text&gt;`);
-      return;
-    }
     if (arg.toLowerCase() === 'off' || arg.toLowerCase() === 'clear') {
       await clearResultFooter(kv);
       await reply(token, msg.chat.id, '✅ Footer dihapus.');
       return;
     }
-    await setResultFooter(kv, arg);
-    await reply(token, msg.chat.id, `✅ Footer diset:\n${escHtml(arg)}`);
+    const current = await getResultFooter(kv);
+    await kv.put(`pending:setfooter:${msg.from.id}`, '1', { expirationTtl: 300 });
+    await reply(token, msg.chat.id,
+      (current ? `📝 <b>Footer saat ini:</b>\n${current}\n\n` : '📝 Belum ada footer.\n\n') +
+      `Kirim teks footer sekarang — pakai format Telegram biasa saja (bold, italic, blockquote, emoji custom, dll), tidak perlu ketik kode apapun.\n\n` +
+      `<i>Berlaku 5 menit · /cancel untuk batal · /setfooter off untuk hapus.</i>`
+    );
     return;
   }
 

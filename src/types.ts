@@ -261,7 +261,7 @@ export interface TelegramMessage {
   text?: string;
   sticker?: { file_id: string; file_unique_id: string; type?: string; custom_emoji_id?: string; is_video?: boolean; is_animated?: boolean };
   animation?: { file_id: string; file_unique_id: string };
-  entities?: Array<{ type: string; offset: number; length: number; custom_emoji_id?: string }>;
+  entities?: Array<{ type: string; offset: number; length: number; custom_emoji_id?: string; url?: string; language?: string }>;
   successful_payment?: SuccessfulPayment;
   new_chat_members?: TelegramUser[];
   left_chat_member?: TelegramUser;
