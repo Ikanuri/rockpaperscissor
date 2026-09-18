@@ -23,7 +23,7 @@ import type {
   UserStats,
   VsStats,
 } from './types';
-import { editEphemeralMessageText, editInlineMessage, editInlineMessageRich, editMessage, pinChatMessage, sendDice, sendEphemeralMessage, sendMessage, sendMessageForId, unpinChatMessage } from './telegram';
+import { editEphemeralMessageText, editInlineMessage, editInlineMessageRich, editMessageRich, pinChatMessage, sendDice, sendEphemeralMessage, sendMessageForId, sendMessageRich, unpinChatMessage } from './telegram';
 import { loadConfig, getResultFooter } from './config';
 import { hasFeature, isBetaUser } from './feature';
 
@@ -755,11 +755,11 @@ async function executeTeamRound(
     await Promise.allSettled(allPlayers.map(p => editInlineMessageRich(token, p.inlineMessageId, finalText)));
     if (groupMsgId) {
       await Promise.allSettled([
-        editMessage(token, session.chatId, groupMsgId, finalText),
+        editMessageRich(token, session.chatId, groupMsgId, finalText),
         unpinChatMessage(token, session.chatId, groupMsgId),
       ]);
     }
-    await sendMessage(token, session.chatId, finalText);
+    await sendMessageRich(token, session.chatId, finalText);
     const winTeam = winner === 'A' ? session.teamA : session.teamB;
     const loseTeam = winner === 'A' ? session.teamB : session.teamA;
     for (const p of winTeam) {
@@ -792,11 +792,11 @@ async function executeTeamRound(
       `\n${outcomeText}\n📊 Score: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}...`;
     const roundKb = teamGroupRoundKeyboard(session.gameId);
     const pinUpdate = groupMsgId
-      ? editMessage(token, session.chatId, groupMsgId, groupRoundText, roundKb)
+      ? editMessageRich(token, session.chatId, groupMsgId, groupRoundText, roundKb)
       : Promise.resolve();
     await Promise.all([
       pinUpdate,
-      sendMessage(token, session.chatId, groupRoundText, roundKb),
+      sendMessageRich(token, session.chatId, groupRoundText, roundKb),
       ...allPlayers.map(p =>
         editInlineMessageRich(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId))
       ),
@@ -887,7 +887,7 @@ export async function runTeamRound(
     const resolveKb: InlineKeyboardMarkup = {
       inline_keyboard: [[{ text: '⏱️ Bot resolve (host)', callback_data: `teamdice:resolve:${activeSession.gameId}` }]],
     };
-    await sendMessage(token, activeSession.chatId,
+    await sendMessageRich(token, activeSession.chatId,
       `⚔️ <b>Seri internal!</b> Semua lempar 🎲 di grup!\n\n` +
       tieLines.join('\n') +
       `\n\n<i>Player yang seri: lempar 🎲 — angka tertinggi menang.</i>\n` +
@@ -1002,7 +1002,7 @@ export async function startTournamentBracket(
   }
   const updated: TournamentSession = { ...tournament, status: 'active', currentRound: 0, rounds: [round0] };
   await kv.put(`tournament:${tournament.tournamentId}`, JSON.stringify(updated), { expirationTtl: 7200 });
-  await sendMessage(token, tournament.chatId, formatTournamentRound(round0, 1, botUsername));
+  await sendMessageRich(token, tournament.chatId, formatTournamentRound(round0, 1, botUsername));
 }
 
 export async function advanceTournament(
@@ -1028,7 +1028,7 @@ export async function advanceTournament(
   if (!roundDone) {
     await kv.put(`tournament:${tournamentId}`, JSON.stringify({ ...tournament, rounds: updatedRounds }), { expirationTtl: 7200 });
     const drawNote = isDraw ? ' (menang undi)' : '';
-    await sendMessage(token, tournament.chatId,
+    await sendMessageRich(token, tournament.chatId,
       `✅ <b>${escHtml(winner.name)}</b> menang${drawNote} vs ${escHtml(loser.name)}! Menunggu match lain...`
     );
     return;
@@ -1041,7 +1041,7 @@ export async function advanceTournament(
       { expirationTtl: 3600 }
     );
     const tourneyFooter = await getResultFooter(kv);
-    await sendMessage(token, tournament.chatId,
+    await sendMessageRich(token, tournament.chatId,
       withFooter(`🏆 <b>Juara Tournament: ${escHtml(finalWinner.name)}!</b>\nSelamat! 🎉`, tourneyFooter)
     );
     return;
@@ -1056,7 +1056,7 @@ export async function advanceTournament(
   }
   const updated: TournamentSession = { ...tournament, rounds: [...updatedRounds, nextMatches], currentRound: nextRoundIdx };
   await kv.put(`tournament:${tournamentId}`, JSON.stringify(updated), { expirationTtl: 7200 });
-  await sendMessage(token, tournament.chatId, formatTournamentRound(nextMatches, nextRoundIdx + 1, botUsername));
+  await sendMessageRich(token, tournament.chatId, formatTournamentRound(nextMatches, nextRoundIdx + 1, botUsername));
 }
 
 async function updateGroupLeaderboard(
@@ -1093,7 +1093,7 @@ async function sendGroupStreakMention(
   if (!chatIdStr) return;
   const chatId = parseInt(chatIdStr);
   if (isNaN(chatId)) return;
-  await sendMessage(token, chatId,
+  await sendMessageRich(token, chatId,
     `🔥 <b>${escHtml(name)}</b> baru capai streak <b>${streak}x</b> beruntun! Ada yang mau tantang? <code>@</code> · ${userId}`
   );
 }
@@ -1119,7 +1119,7 @@ async function updatePinnedScoreboard(
   const updateTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
   const text = `📊 <b>SCOREBOARD GRUP</b>\nUpdate: ${updateTime} UTC\n━━━━━━━━━━━━━━\n${lines.join('\n')}`;
   if (settings?.pinnedMsgId) {
-    await editMessage(token, chatId, settings.pinnedMsgId, text);
+    await editMessageRich(token, chatId, settings.pinnedMsgId, text);
   } else {
     const msgId = await sendMessageForId(token, chatId, text);
     if (msgId) {
@@ -1202,13 +1202,13 @@ async function finishGame(
 
   // Streak milestone DMs + group mention (fire-and-forget)
   if (hostResult.notifyStreak) {
-    ctx.waitUntil(sendMessage(token, session.hostUserId,
+    ctx.waitUntil(sendMessageRich(token, session.hostUserId,
       `🔥 Streak <b>${hostResult.notifyStreak}x</b> beruntun! Luar biasa! 🏆`
     ));
     ctx.waitUntil(sendGroupStreakMention(kv, token, session.hostUserId, session.hostName, hostResult.notifyStreak));
   }
   if (opponentResult.notifyStreak) {
-    ctx.waitUntil(sendMessage(token, session.opponentUserId!,
+    ctx.waitUntil(sendMessageRich(token, session.opponentUserId!,
       `🔥 Streak <b>${opponentResult.notifyStreak}x</b> beruntun! Luar biasa! 🏆`
     ));
     ctx.waitUntil(sendGroupStreakMention(kv, token, session.opponentUserId!, session.opponentName!, opponentResult.notifyStreak));
@@ -1216,10 +1216,10 @@ async function finishGame(
 
   // Achievement DMs (fire-and-forget)
   for (const label of hostResult.newAchievements) {
-    ctx.waitUntil(sendMessage(token, session.hostUserId, `🏅 Achievement unlocked: ${label}`));
+    ctx.waitUntil(sendMessageRich(token, session.hostUserId, `🏅 Achievement unlocked: ${label}`));
   }
   for (const label of opponentResult.newAchievements) {
-    ctx.waitUntil(sendMessage(token, session.opponentUserId!, `🏅 Achievement unlocked: ${label}`));
+    ctx.waitUntil(sendMessageRich(token, session.opponentUserId!, `🏅 Achievement unlocked: ${label}`));
   }
 
   // Open challenge result DM to host
@@ -1232,7 +1232,7 @@ async function finishGame(
       const title = escHtml(tkp.chatTitle);
       tkpLine = `\n\nTKP: ${link ? `<a href="${link}">${title}</a>` : title}`;
     }
-    ctx.waitUntil(sendMessage(token, session.hostUserId,
+    ctx.waitUntil(sendMessageRich(token, session.hostUserId,
       `⚔️ Open challenge diambil oleh ${escHtml(session.opponentName!)}!\n\n` +
       `${EMOJI[session.hostChoice!]} Kamu · ${EMOJI[session.opponentChoice!]} ${escHtml(session.opponentName!)}\n` +
       `Hasil: <b>${hostOutcomeLabel}</b>${tkpLine}`

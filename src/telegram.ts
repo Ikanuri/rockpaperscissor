@@ -237,23 +237,61 @@ export async function editInlineMessageRich(
   html: string,
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
+  await richRequest(token, 'editMessageText', { inline_message_id: inlineMessageId }, html, replyMarkup,
+    () => editInlineMessage(token, inlineMessageId, html, replyMarkup));
+}
+
+// Shared by every rich-message variant: builds the blocks payload, posts it, and falls back to
+// the caller's plain (non-rich) equivalent if the API rejects it for any reason.
+async function richRequest(
+  token: string,
+  method: string,
+  target: Record<string, unknown>,
+  html: string,
+  replyMarkup: InlineKeyboardMarkup | undefined,
+  fallback: () => Promise<void>
+): Promise<void> {
   const blocks = [...htmlToBlocks(html), ...(replyMarkup ? keyboardToButtonBlocks(replyMarkup) : [])];
   try {
-    const res = await fetch(`${API}${token}/editMessageText`, {
+    const res = await fetch(`${API}${token}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        inline_message_id: inlineMessageId,
-        rich_message: { blocks },
-      }),
+      body: JSON.stringify({ ...target, rich_message: { blocks } }),
     });
     const data = await res.json<{ ok: boolean; description?: string }>();
     if (res.ok && data.ok) return;
-    console.error('[tg:editInlineMessageRich] rejected, falling back to plain text/buttons:', JSON.stringify(data));
+    console.error(`[tg:${method}Rich] rejected, falling back to plain text/buttons:`, JSON.stringify(data));
   } catch (e) {
-    console.error('[tg:editInlineMessageRich] error, falling back to plain text/buttons:', e);
+    console.error(`[tg:${method}Rich] error, falling back to plain text/buttons:`, e);
   }
-  await editInlineMessage(token, inlineMessageId, html, replyMarkup);
+  await fallback();
+}
+
+// Same rich-message rendering as editInlineMessageRich, but for a regular chat message
+// (chat_id + message_id) instead of an inline message — used by /guide navigation, which edits
+// a normal message the bot sent in a DM/group, not an inline result.
+export async function editMessageRich(
+  token: string,
+  chatId: number,
+  messageId: number,
+  html: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<void> {
+  await richRequest(token, 'editMessageText', { chat_id: chatId, message_id: messageId }, html, replyMarkup,
+    () => editMessage(token, chatId, messageId, html, replyMarkup));
+}
+
+// Sends a brand-new rich message (Bot API 10.3's sendRichMessage) instead of editing an existing
+// one — used for the first-time display of content like /credits or /guide's main menu, where
+// there's no prior message to edit yet.
+export async function sendMessageRich(
+  token: string,
+  chatId: number,
+  html: string,
+  replyMarkup?: InlineKeyboardMarkup
+): Promise<void> {
+  await richRequest(token, 'sendRichMessage', { chat_id: chatId }, html, replyMarkup,
+    () => sendMessage(token, chatId, html, replyMarkup));
 }
 
 export function sendMessage(

@@ -1,5 +1,5 @@
 import type { CallbackQuery, Choice, Env, GameSession, LmsSession, TeamDiceWaitState, TeamSession, TournamentSession } from '../types';
-import { answerCallbackQuery, editInlineMessageRich, editMessage, getChatMember } from '../telegram';
+import { answerCallbackQuery, editInlineMessageRich, editMessageRich, getChatMember } from '../telegram';
 import {
   EMOJI,
   botResolveTie,
@@ -882,7 +882,7 @@ async function handleTourJoin(
   const msgId = tournament.signupMessageId;
   if (chatId && msgId) {
     const kb = updated.players.length >= updated.maxPlayers ? undefined : tournamentSignupKeyboard(tournamentId);
-    await editMessage(token, chatId, msgId, tournamentSignupText(updated), kb);
+    await editMessageRich(token, chatId, msgId, tournamentSignupText(updated), kb);
   }
 
   // Auto-start when full
@@ -936,12 +936,12 @@ async function handleGuide(query: CallbackQuery, env: Env): Promise<void> {
 
   if (!mode || mode === 'main') {
     const { text, kb } = guideMainMenu(lang, env.BOT_USERNAME);
-    await editMessage(token, chatId, msgId, text, kb);
+    await editMessageRich(token, chatId, msgId, text, kb);
   } else {
     const content = guideContent(mode, lang, env.BOT_USERNAME);
     const backLabel = lang === 'en' ? '← Back to modes' : '← Kembali ke menu';
     const kb = { inline_keyboard: [[{ text: backLabel, callback_data: 'guide:main' }]] };
-    await editMessage(token, chatId, msgId, content, kb);
+    await editMessageRich(token, chatId, msgId, content, kb);
   }
   await answerCallbackQuery(token, query.id);
 }
@@ -956,7 +956,7 @@ async function handleSetLang(query: CallbackQuery, env: Env, lang: string): Prom
     ? '🌐 Language set to <b>English</b>.'
     : '🌐 Bahasa diubah ke <b>Bahasa Indonesia</b>.';
   if (query.message) {
-    await editMessage(token, query.message.chat.id, query.message.message_id, editText);
+    await editMessageRich(token, query.message.chat.id, query.message.message_id, editText);
   }
   await answerCallbackQuery(token, query.id);
 }

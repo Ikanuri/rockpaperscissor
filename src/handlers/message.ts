@@ -1,5 +1,5 @@
 import type { Choice, Env, GameSession, LeaderboardEntry, LmsSession, OpenChallenge, PendingConfig, TeamDiceWaitState, TeamSession, TelegramMessage, TournamentSession, UserStats } from '../types';
-import { editInlineMessageRich, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendPoll, setMyCommands } from '../telegram';
+import { editInlineMessageRich, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendMessageRich, sendPoll, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
   loadConfig,
@@ -242,9 +242,14 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     const pendingCr = await kv.get(`pending:setcredits:${msg.from.id}`);
     if (pendingCr) {
       await kv.delete(`pending:setcredits:${msg.from.id}`);
-      const newText = msg.text.trim();
-      await kv.put('config:credits', newText);
-      await reply(token, msg.chat.id, newText ? `✅ Credits diperbarui.` : `✅ Credits dikosongkan.`);
+      const isEmpty = !msg.text.trim();
+      const html = isEmpty ? '' : entitiesToHtml(msg.text, msg.entities);
+      await kv.put('config:credits', html);
+      if (isEmpty) {
+        await reply(token, msg.chat.id, `✅ Credits dikosongkan.`);
+      } else {
+        await sendMessageRich(token, msg.chat.id, `✅ Credits diperbarui:\n\n${html}`);
+      }
       return;
     }
   }
@@ -283,7 +288,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
   }
 
   if (cmd === '/syncstats') {
-    await sendMessage(token, msg.chat.id,
+    await sendMessageRich(token, msg.chat.id,
       `ℹ️ /syncstats tidak lagi diperlukan.\nStats periode (hari/minggu/bulan) diupdate otomatis setiap game selesai.`
     );
     return;
@@ -504,14 +509,14 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       { text: '🇮🇩 Bahasa Indonesia', callback_data: 'setlang:id' },
       { text: '🇬🇧 English', callback_data: 'setlang:en' },
     ]] };
-    await sendMessage(token, msg.chat.id,
+    await sendMessageRich(token, msg.chat.id,
       lang === 'en' ? '🌐 Choose your language:' : '🌐 Pilih bahasa kamu:', kb);
     return;
   }
 
   if (cmd === '/guide') {
     const { text, kb } = guideMainMenu(lang, env.BOT_USERNAME);
-    await sendMessage(token, msg.chat.id, text, kb);
+    await sendMessageRich(token, msg.chat.id, text, kb);
     return;
   }
 
@@ -520,9 +525,12 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     if (owner) {
       await kv.put(`pending:setcredits:${msg.from.id}`, '1', { expirationTtl: 300 });
       if (!current) {
-        await reply(token, msg.chat.id, `📝 Credits belum ada. Kirim teks credits:\n\n<i>Berlaku 5 menit. /cancel untuk batal.</i>`);
-      } else {
         await reply(token, msg.chat.id,
+          `📝 Credits belum ada. Kirim teks credits sekarang — bisa pakai format Telegram biasa (bold, italic, blockquote, emoji custom, dll).\n\n` +
+          `<i>Berlaku 5 menit · /cancel untuk batal.</i>`
+        );
+      } else {
+        await sendMessageRich(token, msg.chat.id,
           `📝 <b>Credits saat ini:</b>\n\n${current}\n\n` +
           `──────────────\n` +
           `Kirim teks baru untuk edit. Kirim teks kosong (spasi) untuk mengosongkan.\n` +
@@ -530,7 +538,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
         );
       }
     } else if (current) {
-      await reply(token, msg.chat.id, current);
+      await sendMessageRich(token, msg.chat.id, current);
     }
     return;
   }
@@ -889,7 +897,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
 
     const notifResults = await Promise.all(
       userIds.map(uid =>
-        sendMessage(token, uid, userNotifText)
+        sendMessageRich(token, uid, userNotifText)
           .then(() => ({ uid, ok: true }))
           .catch(() => ({ uid, ok: false }))
       )
@@ -1049,7 +1057,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   if (msg.new_chat_members?.some(m => m.username?.toLowerCase() === botName)) {
     await kv.put(`group:settings:${chatId}`, JSON.stringify({ chatId, joinedAt: Date.now() }));
     if (hasFeature(env, 'group_mode')) {
-      await sendMessage(token, chatId,
+      await sendMessageRich(token, chatId,
         `👋 Halo semua! Ketik <code>@${env.BOT_USERNAME}</code> di chat untuk main Rock Paper Scissors! 🎮\n\n` +
         `/leaderboard — Papan skor global\n` +
         `/groupstats — Statistik khusus grup ini\n` +
@@ -1072,7 +1080,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
       const humans = msg.new_chat_members.filter(m => !m.is_bot);
       if (humans.length > 0) {
         const mentions = humans.map(m => m.username ? `@${m.username}` : escHtml(m.first_name)).join(', ');
-        await sendMessage(token, chatId,
+        await sendMessageRich(token, chatId,
           `👋 Selamat datang ${mentions}! Ketik @${env.BOT_USERNAME} untuk main RPS 🎮`
         );
       }
@@ -1171,7 +1179,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   if (msg.from && msg.text) {
     const rawCmdPre = msg.text.trim().split(/\s+/)[0].toLowerCase().replace(/@\w+$/, '');
     if (rawCmdPre === '/freemium') {
-      await sendMessage(token, chatId,
+      await sendMessageRich(token, chatId,
         `⚠️ Command ini hanya bisa digunakan di DM bot.\n` +
         `Buka chat dengan @${env.BOT_USERNAME} lalu ketik /freemium.`
       );
@@ -1190,13 +1198,13 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
     await sendChatAction(token, chatId, 'typing');
     const board = (await kv.get<LeaderboardEntry[]>('leaderboard', 'json')) ?? [];
     if (board.length === 0) {
-      await sendMessage(token, chatId, '📊 Leaderboard masih kosong. Mulai game dulu!');
+      await sendMessageRich(token, chatId, '📊 Leaderboard masih kosong. Mulai game dulu!');
       return;
     }
     const lines = board.slice(0, 20).map((e, i) =>
       `${i + 1}. ${escHtml(e.name)} — ${e.wins}W / ${e.total - e.wins}L`
     );
-    await sendMessage(token, chatId,
+    await sendMessageRich(token, chatId,
       `🏆 <b>Top ${board.length} Players</b>\n━━━━━━━━━━━━━━\n${lines.join('\n')}`
     );
     return;
@@ -1204,7 +1212,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
 
   if (cmd === '/start' || cmd === '/help') {
     const b = env.BOT_USERNAME;
-    await sendMessage(token, chatId,
+    await sendMessageRich(token, chatId,
       `🎮 <b>Rock Paper Scissors</b>\n\n` +
       `Ketik <code>@${b}</code> di chat ini untuk mulai game!\n\n` +
       `<b>Mode:</b> Single · BO3 · BO5 · BO7 · RANKED · LMS · Team · vs Bot\n\n` +
@@ -1218,13 +1226,13 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   if (cmd === '/guide') {
     const langGrp = msg.from ? await getLang(kv, msg.from.id) : 'id';
     const { text, kb } = guideMainMenu(langGrp, env.BOT_USERNAME);
-    await sendMessage(token, chatId, text, kb);
+    await sendMessageRich(token, chatId, text, kb);
     return;
   }
 
   if (cmd === '/credits') {
     const creditsGrp = await kv.get('config:credits');
-    if (creditsGrp) await sendMessage(token, chatId, creditsGrp);
+    if (creditsGrp) await sendMessageRich(token, chatId, creditsGrp);
     return;
   }
 
@@ -1234,14 +1242,14 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
       { text: '🇮🇩 Bahasa Indonesia', callback_data: 'setlang:id' },
       { text: '🇬🇧 English', callback_data: 'setlang:en' },
     ]] };
-    await sendMessage(token, chatId,
+    await sendMessageRich(token, chatId,
       langGrp === 'en' ? '🌐 Choose your language:' : '🌐 Pilih bahasa kamu:', kb);
     return;
   }
 
   if (cmd === '/announce') {
     await kv.put(`group:announce:${msg.from.id}`, String(chatId), { expirationTtl: 300 });
-    await sendMessage(token, chatId,
+    await sendMessageRich(token, chatId,
       `✅ Siap ${escHtml(msg.from.first_name)}! Game inline berikutnya yang kamu buat akan diumumkan di sini.\n` +
       `<i>Berlaku 5 menit atau sampai satu game dibuat.</i>`
     );
@@ -1252,7 +1260,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
     await sendChatAction(token, chatId, 'typing');
     const board = (await kv.get<LeaderboardEntry[]>(`group:score:${chatId}`, 'json')) ?? [];
     if (board.length === 0) {
-      await sendMessage(token, chatId,
+      await sendMessageRich(token, chatId,
         `📊 Belum ada statistik untuk grup ini.\nGunakan /announce lalu main game inline untuk mulai mencatat!`
       );
       return;
@@ -1260,7 +1268,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
     const lines = board.slice(0, 10).map((e, i) =>
       `${i + 1}. ${escHtml(e.name)} — ${e.wins}W / ${e.total - e.wins}L (${e.total} game)`
     );
-    await sendMessage(token, chatId,
+    await sendMessageRich(token, chatId,
       `🏟️ <b>Statistik Grup</b>\n━━━━━━━━━━━━━━\n${lines.join('\n')}`
     );
     return;
@@ -1295,7 +1303,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
     if (weekWins + weekLosses + weekDraws > 0) {
       statsText += `\n📅 Minggu ini: ${weekWins}W · ${weekLosses}L · ${weekDraws}D`;
     }
-    await sendMessage(token, chatId, statsText);
+    await sendMessageRich(token, chatId, statsText);
     return;
   }
 
@@ -1303,7 +1311,7 @@ async function handleGroupMessage(msg: TelegramMessage, env: Env, ctx: Execution
   if (cmd === '/team') {
     await kv.put(`team_chat:${msg.from.id}`, String(chatId), { expirationTtl: 300 });
     const args = msg.text.trim().split(/\s+/).slice(1).join(' ').toUpperCase() || '2V2';
-    await sendMessage(token, chatId,
+    await sendMessageRich(token, chatId,
       `✅ <b>${escHtml(msg.from.first_name)}</b> siap buat team game di grup ini!\n` +
       `Ketik <code>@${env.BOT_USERNAME} TEAM ${args}</code> sekarang (berlaku 5 menit).`
     );
