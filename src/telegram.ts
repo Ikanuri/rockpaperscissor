@@ -240,10 +240,12 @@ export async function editInlineMessageRich(
   token: string,
   inlineMessageId: string,
   html: string,
-  replyMarkup?: InlineKeyboardMarkup
+  replyMarkup?: InlineKeyboardMarkup,
+  forceRich = false
 ): Promise<void> {
   await richRequest(token, 'editMessageText', { inline_message_id: inlineMessageId }, html, replyMarkup,
-    classicHtml => editInlineMessage(token, inlineMessageId, classicHtml, replyMarkup));
+    classicHtml => editInlineMessage(token, inlineMessageId, classicHtml, replyMarkup),
+    forceRich);
 }
 
 // <hr> (InputRichBlockDivider) isn't a tag classic parse_mode: 'HTML' understands — Telegram
@@ -256,26 +258,26 @@ function stripHrForClassic(html: string): string {
 // Shared by every rich-message variant: builds the blocks payload, posts it, and falls back to
 // the caller's plain (non-rich) equivalent if the API rejects it for any reason.
 //
-// <tg-emoji> (donator custom emoji) unconditionally skips the rich attempt across ALL three rich
-// variants, going straight to the classic parse_mode: 'HTML' path. Confirmed broken in at least
-// one real case: a viewer with real Telegram Premium couldn't see an opponent's custom emoji
-// inside a game result (inline message) that rendered fine before this bot's Rich Message
-// rollout. A separate inline-message test (in a private chat) rendered correctly, so the exact
-// trigger isn't pinned down — it is NOT simply "inline vs. regular chat message" (both the working
-// and broken case were inline) and NOT simply viewer Telegram Premium status (the broken case had
-// it, the unrelated working case didn't). Given custom emoji is a paid donator perk and classic
-// mode is what every player relied on before Rich Message existed and is proven reliable
-// everywhere, this errs conservative and disables rich_message for ALL custom-emoji-bearing
-// messages rather than betting on an unconfirmed theory about where exactly it's safe.
+// <tg-emoji> (donator custom emoji) skips the rich attempt by default, going straight to the
+// classic parse_mode: 'HTML' path. Confirmed broken in at least one real case: a viewer with real
+// Telegram Premium couldn't see an opponent's custom emoji inside a game result (inline message)
+// that rendered fine before this bot's Rich Message rollout. A separate inline-message test (in a
+// private chat) rendered correctly, so the exact trigger isn't pinned down — it is NOT simply
+// "inline vs. regular chat message" (both the working and broken case were inline) and NOT simply
+// viewer Telegram Premium status (the broken case had it, the unrelated working case didn't).
+// forceRich=true (currently only the 1v1 result screen, at the user's explicit request to re-test
+// rich rendering there) bypasses this safety net for that one call site — if custom emoji goes
+// missing there again, that confirms the regression and forceRich should come back out.
 async function richRequest(
   token: string,
   method: string,
   target: Record<string, unknown>,
   html: string,
   replyMarkup: InlineKeyboardMarkup | undefined,
-  fallback: (classicHtml: string) => Promise<void>
+  fallback: (classicHtml: string) => Promise<void>,
+  forceRich = false
 ): Promise<void> {
-  if (html.includes('<tg-emoji')) {
+  if (!forceRich && html.includes('<tg-emoji')) {
     await fallback(stripHrForClassic(html));
     return;
   }
