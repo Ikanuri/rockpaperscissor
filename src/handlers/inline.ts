@@ -18,7 +18,7 @@ import type {
   UserStats,
   VsStats,
 } from '../types';
-import { answerInlineQuery, editInlineMessage, getChatMember, sendMessage } from '../telegram';
+import { answerInlineQuery, editInlineMessage, editInlineMessageRich, getChatMember, sendMessage } from '../telegram';
 import {
   EMOJI,
   determineWinner,
@@ -730,7 +730,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
 
     if (ageMs > 9 * 60 * 1000) {
       const joinQuery = session.chainId ?? undefined;
-      await editInlineMessage(
+      await editInlineMessageRich(
         token,
         session.hostInlineMessageId,
         waitingText(session),
@@ -778,7 +778,7 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
         return;
       }
       if (Date.now() - existingC.createdAt > 9 * 60 * 1000) {
-        await editInlineMessage(token, existingC.hostInlineMessageId,
+        await editInlineMessageRich(token, existingC.hostInlineMessageId,
           waitingText(existingC),
           waitingKeyboard(existingC.gameId)
         );
@@ -1290,7 +1290,7 @@ export async function handleChosenInlineResult(
       trackHostedGame(kv, result.from.id, openGameId),
       kv.put(rateKeyOp, String(countOp + 1), { expirationTtl: 600 }),
     ]);
-    await editInlineMessage(token, result.inline_message_id,
+    await editInlineMessageRich(token, result.inline_message_id,
       waitingText(openSession), waitingKeyboard(openGameId)
     );
     ctx.waitUntil(maybeAnnounceGame(token, kv, openSession, env.BOT_USERNAME));
@@ -1344,7 +1344,7 @@ export async function handleChosenInlineResult(
       const count = parseInt(await kv.get(rateKey) ?? '0');
       await kv.put(rateKey, String(count + 1), { expirationTtl: 600 });
       // Join button uses chain code so opponent goes through chain path (keeps active clean)
-      await editInlineMessage(
+      await editInlineMessageRich(
         token,
         result.inline_message_id,
         waitingText(session),
@@ -1417,7 +1417,7 @@ export async function handleChosenInlineResult(
     const count = parseInt(await kv.get(rateKey) ?? '0');
     await kv.put(rateKey, String(count + 1), { expirationTtl: 600 });
 
-    await editInlineMessage(
+    await editInlineMessageRich(
       token,
       result.inline_message_id,
       waitingText(session),
@@ -1467,7 +1467,7 @@ export async function handleChosenInlineResult(
       trackHostedGame(kv, result.from.id, gameId),
     ]);
     await kv.put(rateKeyR, String(countR + 1), { expirationTtl: 600 });
-    await editInlineMessage(token, result.inline_message_id,
+    await editInlineMessageRich(token, result.inline_message_id,
       waitingText(rankedSession),
       waitingKeyboard(gameId)
     );
@@ -1621,7 +1621,7 @@ export async function handleChosenInlineResult(
     const rateKeyCustom = `ratelimit:${result.from.id}`;
     const countCustom = parseInt(await kv.get(rateKeyCustom) ?? '0');
     await kv.put(rateKeyCustom, String(countCustom + 1), { expirationTtl: 600 });
-    await editInlineMessage(token, result.inline_message_id,
+    await editInlineMessageRich(token, result.inline_message_id,
       waitingText(customSession),
       waitingKeyboard(q)
     );
@@ -1663,7 +1663,7 @@ export async function handleChosenInlineResult(
   const count = parseInt(await kv.get(rateKey) ?? '0');
   await kv.put(rateKey, String(count + 1), { expirationTtl: 600 });
 
-  await editInlineMessage(
+  await editInlineMessageRich(
     token,
     result.inline_message_id,
     waitingText(session),
