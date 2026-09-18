@@ -90,6 +90,7 @@ type RichBlock =
   | { type: 'expandable_blockquote'; text: RichText }
   | { type: 'blockquote'; blocks: RichBlock[] }
   | { type: 'pre'; text: RichText; language?: string }
+  | { type: 'divider' }
   | { type: 'buttons'; buttons: RichMessageButton[] };
 
 // escHtml() only ever escapes &, <, > — reverse exactly that (nothing more) for plain-text leaves.
@@ -123,7 +124,8 @@ function parseNodes(html: string): ParsedNode[] {
       for (const am of (attrStr ?? '').matchAll(ATTR_RE)) attrs[am[1]] = am[2] !== undefined ? am[2] : true;
       const node: TagNode = { kind: 'tag', tag: openTag.toLowerCase(), attrs, children: [] };
       stack[stack.length - 1].push(node);
-      stack.push(node.children);
+      // hr is a void element (no closing tag, e.g. <hr> or <hr/>) — never wait for </hr>
+      if (node.tag !== 'hr') stack.push(node.children);
     }
     lastIndex = m.index! + m[0].length;
   }
@@ -195,6 +197,9 @@ function nodesToBlocks(nodes: ParsedNode[]): RichBlock[] {
         content = codeNode.children;
       }
       blocks.push({ type: 'pre', text: nodesToRichText(content), ...(language && { language }) });
+    } else if (node.tag === 'hr') {
+      flush();
+      blocks.push({ type: 'divider' });
     } else {
       paragraph.push(node);
     }
