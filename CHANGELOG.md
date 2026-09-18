@@ -5,6 +5,21 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.2.0] — 2026-09-18
+
+### Added
+- Rich Message rendering (Bot API 10.1–10.3) across every bot-facing message: 1v1 (waiting bubble, result, BO3/5/7 round transition), LMS, Team (waiting/pick/round/win, plus group announcements), Tournament (signup, bracket rounds, champion), `/guide`, `/credits`, `/setlang`, group `/leaderboard` and `/stats`, streak/achievement DMs, `/clearhost` cancellation notices
+- `telegram.ts`: `editInlineMessageRich`, `editMessageRich`, `sendMessageRich` — share a `richRequest()` helper and a generic recursive HTML→`InputRichMessage` parser (`parseNodes`/`nodesToRichText`/`nodesToBlocks`) covering the full classic-HTML-mode tag set (bold, italic, underline, strikethrough, spoiler, code, pre with language, links, blockquote — plain and expandable, custom emoji) with arbitrary nesting (e.g. `<b>bold <i>and italic</i></b>`). Buttons render as `InputRichBlockButtons`/`RichMessageButton` (`keyboardToButtonBlocks`) — field-for-field compatible with `InlineKeyboardButton`, so `callback_data` still fires a normal `callback_query` with no routing changes. Every rich call falls back automatically to the previous plain `parse_mode: 'HTML'` + classic `reply_markup` rendering if the API rejects the request, so a formatting edge case can never break a message
+- Ephemeral pick reminders in Team Mode (Bot API 10.2+, `sendEphemeralMessage`/`editEphemeralMessageText`): teammates who haven't chosen yet get a private nudge inside the group chat, edited in place on repeat reminders (`TeamPlayer.reminderMsgId`)
+- "ℹ️" pick-status button on the 1v1 waiting bubble, LMS "locked" state, and Team pick-wait state: `answerCallbackQuery` popup showing only the presser their own locked choice (`handleMyPick` in `callback.ts`) — no `chat_id`/group requirement, since it rides the existing `callback_query` mechanism
+- `/setfooter` and `/credits`: owner sends a normally-formatted Telegram message (bold/italic/blockquote/custom emoji via the client's own tools) instead of typing HTML; `entitiesToHtml()` (`message.ts`) converts `message.entities` into the equivalent HTML, recursing correctly through nested entities
+
+### Changed
+- `/setfooter` UX: no longer takes inline args; prompts a pending follow-up message (same pattern as `/credits`) so formatting can be applied naturally
+- `withFooter()` no longer `escHtml()`s the footer — it's trusted HTML by construction (built from owner-authored entities, not raw user input), so it renders instead of showing literal `&lt;b&gt;` text
+
+---
+
 ## [2.1.0] — 2026-09-18
 
 ### Added

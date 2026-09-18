@@ -81,8 +81,31 @@ Gunakan MCP tool `mcp__github__actions_list` (method `list_workflow_runs`, resou
 - `formatUser()` di `game.ts` menentukan nama yang ditampilkan di seluruh bot (game bubble, leaderboard) — sekarang pakai `first_name` saja, bukan `@username`.
 - Leaderboard (`LeaderboardEntry`) menyimpan `name` sebagai snapshot lama — saat display, selalu resolve ulang lewat `user:info:${userId}` KV cache untuk dapat nama terkini, jangan langsung pakai field `name` yang tersimpan.
 
+## Rich Message (Bot API 10.1–10.3)
+
+Sejak v2.2.0, hampir semua pesan bot (game modes, guide, credits, pengumuman grup) dikirim/diedit lewat `rich_message` (bukan `text` + `parse_mode: 'HTML'` klasik) — di `telegram.ts`:
+- `editInlineMessageRich` — edit pesan inline (`inline_message_id`)
+- `editMessageRich` — edit pesan chat biasa (`chat_id` + `message_id`)
+- `sendMessageRich` — kirim pesan chat baru (method `sendRichMessage`, BUKAN `sendMessage`)
+
+Ketiganya berbagi `richRequest()` (bangun payload, fetch, fallback) dan parser umum `parseNodes` → `nodesToRichText`/`nodesToBlocks` yang mengonversi string HTML (persis tag classic-HTML-mode Telegram: `<b>`, `<i>`, `<u>`, `<s>`, `<tg-spoiler>`, `<code>`, `<pre>`, `<a href>`, `<blockquote>`/`<blockquote expandable>`, `<tg-emoji emoji-id="...">`) menjadi struktur `blocks` yang benar, termasuk nesting sembarang (`<b>bold <i>italic</i></b>`). Tombol (`InlineKeyboardMarkup`) ikut dikonversi ke `InputRichBlockButtons`/`RichMessageButton` lewat `keyboardToButtonBlocks` — field-nya (`callback_data`, `style`, `switch_inline_query_current_chat`, `url`) 1:1 sama dengan tombol lama, jadi `callback_data` tetap trigger `callback_query` normal tanpa perlu ubah routing di `handleCallbackQuery`.
+
+**Kalau API menolak** (format tidak didukung, dll), otomatis fallback ke `editInlineMessage`/`editMessage`/`sendMessage` klasik dengan teks + keyboard yang SAMA — jadi eksperimen rich tidak pernah bikin pesan gagal total, paling buruk cuma tampil tanpa efek rich-nya.
+
+**Bug yang pernah terjadi dan sudah diperbaiki:** percobaan pertama pakai regex sederhana yang cuma kenal 2 pola (`<tg-emoji>`, `<blockquote expandable>`) — begitu ada tag lain, teks dalam mode `blocks` (yang TIDAK di-parse sebagai HTML sama sekali, beda dari mode `html`) muncul mentah (`<tg-emoji ...>` literal di layar). Fix-nya: parser generik `parseNodes` yang bangun tree dari SEMUA tag di atas, bukan cuma menebak. Kalau nanti ada tag HTML baru yang dipakai kode (`<u>`, dll) dan belum ada di `nodeToRichText`/`nodesToBlocks`, tag itu akan default ke isi anaknya saja (tag hilang, teks tetap muncul) — bukan pesan rusak total, tapi formatting-nya tidak keluar. Tambahkan case baru di situ kalau perlu.
+
+**Input format natural dari owner** (`/setfooter`, `/credits`): `entitiesToHtml()` di `message.ts` mengonversi `message.text` + `message.entities` (metadata format yang Telegram kirim otomatis saat user bold/italic/quote lewat UI, BUKAN tag yang diketik manual) jadi string HTML yang sama persis dipakai parser di atas — jadi owner tidak pernah perlu tahu soal tag HTML sama sekali.
+
 ## Environment Ini (Claude Code on the web)
 
-Sesi berjalan di container remote — akses jaringan keluar (WebFetch ke domain eksternal) dibatasi oleh egress proxy environment, defaultnya diblokir total kecuali di-allowlist eksplisit di pengaturan environment. Kalau perlu baca dokumentasi eksternal (mis. Telegram Bot API changelog) dan WebFetch gagal dengan `EGRESS_BLOCKED`, minta user paste teksnya langsung — jangan andalkan `WebSearch` sebagai pengganti sumber primer karena hasil cuplikannya bisa tidak akurat/berhalusinasi untuk topik yang sangat spesifik/baru.
+Sesi berjalan di container remote — akses jaringan keluar (WebFetch ke domain eksternal) kadang dibatasi egress proxy environment (`EGRESS_BLOCKED`), tapi ini bisa berubah antar sesi (kadang jalan, kadang tidak) — coba dulu sebelum asumsi diblokir.
+
+**Riset Telegram Bot API dengan presisi:** jangan andalkan `WebSearch` sebagai sumber primer (hasil cuplikannya sering tidak akurat/berhalusinasi untuk topik yang sangat spesifik/baru) atau `WebFetch` langsung ke `core.telegram.org/bots/api` (halamannya sangat panjang, sering kepotong sebelum sampai ke method/type yang dicari). Cara paling reliable: download JSON spec API yang di-generate otomatis harian dari halaman resmi:
+```bash
+curl -sSL -o /tmp/tg_spec.json "https://raw.githubusercontent.com/PaulSonOfLars/telegram-bot-api-spec/main/api.json"
+python3 -c "import json; data=json.load(open('/tmp/tg_spec.json')); print(json.dumps(data['methods']['sendMessage'], indent=2))"
+# atau data['types']['NamaType'] untuk cek struktur field lengkap
+```
+Ini cara yang dipakai untuk verifikasi field `chat_id`/`rich_message`/`RichMessageButton`/`MessageEntity` dll saat membangun fitur Rich Message — jauh lebih presisi daripada fetch HTML atau tanya web search.
 
 Git CLI lokal kadang kehilangan auth ke GitHub di sesi/container baru (proxy git lokal tidak selalu tersedia). Kalau `git push`/`git fetch` gagal dengan error kredensial (`could not read Username`), pakai GitHub MCP tools (`mcp__github__push_files`, `create_or_update_file`, `list_branches`, dll) sebagai jalur alternatif untuk commit & sinkronisasi branch.

@@ -4,6 +4,28 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.2.0 — 18 September 2026
+
+### ✨ Fitur Baru
+
+**🎨 Tampilan Lebih Rapi (Rich Message)**
+
+Semua pesan bot — hasil game 1v1, LMS, Team, Tournament, panduan `/guide`, `/credits`, pengumuman di grup — sekarang tampil dengan format yang lebih baik dan konsisten.
+
+**ℹ️ Cek Pilihanmu Sendiri**
+
+Tombol info kecil di bubble waiting/locked (1v1, LMS, Team) — tekan buat lihat popup privat pilihan senjata yang sudah kamu kunci, tanpa ketahuan pemain lain.
+
+**⏳ Reminder di Team Mode**
+
+Kalau ada teammate yang belum pilih senjata, dia dapat notifikasi privat di dalam grup — cuma dia yang lihat, tidak mengganggu yang lain.
+
+**📝 `/setfooter` dan `/credits` — Format Bebas**
+
+Owner bot sekarang bisa kirim teks dengan format Telegram biasa (bold, italic, quote, emoji custom) langsung dari keyboard — tidak perlu ketik kode apapun.
+
+---
+
 ## v2.1.0 — 18 September 2026
 
 ### ✨ Fitur Baru
