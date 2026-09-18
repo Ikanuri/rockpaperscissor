@@ -5,6 +5,27 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.1.0] — 2026-09-18
+
+### Added
+- `/setfooter <text>` owner-only command in `message.ts`: sets `config:result_footer` KV key; appended via `withFooter()` (`game.ts`) to every game-ending result text — 1v1 (`finishGame`), Team (`runTeamRound`), Tournament (final champion message), LMS (both forfeit-win and normal-elimination-win paths). `/setfooter off`/`clear` deletes it; no-arg call shows the current value. `getResultFooter`/`setResultFooter`/`clearResultFooter` added to `config.ts`
+
+### Changed
+- `formatUser()` (`game.ts`): now returns `first_name` only, never `@username`
+- Leaderboard display (`inline.ts` TOP query, `game.ts` pinned group scoreboard and daily-challenge champion line): resolves display name from `user:info:${userId}` KV cache at render time instead of the stored `LeaderboardEntry.name` snapshot, so old `@username`-formatted entries self-heal without a data migration
+- Waiting bubble text (`waitingText` in `game.ts`): badge now printed before the name with a single separating space when present; removed "main" wording ("Bergabung untuk main!" → "Bergabung!"); removed the `⏰ N min remaining` countdown line
+- Removed the manual 🔄 refresh button and its `refresh_button` feature flag entirely (`waitingKeyboard`, `handleRefresh` in `callback.ts`, `wrangler.toml`) — redundant now that the waiting bubble has no countdown to refresh
+- `/donatorlist` (`message.ts`): now also lists users who activated `/freemium`, labeled `(freemium)`; freemium activation now appends the user to `donators:ids`
+
+### Fixed
+- `runLmsRound` (`game.ts`): no longer silently returns when flee/smite drops active players to 0 or 1 — 0 marks the session `done`, 1 declares the remaining player winner by forfeit and records stats; wrapped in try/catch with `console.error` logging (previously silent when invoked via `ctx.waitUntil`); re-reads the session from KV before acting to avoid operating on a stale snapshot; guards against evaluating elimination when an active player's `choice` is still `null`
+- LMS flee/smite handlers (`callback.ts`) and LMS/Team join & pick handlers (`inline.ts`: LMS join, LMS next-round pick, Team round pick, `TJOIN` team-member join): added a re-read-from-KV step immediately before the decisive write, closing most of the race window where two players joining or picking within the same request window could silently overwrite each other (observed: a player already seated in a 4-player LMS lobby was displaced by a later joiner after the lobby had already filled)
+- `resolveTeamDiceWait` (`game.ts`): wrapped in try/catch with `console.error` logging (previously a thrown error inside `ctx.waitUntil` was silently swallowed, leaving the tiebreaker dead)
+- Team tiebreaker instruction text reverted to "lempar 🎲 di grup" (bot privacy mode is OFF, so it receives group dice messages directly — no reply-to-message needed)
+- vs Bot rematch button label shortened ("🔄 Main lagi vs Bot" → "🔄 Lagi vs Bot")
+
+---
+
 ## [2.0.0] — 2026-05-23
 
 ### Added

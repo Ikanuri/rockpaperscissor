@@ -4,6 +4,29 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.1.0 — 18 September 2026
+
+### ✨ Fitur Baru
+
+**📝 Footer Custom di Hasil Game**
+
+Owner bot sekarang bisa set teks tambahan yang muncul di bagian bawah setiap hasil game — 1v1, Team, Tournament, maupun Last Man Standing.
+
+### 🔧 Perubahan
+
+- Bubble "menunggu lawan" dirapikan: badge donator tampil di depan nama, kata "main" dihilangkan, dan hitung mundur waktu + tombol refresh dihapus (sudah tidak diperlukan)
+- Nama di leaderboard sekarang selalu pakai nama tampilan (bukan username) — termasuk data lama yang sebelumnya masih menampilkan `@username`
+- `/donatorlist` sekarang juga menampilkan pemain yang pakai `/freemium`, ditandai `(freemium)`
+- Tombol "Main lagi vs Bot" diringkas jadi "Lagi vs Bot"
+
+### 🐛 Perbaikan Bug
+
+- **Last Man Standing**: game tidak lagi macet tanpa hasil ketika 1–2 pemain kabur (flee) di tengah ronde — pemenang sekarang selalu diumumkan dengan benar
+- **Last Man Standing & Team Mode**: perbaikan kondisi langka di mana dua pemain join atau memilih senjata hampir bersamaan bisa membuat salah satu pemain "terdepak" secara tidak sengaja dari game
+- Tim yang seri dan perlu lempar dadu tiebreaker: instruksi dikembalikan ke "lempar 🎲 di grup" (sempat salah minta reply pesan)
+
+---
+
 ## v2.0.0 — 23 Mei 2026
 
 ### ✨ Fitur Baru
