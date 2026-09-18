@@ -236,6 +236,15 @@ function keyboardToButtonBlocks(kb: InlineKeyboardMarkup): RichBlock[] {
 // editInlineMessage (identical html + the original InlineKeyboardMarkup) if the API rejects
 // rich_message for any reason, so an imperfect guess at formatting nuances never breaks the
 // message or its buttons.
+// Confirmed broken: donator custom emoji (<tg-emoji>) inside an INLINE message's rich_message
+// renders as missing/blank for every viewer — including a viewer with real Telegram Premium
+// looking at an opponent's already-set custom emoji, which rendered fine before this bot's Rich
+// Message rollout. Regular chat messages (editMessageRich/sendMessageRich, chat_id + message_id
+// or a fresh send) do NOT have this problem — confirmed working in PM. So only
+// editInlineMessageRich skips straight to the classic path when custom emoji is present; the
+// other two rich variants keep using rich_message even with <tg-emoji>. Root cause isn't fully
+// understood (undocumented, not testable live from here) — this is an evidence-based workaround,
+// not a real fix.
 export async function editInlineMessageRich(
   token: string,
   inlineMessageId: string,
@@ -243,7 +252,15 @@ export async function editInlineMessageRich(
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
   await richRequest(token, 'editMessageText', { inline_message_id: inlineMessageId }, html, replyMarkup,
-    () => editInlineMessage(token, inlineMessageId, html, replyMarkup));
+    classicHtml => editInlineMessage(token, inlineMessageId, classicHtml, replyMarkup),
+    /* skipRichForTgEmoji */ true);
+}
+
+// <hr> (InputRichBlockDivider) isn't a tag classic parse_mode: 'HTML' understands — Telegram
+// rejects the whole message if it's present there. Needed whenever we fall back to the classic
+// path, since a message can combine a footer's <hr> with content that forces the classic route.
+function stripHrForClassic(html: string): string {
+  return html.replace(/<hr\s*\/?>/g, '\n──────────');
 }
 
 // Shared by every rich-message variant: builds the blocks payload, posts it, and falls back to
@@ -254,8 +271,13 @@ async function richRequest(
   target: Record<string, unknown>,
   html: string,
   replyMarkup: InlineKeyboardMarkup | undefined,
-  fallback: () => Promise<void>
+  fallback: (classicHtml: string) => Promise<void>,
+  skipRichForTgEmoji = false
 ): Promise<void> {
+  if (skipRichForTgEmoji && html.includes('<tg-emoji')) {
+    await fallback(stripHrForClassic(html));
+    return;
+  }
   const blocks = [...htmlToBlocks(html), ...(replyMarkup ? keyboardToButtonBlocks(replyMarkup) : [])];
   try {
     const res = await fetch(`${API}${token}/${method}`, {
@@ -269,12 +291,13 @@ async function richRequest(
   } catch (e) {
     console.error(`[tg:${method}Rich] error, falling back to plain text/buttons:`, e);
   }
-  await fallback();
+  await fallback(stripHrForClassic(html));
 }
 
 // Same rich-message rendering as editInlineMessageRich, but for a regular chat message
 // (chat_id + message_id) instead of an inline message — used by /guide navigation, which edits
-// a normal message the bot sent in a DM/group, not an inline result.
+// a normal message the bot sent in a DM/group, not an inline result. Custom emoji is confirmed
+// working here, so unlike editInlineMessageRich this never skips the rich attempt.
 export async function editMessageRich(
   token: string,
   chatId: number,
@@ -283,12 +306,12 @@ export async function editMessageRich(
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
   await richRequest(token, 'editMessageText', { chat_id: chatId, message_id: messageId }, html, replyMarkup,
-    () => editMessage(token, chatId, messageId, html, replyMarkup));
+    classicHtml => editMessage(token, chatId, messageId, classicHtml, replyMarkup));
 }
 
 // Sends a brand-new rich message (Bot API 10.3's sendRichMessage) instead of editing an existing
 // one — used for the first-time display of content like /credits or /guide's main menu, where
-// there's no prior message to edit yet.
+// there's no prior message to edit yet. Custom emoji confirmed working here too.
 export async function sendMessageRich(
   token: string,
   chatId: number,
@@ -296,7 +319,7 @@ export async function sendMessageRich(
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
   await richRequest(token, 'sendRichMessage', { chat_id: chatId }, html, replyMarkup,
-    () => sendMessage(token, chatId, html, replyMarkup));
+    classicHtml => sendMessage(token, chatId, classicHtml, replyMarkup));
 }
 
 export function sendMessage(
