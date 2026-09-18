@@ -1140,7 +1140,7 @@ export async function handleChosenInlineResult(
           `🔴 Tim B: ${teamPickB.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}\n\n` +
           `⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`;
         await editInlineMessageRich(token, result.inline_message_id, teamPickWaitText, {
-          inline_keyboard: [[{ text: 'ℹ️ Pilihanku', callback_data: `mypick:team:${q}` }]],
+          inline_keyboard: [[{ text: 'ℹ️', callback_data: `mypick:team:${q}` }]],
         });
         ctx.waitUntil(sendTeamPickReminders(token, kv, teamPickSession));
       }

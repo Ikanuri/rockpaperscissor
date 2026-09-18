@@ -118,7 +118,7 @@ export function waitingKeyboard(gameId: string, joinQuery?: string): InlineKeybo
     inline_keyboard: [
       [{ text: '🎮 Join', switch_inline_query_current_chat: joinQuery ?? gameId, style: 'success' }],
       [
-        { text: 'ℹ️ Pilihanku', callback_data: `mypick:game:${gameId}` },
+        { text: 'ℹ️', callback_data: `mypick:game:${gameId}` },
         { text: '❌ Cancel', callback_data: `cancel:${gameId}`, style: 'danger' },
       ],
     ],
@@ -591,7 +591,7 @@ export function lmsWaitPickedKeyboard(gameId: string, isHost = false): InlineKey
   const rows: InlineKeyboardMarkup['inline_keyboard'] = [];
   if (isHost) rows.push([{ text: '⚡ Smite', callback_data: `lmssmite:${gameId}`, style: 'danger' }]);
   rows.push([
-    { text: 'ℹ️ Pilihanku', callback_data: `mypick:lms:${gameId}` },
+    { text: 'ℹ️', callback_data: `mypick:lms:${gameId}` },
     { text: '🏳️ Flee', callback_data: `lmsflee:${gameId}`, style: 'danger' },
   ]);
   return { inline_keyboard: rows };
