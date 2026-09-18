@@ -236,15 +236,6 @@ function keyboardToButtonBlocks(kb: InlineKeyboardMarkup): RichBlock[] {
 // editInlineMessage (identical html + the original InlineKeyboardMarkup) if the API rejects
 // rich_message for any reason, so an imperfect guess at formatting nuances never breaks the
 // message or its buttons.
-// Confirmed broken: donator custom emoji (<tg-emoji>) inside an INLINE message's rich_message
-// renders as missing/blank for every viewer — including a viewer with real Telegram Premium
-// looking at an opponent's already-set custom emoji, which rendered fine before this bot's Rich
-// Message rollout. Regular chat messages (editMessageRich/sendMessageRich, chat_id + message_id
-// or a fresh send) do NOT have this problem — confirmed working in PM. So only
-// editInlineMessageRich skips straight to the classic path when custom emoji is present; the
-// other two rich variants keep using rich_message even with <tg-emoji>. Root cause isn't fully
-// understood (undocumented, not testable live from here) — this is an evidence-based workaround,
-// not a real fix.
 export async function editInlineMessageRich(
   token: string,
   inlineMessageId: string,
@@ -252,8 +243,7 @@ export async function editInlineMessageRich(
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
   await richRequest(token, 'editMessageText', { inline_message_id: inlineMessageId }, html, replyMarkup,
-    classicHtml => editInlineMessage(token, inlineMessageId, classicHtml, replyMarkup),
-    /* skipRichForTgEmoji */ true);
+    classicHtml => editInlineMessage(token, inlineMessageId, classicHtml, replyMarkup));
 }
 
 // <hr> (InputRichBlockDivider) isn't a tag classic parse_mode: 'HTML' understands — Telegram
@@ -265,16 +255,27 @@ function stripHrForClassic(html: string): string {
 
 // Shared by every rich-message variant: builds the blocks payload, posts it, and falls back to
 // the caller's plain (non-rich) equivalent if the API rejects it for any reason.
+//
+// <tg-emoji> (donator custom emoji) unconditionally skips the rich attempt across ALL three rich
+// variants, going straight to the classic parse_mode: 'HTML' path. Confirmed broken in at least
+// one real case: a viewer with real Telegram Premium couldn't see an opponent's custom emoji
+// inside a game result (inline message) that rendered fine before this bot's Rich Message
+// rollout. A separate inline-message test (in a private chat) rendered correctly, so the exact
+// trigger isn't pinned down — it is NOT simply "inline vs. regular chat message" (both the working
+// and broken case were inline) and NOT simply viewer Telegram Premium status (the broken case had
+// it, the unrelated working case didn't). Given custom emoji is a paid donator perk and classic
+// mode is what every player relied on before Rich Message existed and is proven reliable
+// everywhere, this errs conservative and disables rich_message for ALL custom-emoji-bearing
+// messages rather than betting on an unconfirmed theory about where exactly it's safe.
 async function richRequest(
   token: string,
   method: string,
   target: Record<string, unknown>,
   html: string,
   replyMarkup: InlineKeyboardMarkup | undefined,
-  fallback: (classicHtml: string) => Promise<void>,
-  skipRichForTgEmoji = false
+  fallback: (classicHtml: string) => Promise<void>
 ): Promise<void> {
-  if (skipRichForTgEmoji && html.includes('<tg-emoji')) {
+  if (html.includes('<tg-emoji')) {
     await fallback(stripHrForClassic(html));
     return;
   }
@@ -296,8 +297,7 @@ async function richRequest(
 
 // Same rich-message rendering as editInlineMessageRich, but for a regular chat message
 // (chat_id + message_id) instead of an inline message — used by /guide navigation, which edits
-// a normal message the bot sent in a DM/group, not an inline result. Custom emoji is confirmed
-// working here, so unlike editInlineMessageRich this never skips the rich attempt.
+// a normal message the bot sent in a DM/group, not an inline result.
 export async function editMessageRich(
   token: string,
   chatId: number,
@@ -311,7 +311,7 @@ export async function editMessageRich(
 
 // Sends a brand-new rich message (Bot API 10.3's sendRichMessage) instead of editing an existing
 // one — used for the first-time display of content like /credits or /guide's main menu, where
-// there's no prior message to edit yet. Custom emoji confirmed working here too.
+// there's no prior message to edit yet.
 export async function sendMessageRich(
   token: string,
   chatId: number,
