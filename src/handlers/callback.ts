@@ -1,5 +1,5 @@
 import type { CallbackQuery, Choice, Env, GameSession, LmsSession, TeamDiceWaitState, TeamSession, TournamentSession } from '../types';
-import { answerCallbackQuery, editInlineMessage, editMessage, getChatMember } from '../telegram';
+import { answerCallbackQuery, editInlineMessageRich, editMessage, getChatMember } from '../telegram';
 import {
   EMOJI,
   botResolveTie,
@@ -170,8 +170,8 @@ async function handlePick(
     const waitMsg = nextRoundText(updated) + '\n\n✅ One player is ready...';
     const keyboard = pickKeyboard(gameId);
     await Promise.all([
-      editInlineMessage(token, session.hostInlineMessageId, waitMsg, keyboard),
-      editInlineMessage(token, session.opponentInlineMessageId!, waitMsg, keyboard),
+      editInlineMessageRich(token, session.hostInlineMessageId, waitMsg, keyboard),
+      editInlineMessageRich(token, session.opponentInlineMessageId!, waitMsg, keyboard),
     ]);
   }
 }
@@ -224,7 +224,7 @@ async function handleLmsPick(
       `\n\nMenunggu ${waitCount} pemain lagi...`;
     await Promise.allSettled(
       activePlayers.map(p =>
-        editInlineMessage(token, p.inlineMessageId, pickText, lmsPickKeyboard(gameId, p.userId === session.hostUserId))
+        editInlineMessageRich(token, p.inlineMessageId, pickText, lmsPickKeyboard(gameId, p.userId === session.hostUserId))
       )
     );
   }
@@ -277,7 +277,7 @@ async function handleTeamPick(
       `${statusLine(updatedA, '🔵 Tim A')}\n${statusLine(updatedB, '🔴 Tim B')}\n\n` +
       `⏳ ${picked}/${total} sudah pilih...`;
     await Promise.allSettled([...updatedA, ...updatedB].map(p =>
-      editInlineMessage(token, p.inlineMessageId, waitText, teamPickKeyboard(gameId, p.userId === session.hostUserId))
+      editInlineMessageRich(token, p.inlineMessageId, waitText, teamPickKeyboard(gameId, p.userId === session.hostUserId))
     ));
   }
 }
@@ -311,7 +311,7 @@ async function handleLmsSmite(
     }
     const rows = targets.map(p => [{ text: `⚡ ${p.name}`, callback_data: `lmssmite:${gameId}:${p.userId}` }]);
     rows.push([{ text: '❌ Batal', callback_data: `lmssmitecancel:${gameId}` }]);
-    await editInlineMessage(token, query.inline_message_id!, '⚡ <b>Pilih pemain yang mau disingkirkan:</b>', { inline_keyboard: rows });
+    await editInlineMessageRich(token, query.inline_message_id!, '⚡ <b>Pilih pemain yang mau disingkirkan:</b>', { inline_keyboard: rows });
     await answerCallbackQuery(token, query.id);
     return;
   }
@@ -327,13 +327,13 @@ async function handleLmsSmite(
     const updated: LmsSession = { ...session, players: updatedPlayers };
     await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
     await answerCallbackQuery(token, query.id, `⚡ ${target.name} dikeluarkan!`);
-    await editInlineMessage(token, target.inlineMessageId, '⚡ Kamu dikeluarkan dari lobby oleh host.');
+    await editInlineMessageRich(token, target.inlineMessageId, '⚡ Kamu dikeluarkan dari lobby oleh host.');
     const canForce = updatedPlayers.length >= 2;
     const hasOthers = updatedPlayers.some(p => p.userId !== session.hostUserId);
-    await editInlineMessage(token, query.inline_message_id!, lmsWaitingText(updated), lmsHostKeyboard(gameId, canForce, hasOthers));
+    await editInlineMessageRich(token, query.inline_message_id!, lmsWaitingText(updated), lmsHostKeyboard(gameId, canForce, hasOthers));
     await Promise.allSettled(
       updatedPlayers.filter(p => p.userId !== session.hostUserId).map(p =>
-        editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updated), lmsJoinKeyboard(gameId))
+        editInlineMessageRich(token, p.inlineMessageId, lmsWaitingText(updated), lmsJoinKeyboard(gameId))
       )
     );
   } else {
@@ -347,7 +347,7 @@ async function handleLmsSmite(
     const updated: LmsSession = { ...session, players: updatedPlayers };
     await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
     await answerCallbackQuery(token, query.id, `⚡ ${target.name} dieliminasi!`);
-    await editInlineMessage(token, target.inlineMessageId, '⚡ Kamu dieliminasi oleh host.');
+    await editInlineMessageRich(token, target.inlineMessageId, '⚡ Kamu dieliminasi oleh host.');
 
     const current = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
     if (!current || current.status === 'done') return;
@@ -360,7 +360,7 @@ async function handleLmsSmite(
       const pickText = `⚔️ <b>Round ${session.currentRound}</b>\n` +
         activePlayers.map(p => `• ${escHtml(p.name)}: ${p.choice ? '🔒' : '❓'}`).join('\n') +
         `\n\n⚡ ${escHtml(target.name)} dieliminasi.\nMenunggu ${waitCount} pemain lagi...`;
-      await editInlineMessage(token, query.inline_message_id!, pickText, lmsWaitPickedKeyboard(gameId, true));
+      await editInlineMessageRich(token, query.inline_message_id!, pickText, lmsWaitPickedKeyboard(gameId, true));
     }
   }
 }
@@ -380,14 +380,14 @@ async function handleLmsSmiteCancel(
   if (session.status === 'waiting') {
     const canForce = session.players.length >= 2;
     const hasOthers = session.players.some(p => p.userId !== session.hostUserId);
-    await editInlineMessage(token, query.inline_message_id!, lmsWaitingText(session), lmsHostKeyboard(gameId, canForce, hasOthers));
+    await editInlineMessageRich(token, query.inline_message_id!, lmsWaitingText(session), lmsHostKeyboard(gameId, canForce, hasOthers));
   } else {
     const activePlayers = session.players.filter(p => p.active);
     const waitCount = activePlayers.filter(p => p.choice === null).length;
     const pickText = `⚔️ <b>Round ${session.currentRound}</b>\n` +
       activePlayers.map(p => `• ${escHtml(p.name)}: ${p.choice ? '🔒' : '❓'}`).join('\n') +
       `\n\nMenunggu ${waitCount} pemain lagi...`;
-    await editInlineMessage(token, query.inline_message_id!, pickText, lmsWaitPickedKeyboard(gameId, true));
+    await editInlineMessageRich(token, query.inline_message_id!, pickText, lmsWaitPickedKeyboard(gameId, true));
   }
   await answerCallbackQuery(token, query.id);
 }
@@ -414,19 +414,19 @@ async function handleLmsFlee(
   if (session.status === 'waiting') {
     if (query.from.id === session.hostUserId) {
       await kv.delete(`lms:${gameId}`);
-      await Promise.allSettled(session.players.map(p => editInlineMessage(token, p.inlineMessageId, '🏳️ Host membatalkan game.')));
+      await Promise.allSettled(session.players.map(p => editInlineMessageRich(token, p.inlineMessageId, '🏳️ Host membatalkan game.')));
       await answerCallbackQuery(token, query.id, '🏳️ Game dibatalkan.');
     } else {
       const updatedPlayers = session.players.filter(p => p.userId !== query.from.id);
       const updated: LmsSession = { ...session, players: updatedPlayers };
       await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
       await answerCallbackQuery(token, query.id, '🏳️ Kamu keluar dari lobby.');
-      await editInlineMessage(token, player.inlineMessageId, '🏳️ Kamu meninggalkan lobby.');
+      await editInlineMessageRich(token, player.inlineMessageId, '🏳️ Kamu meninggalkan lobby.');
       const canForce = updatedPlayers.length >= 2;
       const hasOthers = updatedPlayers.some(p => p.userId !== session.hostUserId);
       await Promise.allSettled(
         updatedPlayers.map(p =>
-          editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updated),
+          editInlineMessageRich(token, p.inlineMessageId, lmsWaitingText(updated),
             p.userId === session.hostUserId ? lmsHostKeyboard(gameId, canForce, hasOthers) : lmsJoinKeyboard(gameId))
         )
       );
@@ -444,7 +444,7 @@ async function handleLmsFlee(
   const updated: LmsSession = { ...session, players: updatedPlayers };
   await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
   await answerCallbackQuery(token, query.id, '🏳️ Kamu meninggalkan game.');
-  await editInlineMessage(token, player.inlineMessageId, '🏳️ Kamu meninggalkan game.');
+  await editInlineMessageRich(token, player.inlineMessageId, '🏳️ Kamu meninggalkan game.');
 
   // Re-read from KV after save to get the most current state (handles concurrent flees)
   const current = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
@@ -460,7 +460,7 @@ async function handleLmsFlee(
       `\n\n🏳️ ${escHtml(player.name)} meninggalkan game.\nMenunggu ${waitCount} pemain lagi...`;
     await Promise.allSettled(
       activePlayers.filter(p => p.choice !== null).map(p =>
-        editInlineMessage(token, p.inlineMessageId, fleeText, lmsWaitPickedKeyboard(gameId, p.userId === session.hostUserId))
+        editInlineMessageRich(token, p.inlineMessageId, fleeText, lmsWaitPickedKeyboard(gameId, p.userId === session.hostUserId))
       )
     );
   }
@@ -496,7 +496,7 @@ async function handleTeamSmite(
       ...session.teamB.filter(p => p.userId !== session.hostUserId).map(p => [{ text: `⚡ ${p.name} (🔴 Tim B)`, callback_data: `teamsmite:${gameId}:${p.userId}` }]),
       [{ text: '❌ Batal', callback_data: `teamsmitecancel:${gameId}` }],
     ];
-    await editInlineMessage(token, query.inline_message_id!, '⚡ <b>Pilih pemain yang mau disingkirkan:</b>', { inline_keyboard: rows });
+    await editInlineMessageRich(token, query.inline_message_id!, '⚡ <b>Pilih pemain yang mau disingkirkan:</b>', { inline_keyboard: rows });
     await answerCallbackQuery(token, query.id);
     return;
   }
@@ -512,7 +512,7 @@ async function handleTeamSmite(
   const updatedA = session.teamA.filter(p => p.userId !== targetUserId);
   const updatedB = session.teamB.filter(p => p.userId !== targetUserId);
   await answerCallbackQuery(token, query.id, `⚡ ${target.name} disingkirkan!`);
-  await editInlineMessage(token, target.inlineMessageId, '⚡ Kamu disingkirkan dari game oleh host.');
+  await editInlineMessageRich(token, target.inlineMessageId, '⚡ Kamu disingkirkan dari game oleh host.');
 
   if (session.status === 'waiting') {
     const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
@@ -524,7 +524,7 @@ async function handleTeamSmite(
     const canForce = updatedA.length === updatedB.length && updatedA.length >= 1;
     const waitText = teamWaitingText(updated);
     await Promise.allSettled(allRemaining.map(p =>
-      editInlineMessage(token, p.inlineMessageId, waitText,
+      editInlineMessageRich(token, p.inlineMessageId, waitText,
         p.userId === session.hostUserId ? teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers, canForce) : teamMemberWaitingKeyboard(gameId))
     ));
   } else {
@@ -534,7 +534,7 @@ async function handleTeamSmite(
       const allRemaining = [...updatedA, ...updatedB];
       const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB, status: 'done' };
       await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
-      await Promise.allSettled(allRemaining.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
+      await Promise.allSettled(allRemaining.map(p => editInlineMessageRich(token, p.inlineMessageId, finalText)));
       return;
     }
     const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
@@ -551,7 +551,7 @@ async function handleTeamSmite(
         `⚔️ <b>Round ${session.currentRound}</b>\n` +
         `${statusLine(updatedA, '🔵 Tim A')}\n${statusLine(updatedB, '🔴 Tim B')}\n\n` +
         `⚡ ${escHtml(target.name)} disingkirkan.\n⏳ ${picked}/${allRemaining.length} sudah pilih...`;
-      await editInlineMessage(token, query.inline_message_id!, waitText, teamPickKeyboard(gameId, true));
+      await editInlineMessageRich(token, query.inline_message_id!, waitText, teamPickKeyboard(gameId, true));
     }
   }
 }
@@ -574,7 +574,7 @@ async function handleTeamSmiteCancel(
     const allPlayers = [...session.teamA, ...session.teamB];
     const hasOthers = allPlayers.some(p => p.userId !== session.hostUserId);
     const canForceSmite = session.teamA.length === session.teamB.length && session.teamA.length >= 1;
-    await editInlineMessage(token, query.inline_message_id!, teamWaitingText(session), teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers, canForceSmite));
+    await editInlineMessageRich(token, query.inline_message_id!, teamWaitingText(session), teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers, canForceSmite));
   } else {
     const allPlayers = [...session.teamA, ...session.teamB];
     const picked = allPlayers.filter(p => p.choice !== null).length;
@@ -584,7 +584,7 @@ async function handleTeamSmiteCancel(
       `⚔️ <b>Round ${session.currentRound}</b>\n` +
       `${statusLine(session.teamA, '🔵 Tim A')}\n${statusLine(session.teamB, '🔴 Tim B')}\n\n` +
       `⏳ ${picked}/${allPlayers.length} sudah pilih...`;
-    await editInlineMessage(token, query.inline_message_id!, waitText, teamPickKeyboard(gameId, true));
+    await editInlineMessageRich(token, query.inline_message_id!, waitText, teamPickKeyboard(gameId, true));
   }
   await answerCallbackQuery(token, query.id);
 }
@@ -613,7 +613,7 @@ async function handleTeamFlee(
   const updatedA = session.teamA.filter(p => p.userId !== query.from.id);
   const updatedB = session.teamB.filter(p => p.userId !== query.from.id);
   await answerCallbackQuery(token, query.id, '🏳️ Kamu meninggalkan game.');
-  await editInlineMessage(token, player.inlineMessageId, '🏳️ Kamu meninggalkan game.');
+  await editInlineMessageRich(token, player.inlineMessageId, '🏳️ Kamu meninggalkan game.');
 
   if (session.status === 'waiting') {
     const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
@@ -621,7 +621,7 @@ async function handleTeamFlee(
     if (query.from.id === session.hostUserId) {
       await kv.delete(`team:${gameId}`);
       const others = [...updatedA, ...updatedB];
-      await Promise.allSettled(others.map(p => editInlineMessage(token, p.inlineMessageId, '🏳️ Host membatalkan team game.')));
+      await Promise.allSettled(others.map(p => editInlineMessageRich(token, p.inlineMessageId, '🏳️ Host membatalkan team game.')));
       return;
     }
     const slotsA = session.teamSize - updatedA.length;
@@ -631,7 +631,7 @@ async function handleTeamFlee(
     const canForceFlee = updatedA.length === updatedB.length && updatedA.length >= 1;
     const waitText = teamWaitingText(updated);
     await Promise.allSettled(allRemaining.map(p =>
-      editInlineMessage(token, p.inlineMessageId, waitText,
+      editInlineMessageRich(token, p.inlineMessageId, waitText,
         p.userId === session.hostUserId ? teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers, canForceFlee) : teamMemberWaitingKeyboard(gameId))
     ));
     return;
@@ -643,7 +643,7 @@ async function handleTeamFlee(
     const allRemaining = [...updatedA, ...updatedB];
     const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB, status: 'done' };
     await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
-    await Promise.allSettled(allRemaining.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
+    await Promise.allSettled(allRemaining.map(p => editInlineMessageRich(token, p.inlineMessageId, finalText)));
     return;
   }
   const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
@@ -662,7 +662,7 @@ async function handleTeamFlee(
       `🏳️ ${escHtml(player.name)} meninggalkan game.\n⏳ ${picked}/${allRemaining.length} sudah pilih...`;
     await Promise.allSettled(
       allRemaining.filter(p => p.choice !== null).map(p =>
-        editInlineMessage(token, p.inlineMessageId, fleeText, teamPickKeyboard(gameId, p.userId === session.hostUserId))
+        editInlineMessageRich(token, p.inlineMessageId, fleeText, teamPickKeyboard(gameId, p.userId === session.hostUserId))
       )
     );
   }
@@ -691,7 +691,7 @@ async function handleExtendLms(
   const hasOthersExt = session.players.some(p => p.userId !== session.hostUserId);
   await Promise.allSettled(
     session.players.map(p =>
-      editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updated),
+      editInlineMessageRich(token, p.inlineMessageId, lmsWaitingText(updated),
         p.userId === updated.hostUserId ? lmsHostKeyboard(gameId, canForceExt, hasOthersExt) : lmsJoinKeyboard(gameId))
     )
   );
@@ -785,7 +785,7 @@ async function handleExtendTeam(
   const waitText = teamWaitingText(updated);
   await Promise.allSettled(
     allExtPlayers.map(p =>
-      editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : teamMemberWaitingKeyboard(gameId))
+      editInlineMessageRich(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : teamMemberWaitingKeyboard(gameId))
     )
   );
 }
@@ -839,7 +839,7 @@ async function handleTeamCancel(
   }
   await kv.delete(`team:${gameId}`);
   const allPlayers = [...session.teamA, ...session.teamB];
-  await Promise.allSettled(allPlayers.map(p => editInlineMessage(token, p.inlineMessageId, '❌ Team game dibatalkan.')));
+  await Promise.allSettled(allPlayers.map(p => editInlineMessageRich(token, p.inlineMessageId, '❌ Team game dibatalkan.')));
   await answerCallbackQuery(token, query.id);
 }
 
@@ -985,6 +985,6 @@ async function handleCancel(
   const cur = parseInt(await env.GAME_SESSIONS.get(rateKey) ?? '1');
   if (cur > 0) await env.GAME_SESSIONS.put(rateKey, String(cur - 1), { expirationTtl: 600 });
 
-  await editInlineMessage(token, session.hostInlineMessageId, '❌ Game cancelled.');
+  await editInlineMessageRich(token, session.hostInlineMessageId, '❌ Game cancelled.');
   await answerCallbackQuery(token, query.id);
 }

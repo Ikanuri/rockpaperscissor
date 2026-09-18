@@ -223,12 +223,10 @@ function keyboardToButtonBlocks(kb: InlineKeyboardMarkup): RichBlock[] {
   }));
 }
 
-// Bot API 10.1+ rich message experiment on inline messages. Text and buttons both render through
-// InputRichMessage.blocks: text as paragraphs/expandable-blockquotes (see htmlToBlocks — scoped
-// exactly to the two tags this codebase actually emits into rich-eligible text, <tg-emoji> and
-// <blockquote expandable>, since RichText plain-string leaves are never HTML-parsed and a
-// general-purpose HTML→RichText converter isn't a safe bet to keep in sync with arbitrary future
-// markup), buttons as InputRichBlockButtons (RichMessageButton fields map 1:1 onto
+// Bot API 10.1+ rich message rendering on inline messages, used bot-wide for every game mode.
+// Text and buttons both render through InputRichMessage.blocks: text via the general recursive
+// HTML parser above (parseNodes/nodesToRichText/nodesToBlocks — full classic-HTML-mode tag set,
+// arbitrary nesting), buttons as InputRichBlockButtons (RichMessageButton fields map 1:1 onto
 // InlineKeyboardButton, callback_data still fires a normal callback_query). Falls back to plain
 // editInlineMessage (identical html + the original InlineKeyboardMarkup) if the API rejects
 // rich_message for any reason, so an imperfect guess at formatting nuances never breaks the
@@ -239,10 +237,7 @@ export async function editInlineMessageRich(
   html: string,
   replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
-  // DEBUG marker (beta only) — proves visually whether rich_message actually rendered vs
-  // silently falling back. Remove once confirmed working.
-  const marked = `✨ RICH\n${html}`;
-  const blocks = [...htmlToBlocks(marked), ...(replyMarkup ? keyboardToButtonBlocks(replyMarkup) : [])];
+  const blocks = [...htmlToBlocks(html), ...(replyMarkup ? keyboardToButtonBlocks(replyMarkup) : [])];
   try {
     const res = await fetch(`${API}${token}/editMessageText`, {
       method: 'POST',

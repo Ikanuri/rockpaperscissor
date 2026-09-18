@@ -1,5 +1,5 @@
 import type { Choice, Env, GameSession, LeaderboardEntry, LmsSession, OpenChallenge, PendingConfig, TeamDiceWaitState, TeamSession, TelegramMessage, TournamentSession, UserStats } from '../types';
-import { editInlineMessage, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendPoll, setMyCommands } from '../telegram';
+import { editInlineMessageRich, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendPoll, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
   loadConfig,
@@ -299,7 +299,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
         if (s && s.hostUserId === msg.from.id && s.status !== 'done') {
           await Promise.all([
             kv.delete(`lms:${gameId}`),
-            ...s.players.map(p => editInlineMessage(token, p.inlineMessageId, '❌ LMS game dibatalkan.')),
+            ...s.players.map(p => editInlineMessageRich(token, p.inlineMessageId, '❌ LMS game dibatalkan.')),
           ]);
           cancelled++;
         }
@@ -308,7 +308,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
         if (s && s.hostUserId === msg.from.id && s.status !== 'playing') {
           await Promise.all([
             kv.delete(`team:${gameId}`),
-            ...[...s.teamA, ...s.teamB].map(p => editInlineMessage(token, p.inlineMessageId, '❌ Team game dibatalkan.')),
+            ...[...s.teamA, ...s.teamB].map(p => editInlineMessageRich(token, p.inlineMessageId, '❌ Team game dibatalkan.')),
           ]);
           cancelled++;
         }
@@ -317,9 +317,9 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
         if (s && s.hostUserId === msg.from.id && s.status !== 'done') {
           const ops: Promise<void>[] = [
             kv.delete(`game:${gameId}`),
-            editInlineMessage(token, s.hostInlineMessageId, '❌ Game dibatalkan.'),
+            editInlineMessageRich(token, s.hostInlineMessageId, '❌ Game dibatalkan.'),
           ];
-          if (s.opponentInlineMessageId) ops.push(editInlineMessage(token, s.opponentInlineMessageId, '❌ Game dibatalkan.'));
+          if (s.opponentInlineMessageId) ops.push(editInlineMessageRich(token, s.opponentInlineMessageId, '❌ Game dibatalkan.'));
           if (s.isOpen) openGameIdsToRemove.add(gameId);
           await Promise.all(ops);
           cancelled++;

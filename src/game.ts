@@ -752,7 +752,7 @@ async function executeTeamRound(
     const finalText = withFooter(`🏆 <b>Tim ${winner} menang!</b>\n${teamALine}\n${teamBLine}` +
       notesText +
       `\n📊 Skor akhir: 🔵 ${newScoreA} – ${newScoreB} 🔴`, teamFooter);
-    await Promise.allSettled(allPlayers.map(p => editInlineMessage(token, p.inlineMessageId, finalText)));
+    await Promise.allSettled(allPlayers.map(p => editInlineMessageRich(token, p.inlineMessageId, finalText)));
     if (groupMsgId) {
       await Promise.allSettled([
         editMessage(token, session.chatId, groupMsgId, finalText),
@@ -798,7 +798,7 @@ async function executeTeamRound(
       pinUpdate,
       sendMessage(token, session.chatId, groupRoundText, roundKb),
       ...allPlayers.map(p =>
-        editInlineMessage(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId))
+        editInlineMessageRich(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId))
       ),
     ]);
   }
@@ -895,7 +895,7 @@ export async function runTeamRound(
       resolveKb
     );
     await Promise.allSettled([...activeSession.teamA, ...activeSession.teamB].map(p =>
-      editInlineMessage(token, p.inlineMessageId, '⏳ Menunggu tiebreaker dadu di grup...')
+      editInlineMessageRich(token, p.inlineMessageId, '⏳ Menunggu tiebreaker dadu di grup...')
     ));
     return;
   }
@@ -1384,8 +1384,8 @@ export async function runRevealAndResult(
   const nextMsg = nextRoundText(nextRound);
   const keyboard = pickKeyboard(session.gameId);
   await Promise.all([
-    editInlineMessage(token, h, nextMsg, keyboard),
-    editInlineMessage(token, o, nextMsg, keyboard),
+    editInlineMessageRich(token, h, nextMsg, keyboard),
+    editInlineMessageRich(token, o, nextMsg, keyboard),
   ]);
 }
 
@@ -1475,7 +1475,7 @@ async function _runLmsRound(
     const winText = withFooter(`🏆 <b>${escHtml(winner.name)} wins Last Man Standing!</b>\nSemua pemain lain meninggalkan game.`, forfeitFooter);
     const doneSession: LmsSession = { ...session, status: 'done' as const };
     await kv.put(`lms:${session.gameId}`, JSON.stringify(doneSession), { expirationTtl: 600 });
-    await Promise.allSettled(session.players.map(p => editInlineMessage(token, p.inlineMessageId, winText)));
+    await Promise.allSettled(session.players.map(p => editInlineMessageRich(token, p.inlineMessageId, winText)));
     ctx.waitUntil(updateStats(kv, winner.userId, 'win', winner.choice ?? 'rock', 0, 'LMS', 1000, false, false));
     for (const loser of session.players.filter(p => p.userId !== winner.userId)) {
       ctx.waitUntil(updateStats(kv, loser.userId, 'loss', loser.choice ?? 'rock', winner.userId, winner.name, 1000, false, false));
@@ -1531,7 +1531,7 @@ async function _runLmsRound(
     };
     await kv.put(`lms:${session.gameId}`, JSON.stringify(doneSession), { expirationTtl: 600 });
     await Promise.allSettled(
-      session.players.map(p => editInlineMessage(token, p.inlineMessageId, winText))
+      session.players.map(p => editInlineMessageRich(token, p.inlineMessageId, winText))
     );
     // Stats: 1 win for winner, 1 loss for each loser
     ctx.waitUntil(updateStats(kv, winner.userId, 'win', winner.choice!, 0, 'LMS', 1000, false, false));
@@ -1574,10 +1574,10 @@ async function _runLmsRound(
   };
   await Promise.allSettled([
     ...updatedPlayers.filter(p => p.active).map(p =>
-      editInlineMessage(token, p.inlineMessageId, roundText, nextRoundKb)
+      editInlineMessageRich(token, p.inlineMessageId, roundText, nextRoundKb)
     ),
     ...session.players.filter(p => eliminatedIds.has(p.userId)).map(p =>
-      editInlineMessage(token, p.inlineMessageId, roundText + '\n\n❌ Kamu eliminasi di ronde ini.')
+      editInlineMessageRich(token, p.inlineMessageId, roundText + '\n\n❌ Kamu eliminasi di ronde ini.')
     ),
   ]);
 }

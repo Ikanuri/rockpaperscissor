@@ -18,7 +18,7 @@ import type {
   UserStats,
   VsStats,
 } from '../types';
-import { answerInlineQuery, editInlineMessage, editInlineMessageRich, getChatMember, sendMessage } from '../telegram';
+import { answerInlineQuery, editInlineMessageRich, getChatMember, sendMessage } from '../telegram';
 import {
   EMOJI,
   determineWinner,
@@ -859,7 +859,7 @@ export async function handleChosenInlineResult(
         if (s && s.hostUserId === result.from.id && s.status !== 'done') {
           await Promise.all([
             kv.delete(`lms:${gameId}`),
-            ...s.players.map(p => editInlineMessage(token, p.inlineMessageId, '❌ LMS game dibatalkan.')),
+            ...s.players.map(p => editInlineMessageRich(token, p.inlineMessageId, '❌ LMS game dibatalkan.')),
           ]);
           cancelled++;
         }
@@ -868,7 +868,7 @@ export async function handleChosenInlineResult(
         if (s && s.hostUserId === result.from.id && s.status !== 'playing') {
           await Promise.all([
             kv.delete(`team:${gameId}`),
-            ...[...s.teamA, ...s.teamB].map(p => editInlineMessage(token, p.inlineMessageId, '❌ Team game dibatalkan.')),
+            ...[...s.teamA, ...s.teamB].map(p => editInlineMessageRich(token, p.inlineMessageId, '❌ Team game dibatalkan.')),
           ]);
           cancelled++;
         }
@@ -877,9 +877,9 @@ export async function handleChosenInlineResult(
         if (s && s.hostUserId === result.from.id && s.status !== 'done') {
           const ops: Promise<void>[] = [
             kv.delete(`game:${gameId}`),
-            editInlineMessage(token, s.hostInlineMessageId, '❌ Game dibatalkan.'),
+            editInlineMessageRich(token, s.hostInlineMessageId, '❌ Game dibatalkan.'),
           ];
-          if (s.opponentInlineMessageId) ops.push(editInlineMessage(token, s.opponentInlineMessageId, '❌ Game dibatalkan.'));
+          if (s.opponentInlineMessageId) ops.push(editInlineMessageRich(token, s.opponentInlineMessageId, '❌ Game dibatalkan.'));
           await Promise.all(ops);
           cancelled++;
         }
@@ -889,7 +889,7 @@ export async function handleChosenInlineResult(
       kv.delete(listKey),
       kv.put(`ratelimit:${result.from.id}`, '0', { expirationTtl: 600 }),
     ]);
-    await editInlineMessage(token, result.inline_message_id,
+    await editInlineMessageRich(token, result.inline_message_id,
       cancelled > 0
         ? `🧹 ${cancelled} game${cancelled > 1 ? 's' : ''} dibatalkan.`
         : `🧹 Tidak ada game aktif.`
@@ -899,7 +899,7 @@ export async function handleChosenInlineResult(
 
   if (q === 'SYNCSTATS') {
     // SYNCSTATS no longer needed — period stats are embedded in the main stats key and update automatically.
-    await editInlineMessage(token, result.inline_message_id,
+    await editInlineMessageRich(token, result.inline_message_id,
       `ℹ️ SYNCSTATS tidak lagi diperlukan.\nStats periode (hari/minggu/bulan) diupdate otomatis setiap game selesai.`
     );
     return;
@@ -943,7 +943,7 @@ export async function handleChosenInlineResult(
     const playAgainKeyboard = {
       inline_keyboard: [[{ text: '🔄 Lagi vs Bot', switch_inline_query_current_chat: 'BOT' }]],
     };
-    await editInlineMessage(token, result.inline_message_id,
+    await editInlineMessageRich(token, result.inline_message_id,
       `🤖 <b>vs Bot</b>\nKamu: ${EMOJI[choice]}  ·  Bot: ${EMOJI[botChoice]}\n${outcomeText}${botStreakPart}`,
       playAgainKeyboard
     );
@@ -964,7 +964,7 @@ export async function handleChosenInlineResult(
     const rateKeyLR = `ratelimit:${result.from.id}`;
     const countLR = parseInt(await kv.get(rateKeyLR) ?? '0');
     if (countLR >= 3) {
-      await editInlineMessage(token, result.inline_message_id, '⏳ Too many active games.');
+      await editInlineMessageRich(token, result.inline_message_id, '⏳ Too many active games.');
       return;
     }
     const lmsSession: LmsSession = {
@@ -982,7 +982,7 @@ export async function handleChosenInlineResult(
       kv.put(rateKeyLR, String(countLR + 1), { expirationTtl: 600 }),
       trackHostedGame(kv, result.from.id, lmsGameId),
     ]);
-    await editInlineMessage(token, result.inline_message_id, lmsWaitingText(lmsSession), lmsHostKeyboard(lmsGameId, false));
+    await editInlineMessageRich(token, result.inline_message_id, lmsWaitingText(lmsSession), lmsHostKeyboard(lmsGameId, false));
     return;
   }
 
@@ -994,22 +994,22 @@ export async function handleChosenInlineResult(
       if (lmsJoin.status === 'playing') {
         const lmsPickPlayer = lmsJoin.players.find(p => p.userId === result.from.id);
         if (!lmsPickPlayer || !lmsPickPlayer.active) {
-          await editInlineMessage(token, result.inline_message_id, '❌ Kamu sudah eliminasi dari game ini.');
+          await editInlineMessageRich(token, result.inline_message_id, '❌ Kamu sudah eliminasi dari game ini.');
           return;
         }
         if (lmsPickPlayer.choice !== null) {
-          await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[lmsPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+          await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[lmsPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
           return;
         }
         // Re-read right before mutating to shrink the race window (concurrent picks)
         const freshLmsPick = (await kv.get<LmsSession>(`lms:${q}`, 'json')) ?? lmsJoin;
         const freshPickPlayer = freshLmsPick.players.find(p => p.userId === result.from.id);
         if (!freshPickPlayer || !freshPickPlayer.active) {
-          await editInlineMessage(token, result.inline_message_id, '❌ Kamu sudah eliminasi dari game ini.');
+          await editInlineMessageRich(token, result.inline_message_id, '❌ Kamu sudah eliminasi dari game ini.');
           return;
         }
         if (freshPickPlayer.choice !== null) {
-          await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[freshPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+          await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[freshPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
           return;
         }
         const lmsPickUpdated = freshLmsPick.players.map(p =>
@@ -1030,34 +1030,34 @@ export async function handleChosenInlineResult(
             }).join('\n') +
             `\n\nMenunggu ${lmsWaitLeft} pemain lagi...`;
           const isLmsHost = result.from.id === freshLmsPick.hostUserId;
-          await editInlineMessage(token, result.inline_message_id, lmsRoundWaitText, lmsWaitPickedKeyboard(freshLmsPick.gameId, isLmsHost));
+          await editInlineMessageRich(token, result.inline_message_id, lmsRoundWaitText, lmsWaitPickedKeyboard(freshLmsPick.gameId, isLmsHost));
         }
         return;
       }
       if (lmsJoin.status !== 'waiting') {
-        await editInlineMessage(token, result.inline_message_id, '❌ LMS game tidak ditemukan.');
+        await editInlineMessageRich(token, result.inline_message_id, '❌ LMS game tidak ditemukan.');
         return;
       }
       if (lmsJoin.players.some(p => p.userId === result.from.id)) {
-        await editInlineMessage(token, result.inline_message_id, lmsWaitingText(lmsJoin));
+        await editInlineMessageRich(token, result.inline_message_id, lmsWaitingText(lmsJoin));
         return;
       }
       if (lmsJoin.players.length >= lmsJoin.maxPlayers) {
-        await editInlineMessage(token, result.inline_message_id, '❌ LMS game is full.');
+        await editInlineMessageRich(token, result.inline_message_id, '❌ LMS game is full.');
         return;
       }
       // Re-read right before mutating to shrink the race window (concurrent joins)
       const freshLmsJoin = (await kv.get<LmsSession>(`lms:${q}`, 'json')) ?? lmsJoin;
       if (freshLmsJoin.status !== 'waiting') {
-        await editInlineMessage(token, result.inline_message_id, '❌ LMS game tidak ditemukan.');
+        await editInlineMessageRich(token, result.inline_message_id, '❌ LMS game tidak ditemukan.');
         return;
       }
       if (freshLmsJoin.players.some(p => p.userId === result.from.id)) {
-        await editInlineMessage(token, result.inline_message_id, lmsWaitingText(freshLmsJoin));
+        await editInlineMessageRich(token, result.inline_message_id, lmsWaitingText(freshLmsJoin));
         return;
       }
       if (freshLmsJoin.players.length >= freshLmsJoin.maxPlayers) {
-        await editInlineMessage(token, result.inline_message_id, '❌ LMS game is full.');
+        await editInlineMessageRich(token, result.inline_message_id, '❌ LMS game is full.');
         return;
       }
       const newLmsPlayer: LmsPlayer = {
@@ -1082,7 +1082,7 @@ export async function handleChosenInlineResult(
         const hasOthersLms = updatedLmsPlayers.some(p => p.userId !== updatedLms.hostUserId);
         await Promise.allSettled(
           updatedLmsPlayers.map(p =>
-            editInlineMessage(token, p.inlineMessageId, lmsWaitingText(updatedLms),
+            editInlineMessageRich(token, p.inlineMessageId, lmsWaitingText(updatedLms),
               p.userId === updatedLms.hostUserId ? lmsHostKeyboard(q, canForce, hasOthersLms) : lmsJoinKeyboard(q))
           )
         );
@@ -1098,22 +1098,22 @@ export async function handleChosenInlineResult(
     if (teamJoin?.status === 'playing') {
       const teamPickPlayer = [...teamJoin.teamA, ...teamJoin.teamB].find(p => p.userId === result.from.id);
       if (!teamPickPlayer) {
-        await editInlineMessage(token, result.inline_message_id, '❌ Kamu bukan peserta game ini.');
+        await editInlineMessageRich(token, result.inline_message_id, '❌ Kamu bukan peserta game ini.');
         return;
       }
       if (teamPickPlayer.choice !== null) {
-        await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[teamPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+        await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[teamPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
         return;
       }
       // Re-read right before mutating to shrink the race window (concurrent teammate picks)
       const freshTeamJoin = (await kv.get<TeamSession>(`team:${q}`, 'json')) ?? teamJoin;
       const freshTeamPickPlayer = [...freshTeamJoin.teamA, ...freshTeamJoin.teamB].find(p => p.userId === result.from.id);
       if (!freshTeamPickPlayer) {
-        await editInlineMessage(token, result.inline_message_id, '❌ Kamu bukan peserta game ini.');
+        await editInlineMessageRich(token, result.inline_message_id, '❌ Kamu bukan peserta game ini.');
         return;
       }
       if (freshTeamPickPlayer.choice !== null) {
-        await editInlineMessage(token, result.inline_message_id, `✅ ${EMOJI[freshTeamPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+        await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[freshTeamPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
         return;
       }
       const oldMsgId = freshTeamPickPlayer.inlineMessageId;
@@ -1129,17 +1129,17 @@ export async function handleChosenInlineResult(
       const teamPickSession: TeamSession = { ...freshTeamJoin, teamA: teamPickA, teamB: teamPickB };
       await kv.put(`team:${q}`, JSON.stringify(teamPickSession), { expirationTtl: 300 });
       if (oldMsgId !== result.inline_message_id) {
-        await editInlineMessage(token, oldMsgId, `🔒 ${EMOJI[choice]} dikunci! ⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`);
+        await editInlineMessageRich(token, oldMsgId, `🔒 ${EMOJI[choice]} dikunci! ⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`);
       }
       if (teamPickAllPicked) {
-        await editInlineMessage(token, result.inline_message_id, `🔒 ${EMOJI[choice]} dikunci! Semua sudah pilih!`);
+        await editInlineMessageRich(token, result.inline_message_id, `🔒 ${EMOJI[choice]} dikunci! Semua sudah pilih!`);
         ctx.waitUntil(runTeamRound(token, kv, teamPickSession, env, ctx));
       } else {
         const teamPickWaitText = `⚔️ <b>Round ${freshTeamJoin.currentRound}</b> · <code>${q}</code>\n` +
           `🔵 Tim A: ${teamPickA.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}\n` +
           `🔴 Tim B: ${teamPickB.map(p => `${escHtml(p.name)} ${p.choice ? '🔒' : '❓'}`).join(', ')}\n\n` +
           `⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`;
-        await editInlineMessage(token, result.inline_message_id, teamPickWaitText, {
+        await editInlineMessageRich(token, result.inline_message_id, teamPickWaitText, {
           inline_keyboard: [[{ text: 'ℹ️ Pilihanku', callback_data: `mypick:team:${q}` }]],
         });
         ctx.waitUntil(sendTeamPickReminders(token, kv, teamPickSession));
@@ -1154,17 +1154,17 @@ export async function handleChosenInlineResult(
   if (teamResultMatch) {
     const chatIdStr = await kv.get(`team_chat:${result.from.id}`);
     if (!chatIdStr) {
-      await editInlineMessage(token, result.inline_message_id, '⚠️ Setup /team di grup dulu.');
+      await editInlineMessageRich(token, result.inline_message_id, '⚠️ Setup /team di grup dulu.');
       return;
     }
     const chatId = parseInt(chatIdStr);
-    if (isNaN(chatId)) { await editInlineMessage(token, result.inline_message_id, '❌ chatId tidak valid.'); return; }
+    if (isNaN(chatId)) { await editInlineMessageRich(token, result.inline_message_id, '❌ chatId tidak valid.'); return; }
     const teamSize = Math.min(6, Math.max(1, parseInt(teamResultMatch[1])));
     const mode: GameMode = teamResultMatch[3] ? parseMode(teamResultMatch[3]) : 'single';
     const gameId = `T${generateId()}`;
     const rateKeyT = `ratelimit:${result.from.id}`;
     const countT = parseInt(await kv.get(rateKeyT) ?? '0');
-    if (countT >= 3) { await editInlineMessage(token, result.inline_message_id, '⏳ Too many active games.'); return; }
+    if (countT >= 3) { await editInlineMessageRich(token, result.inline_message_id, '⏳ Too many active games.'); return; }
     const hostPlayer: TeamPlayer = { userId: result.from.id, name: formatUser(result.from), choice, inlineMessageId: result.inline_message_id };
     const teamSession: TeamSession = {
       gameId, chatId, teamSize,
@@ -1180,7 +1180,7 @@ export async function handleChosenInlineResult(
     ]);
     const slotsA = teamSize - 1;
     const slotsB = teamSize;
-    await editInlineMessage(token, result.inline_message_id, teamWaitingText(teamSession), teamWaitingKeyboard(gameId, slotsA, slotsB, false, false));
+    await editInlineMessageRich(token, result.inline_message_id, teamWaitingText(teamSession), teamWaitingKeyboard(gameId, slotsA, slotsB, false, false));
     return;
   }
 
@@ -1191,27 +1191,27 @@ export async function handleChosenInlineResult(
     const teamLabel = tjoinResultMatch[2] as 'A' | 'B';
     const teamSess = await kv.get<TeamSession>(`team:${gameId}`, 'json');
     if (!teamSess || teamSess.status !== 'waiting') {
-      await editInlineMessage(token, result.inline_message_id, '❌ Team game tidak ditemukan.');
+      await editInlineMessageRich(token, result.inline_message_id, '❌ Team game tidak ditemukan.');
       return;
     }
     const member = await getChatMember(token, teamSess.chatId, result.from.id);
     if (!member || ['left', 'kicked'].includes(member.status)) {
-      await editInlineMessage(token, result.inline_message_id, '❌ Kamu tidak ada di grup ini.');
+      await editInlineMessageRich(token, result.inline_message_id, '❌ Kamu tidak ada di grup ini.');
       return;
     }
     const alreadyIn = [...teamSess.teamA, ...teamSess.teamB].some(p => p.userId === result.from.id);
     if (alreadyIn) {
-      await editInlineMessage(token, result.inline_message_id, teamWaitingText(teamSess));
+      await editInlineMessageRich(token, result.inline_message_id, teamWaitingText(teamSess));
       return;
     }
     // Re-read right before mutating to shrink the race window (concurrent team joins; getChatMember above widens it)
     const freshTeamSess = (await kv.get<TeamSession>(`team:${gameId}`, 'json')) ?? teamSess;
     if (freshTeamSess.status !== 'waiting') {
-      await editInlineMessage(token, result.inline_message_id, '❌ Team game tidak ditemukan.');
+      await editInlineMessageRich(token, result.inline_message_id, '❌ Team game tidak ditemukan.');
       return;
     }
     if ([...freshTeamSess.teamA, ...freshTeamSess.teamB].some(p => p.userId === result.from.id)) {
-      await editInlineMessage(token, result.inline_message_id, teamWaitingText(freshTeamSess));
+      await editInlineMessageRich(token, result.inline_message_id, teamWaitingText(freshTeamSess));
       return;
     }
     const newPlayer: TeamPlayer = { userId: result.from.id, name: formatUser(result.from), choice, inlineMessageId: result.inline_message_id };
@@ -1219,7 +1219,7 @@ export async function handleChosenInlineResult(
     const updatedB = teamLabel === 'B' ? [...freshTeamSess.teamB, newPlayer] : freshTeamSess.teamB;
     if ((teamLabel === 'A' && updatedA.length > freshTeamSess.teamSize) ||
         (teamLabel === 'B' && updatedB.length > freshTeamSess.teamSize)) {
-      await editInlineMessage(token, result.inline_message_id, `❌ Tim ${teamLabel} sudah penuh.`);
+      await editInlineMessageRich(token, result.inline_message_id, `❌ Tim ${teamLabel} sudah penuh.`);
       return;
     }
     const isFull = updatedA.length === freshTeamSess.teamSize && updatedB.length === freshTeamSess.teamSize;
@@ -1240,7 +1240,7 @@ export async function handleChosenInlineResult(
       const hostKb = teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthersTeam, canForceTeam);
       const waitText = teamWaitingText(updated);
       await Promise.allSettled(allTeamPlayers.map(p =>
-        editInlineMessage(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : teamMemberWaitingKeyboard(gameId))
+        editInlineMessageRich(token, p.inlineMessageId, waitText, p.userId === updated.hostUserId ? hostKb : teamMemberWaitingKeyboard(gameId))
       ));
     }
     return;
@@ -1283,7 +1283,7 @@ export async function handleChosenInlineResult(
     const rateKeyOp = `ratelimit:${result.from.id}`;
     const countOp = parseInt(await kv.get(rateKeyOp) ?? '0');
     if (countOp >= 3) {
-      await editInlineMessage(token, result.inline_message_id, '⏳ Too many active games.');
+      await editInlineMessageRich(token, result.inline_message_id, '⏳ Too many active games.');
       return;
     }
     await Promise.all([
@@ -1304,11 +1304,11 @@ export async function handleChosenInlineResult(
     const chainCode = q;
     const meta = await kv.get<ChainMeta>(`chain:${chainCode}:meta`, 'json');
     if (!meta) {
-      await editInlineMessage(token, result.inline_message_id, '❌ Rematch expired. Start a new game.');
+      await editInlineMessageRich(token, result.inline_message_id, '❌ Rematch expired. Start a new game.');
       return;
     }
     if (result.from.id !== meta.hostUserId && result.from.id !== meta.opponentUserId) {
-      await editInlineMessage(token, result.inline_message_id, '❌ Not your game.');
+      await editInlineMessageRich(token, result.inline_message_id, '❌ Not your game.');
       return;
     }
 
@@ -1355,11 +1355,11 @@ export async function handleChosenInlineResult(
     } else {
       const session = await kv.get<GameSession>(`game:${activeGameId}`, 'json');
       if (!session || session.status !== 'waiting') {
-        await editInlineMessage(token, result.inline_message_id, '❌ Rematch already started or expired.');
+        await editInlineMessageRich(token, result.inline_message_id, '❌ Rematch already started or expired.');
         return;
       }
       if (session.hostUserId === result.from.id) {
-        await editInlineMessage(token, result.inline_message_id, '⏳ Already waiting — your opponent needs to click Rematch too.');
+        await editInlineMessageRich(token, result.inline_message_id, '⏳ Already waiting — your opponent needs to click Rematch too.');
         return;
       }
       const opponentBadgeChain = await fetchBadge(kv, result.from.id);
@@ -1441,7 +1441,7 @@ export async function handleChosenInlineResult(
     ]);
     const countR = parseInt(countRStr ?? '0');
     if (countR >= 3) {
-      await editInlineMessage(token, result.inline_message_id, '⏳ Too many active games.');
+      await editInlineMessageRich(token, result.inline_message_id, '⏳ Too many active games.');
       return;
     }
     const rankedSession: GameSession = {
@@ -1502,7 +1502,7 @@ export async function handleChosenInlineResult(
           hostBadge: hostBadgeTm || undefined,
         };
         await kv.put(`game:${q}`, JSON.stringify(tmSession), { expirationTtl: 600 });
-        await editInlineMessage(token, result.inline_message_id,
+        await editInlineMessageRich(token, result.inline_message_id,
           `🏆 Tournament Match\n⏳ Menunggu lawan...\n\nKode: <code>${q}</code>`
         );
         return;
@@ -1514,7 +1514,7 @@ export async function handleChosenInlineResult(
 
     if (session.lockedToUsername &&
         result.from.username?.toLowerCase() !== session.lockedToUsername.toLowerCase()) {
-      await editInlineMessage(token, result.inline_message_id, `❌ This game is for @${session.lockedToUsername} only.`);
+      await editInlineMessageRich(token, result.inline_message_id, `❌ This game is for @${session.lockedToUsername} only.`);
       return;
     }
 
@@ -1560,7 +1560,7 @@ export async function handleChosenInlineResult(
     if (existingCustom && existingCustom.status === 'waiting' && existingCustom.hostUserId !== result.from.id) {
       if (existingCustom.lockedToUsername &&
           result.from.username?.toLowerCase() !== existingCustom.lockedToUsername.toLowerCase()) {
-        await editInlineMessage(token, result.inline_message_id, `❌ This game is for @${existingCustom.lockedToUsername} only.`);
+        await editInlineMessageRich(token, result.inline_message_id, `❌ This game is for @${existingCustom.lockedToUsername} only.`);
         return;
       }
       const opponentBadgeCustom = await fetchBadge(kv, result.from.id);
@@ -1586,7 +1586,7 @@ export async function handleChosenInlineResult(
 
     // Game exists but not joinable
     if (existingCustom) {
-      await editInlineMessage(token, result.inline_message_id, `❌ Kode "${q}" sudah dipakai. Coba kode lain.`);
+      await editInlineMessageRich(token, result.inline_message_id, `❌ Kode "${q}" sudah dipakai. Coba kode lain.`);
       return;
     }
 
@@ -1594,7 +1594,7 @@ export async function handleChosenInlineResult(
     const tier = await loadDonatorTier(kv, result.from.id);
     const ownerMode = String(result.from.id) === env.BOT_OWNER_ID;
     if (tier !== 'premium' && !ownerMode) {
-      await editInlineMessage(token, result.inline_message_id, '🔒 Custom game code butuh Premium. /donate untuk upgrade.');
+      await editInlineMessageRich(token, result.inline_message_id, '🔒 Custom game code butuh Premium. /donate untuk upgrade.');
       return;
     }
     const customSession: GameSession = {
