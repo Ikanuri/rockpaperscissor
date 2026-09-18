@@ -305,10 +305,12 @@ export async function editMessageRich(
   chatId: number,
   messageId: number,
   html: string,
-  replyMarkup?: InlineKeyboardMarkup
+  replyMarkup?: InlineKeyboardMarkup,
+  forceRich = false
 ): Promise<void> {
   await richRequest(token, 'editMessageText', { chat_id: chatId, message_id: messageId }, html, replyMarkup,
-    classicHtml => editMessage(token, chatId, messageId, classicHtml, replyMarkup));
+    classicHtml => editMessage(token, chatId, messageId, classicHtml, replyMarkup),
+    forceRich);
 }
 
 // Sends a brand-new rich message (Bot API 10.3's sendRichMessage) instead of editing an existing
@@ -318,10 +320,12 @@ export async function sendMessageRich(
   token: string,
   chatId: number,
   html: string,
-  replyMarkup?: InlineKeyboardMarkup
+  replyMarkup?: InlineKeyboardMarkup,
+  forceRich = false
 ): Promise<void> {
   await richRequest(token, 'sendRichMessage', { chat_id: chatId }, html, replyMarkup,
-    classicHtml => sendMessage(token, chatId, classicHtml, replyMarkup));
+    classicHtml => sendMessage(token, chatId, classicHtml, replyMarkup),
+    forceRich);
 }
 
 export function sendMessage(

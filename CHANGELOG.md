@@ -5,6 +5,12 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.2.1] — 2026-09-18
+
+### Fixed
+- `editMessageRich`/`sendMessageRich` (`telegram.ts`): added the same `forceRich` opt-out parameter `editInlineMessageRich` already had, so individual call sites can bypass the `<tg-emoji>`-triggered classic-mode fallback once confirmed stable in production
+- Extended `forceRich=true` from the 1v1 result screen (proven stable in production) to Team Mode's round/win messages (`executeTeamRound` in `game.ts`: per-player inline edits, pinned group message, group announcement) and LMS's win/round-result messages (`_runLmsRound`: forfeit-win, normal-elimination-win, and per-round survivor/eliminated texts) — all of these embed `choiceDisplay()`-rendered custom emoji, so they now get full rich formatting (native `<hr>` divider, blockquote footer) instead of always falling back to classic HTML mode
+
 ## [2.2.0] — 2026-09-18
 
 ### Added

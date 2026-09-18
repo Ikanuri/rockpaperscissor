@@ -4,6 +4,16 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.2.1 — 18 September 2026
+
+### 🔧 Perbaikan
+
+**🎨 Tampilan Rapi Sekarang Juga di LMS & Team**
+
+Hasil game LMS dan Team (menang/kalah, hasil tiap ronde) sekarang tampil dengan format rapi yang sama seperti hasil 1v1 — termasuk emoji custom donator dan garis pembatas footer. Sebelumnya mode-mode ini tampil versi teks polos supaya lebih aman.
+
+---
+
 ## v2.2.0 — 18 September 2026
 
 ### ✨ Fitur Baru

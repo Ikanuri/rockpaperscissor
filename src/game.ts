@@ -752,14 +752,14 @@ async function executeTeamRound(
     const finalText = withFooter(`🏆 <b>Tim ${winner} menang!</b>\n${teamALine}\n${teamBLine}` +
       notesText +
       `\n📊 Skor akhir: 🔵 ${newScoreA} – ${newScoreB} 🔴`, teamFooter);
-    await Promise.allSettled(allPlayers.map(p => editInlineMessageRich(token, p.inlineMessageId, finalText)));
+    await Promise.allSettled(allPlayers.map(p => editInlineMessageRich(token, p.inlineMessageId, finalText, undefined, true)));
     if (groupMsgId) {
       await Promise.allSettled([
-        editMessageRich(token, session.chatId, groupMsgId, finalText),
+        editMessageRich(token, session.chatId, groupMsgId, finalText, undefined, true),
         unpinChatMessage(token, session.chatId, groupMsgId),
       ]);
     }
-    await sendMessageRich(token, session.chatId, finalText);
+    await sendMessageRich(token, session.chatId, finalText, undefined, true);
     const winTeam = winner === 'A' ? session.teamA : session.teamB;
     const loseTeam = winner === 'A' ? session.teamB : session.teamA;
     for (const p of winTeam) {
@@ -792,13 +792,13 @@ async function executeTeamRound(
       `\n${outcomeText}\n📊 Score: 🔵 ${newScoreA} – ${newScoreB} 🔴\n\n⬇️ Round ${nextSession.currentRound}...`;
     const roundKb = teamGroupRoundKeyboard(session.gameId);
     const pinUpdate = groupMsgId
-      ? editMessageRich(token, session.chatId, groupMsgId, groupRoundText, roundKb)
+      ? editMessageRich(token, session.chatId, groupMsgId, groupRoundText, roundKb, true)
       : Promise.resolve();
     await Promise.all([
       pinUpdate,
-      sendMessageRich(token, session.chatId, groupRoundText, roundKb),
+      sendMessageRich(token, session.chatId, groupRoundText, roundKb, true),
       ...allPlayers.map(p =>
-        editInlineMessageRich(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId))
+        editInlineMessageRich(token, p.inlineMessageId, roundText, teamPickKeyboard(session.gameId, p.userId === session.hostUserId), true)
       ),
     ]);
   }
@@ -1475,7 +1475,7 @@ async function _runLmsRound(
     const winText = withFooter(`🏆 <b>${escHtml(winner.name)} wins Last Man Standing!</b>\nSemua pemain lain meninggalkan game.`, forfeitFooter);
     const doneSession: LmsSession = { ...session, status: 'done' as const };
     await kv.put(`lms:${session.gameId}`, JSON.stringify(doneSession), { expirationTtl: 600 });
-    await Promise.allSettled(session.players.map(p => editInlineMessageRich(token, p.inlineMessageId, winText)));
+    await Promise.allSettled(session.players.map(p => editInlineMessageRich(token, p.inlineMessageId, winText, undefined, true)));
     ctx.waitUntil(updateStats(kv, winner.userId, 'win', winner.choice ?? 'rock', 0, 'LMS', 1000, false, false));
     for (const loser of session.players.filter(p => p.userId !== winner.userId)) {
       ctx.waitUntil(updateStats(kv, loser.userId, 'loss', loser.choice ?? 'rock', winner.userId, winner.name, 1000, false, false));
@@ -1531,7 +1531,7 @@ async function _runLmsRound(
     };
     await kv.put(`lms:${session.gameId}`, JSON.stringify(doneSession), { expirationTtl: 600 });
     await Promise.allSettled(
-      session.players.map(p => editInlineMessageRich(token, p.inlineMessageId, winText))
+      session.players.map(p => editInlineMessageRich(token, p.inlineMessageId, winText, undefined, true))
     );
     // Stats: 1 win for winner, 1 loss for each loser
     ctx.waitUntil(updateStats(kv, winner.userId, 'win', winner.choice!, 0, 'LMS', 1000, false, false));
@@ -1574,10 +1574,10 @@ async function _runLmsRound(
   };
   await Promise.allSettled([
     ...updatedPlayers.filter(p => p.active).map(p =>
-      editInlineMessageRich(token, p.inlineMessageId, roundText, nextRoundKb)
+      editInlineMessageRich(token, p.inlineMessageId, roundText, nextRoundKb, true)
     ),
     ...session.players.filter(p => eliminatedIds.has(p.userId)).map(p =>
-      editInlineMessageRich(token, p.inlineMessageId, roundText + '\n\n❌ Kamu eliminasi di ronde ini.')
+      editInlineMessageRich(token, p.inlineMessageId, roundText + '\n\n❌ Kamu eliminasi di ronde ini.', undefined, true)
     ),
   ]);
 }
