@@ -5,6 +5,11 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.1] — 2026-09-19
+
+### Fixed
+- `game.ts`: reverted `forceRich=true` from all 10 call sites (1v1 result, Team win/round texts, LMS win/round texts) added in v2.2.1/v2.3.0. Live testing (via `/myconfig` + direct in-app observation, not just screenshots) showed a real animated `custom_emoji_id` resolving to the correct emoji identity but never playing its animation when sent through `rich_message.html` — those messages all went through the `forceRich` path. Not confirmed as the definitive root cause (no official docs distinguish rich vs. classic custom-emoji animation behavior), but classic `parse_mode: 'HTML'` is the only path with a proven track record for this donator perk, so it's the safer default while the animation question stays open. `richRequest()`'s existing behavior (auto-fallback to classic whenever `<tg-emoji` is present, unless forced) is now effectively universal again; the `forceRich` parameter itself stays in `telegram.ts` for future re-testing
+
 ## [2.3.0] — 2026-09-19
 
 ### Changed

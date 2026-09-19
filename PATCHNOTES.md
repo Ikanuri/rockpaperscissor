@@ -4,6 +4,16 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.1 — 19 September 2026
+
+### 🔧 Perbaikan
+
+**💎 Emoji Custom Animasi — Balik ke Cara Lama yang Terbukti Jalan**
+
+Ketahuan: emoji custom animasi donator kadang cuma tampil diam (tidak bergerak) di layar hasil game. Sambil terus dicari akar masalahnya, tampilan hasil game (1v1/LMS/Team) yang mengandung emoji custom sekarang otomatis pakai cara pengiriman lama yang sudah lama terbukti stabil untuk emoji custom, dengan sedikit pengorbanan: divider dan kutipan footer khusus di pesan itu jadi versi teks biasa (bukan versi rapi baru).
+
+---
+
 ## v2.3.0 — 19 September 2026
 
 ### 🔧 Perbaikan
