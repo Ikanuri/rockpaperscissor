@@ -5,6 +5,15 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.0] — 2026-09-19
+
+### Changed
+- `telegram.ts`: rich messages now send text via `InputRichMessage.html` instead of a hand-built `blocks` structure — Telegram parses the HTML natively (confirmed against the Bot API 10.1–10.3 docs), so the ~150-line custom parser (`parseNodes`/`nodesToRichText`/`nodesToBlocks`) is removed entirely along with its class of "unrecognized tag renders literally" bugs. Buttons now serialize to `<tg-button-row>`/`<tg-button>` tags appended to the html instead of a separate structured buttons block; field mapping (`callback_data`→`data`, `style`, `switch_inline_query_current_chat`→`query`, `url`) is unchanged, so `callback_query` routing is unaffected
+
+### Fixed
+- `message.ts`: the custom-emoji-reveal-via-**sticker** path (`msg.sticker.type === 'custom_emoji'`) had no donator-tier check at all, unlike the equivalent text-entry path — a Basic-tier donator could set an animated `custom_emoji_id` (a Premium-only perk per `TIER_PERKS`) by forwarding a custom emoji as a sticker instead of typing it. Now gated identically to the text path
+- `game.ts`: `loadConfigAuthorized()` was a binary authorized/not gate (`tier !== 'free'`) that didn't distinguish Basic from Premium — a stored `reveal[choice]` value could keep a raw animated `custom_emoji_id` from a previous Premium period after downgrading to Basic (no cleanup on expiry/downgrade), or slip through via the sticker-path bug above, and would still render as `<tg-emoji>` regardless of the donator's *current* tier. `loadConfigAuthorized()` now downgrades any leftover numeric custom emoji id back to the plain default whenever the caller's current tier isn't premium/beta/owner, so rendering always matches what the tier is actually entitled to at render time, not at set time
+
 ## [2.2.1] — 2026-09-18
 
 ### Fixed

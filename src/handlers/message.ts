@@ -165,6 +165,13 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       }
       if (emojiActions.includes(pending.action)) {
         if (msg.sticker.type === 'custom_emoji' && msg.sticker.custom_emoji_id) {
+          if (tier !== 'premium' && !owner && !betaUser) {
+            await reply(token, msg.chat.id,
+              `🔒 Animated emoji butuh <b>Premium</b> tier.\n` +
+              `/donate untuk upgrade.`
+            );
+            return;
+          }
           await kv.delete(`pending:config:${msg.from.id}`);
           const val = msg.sticker.custom_emoji_id;
           try {

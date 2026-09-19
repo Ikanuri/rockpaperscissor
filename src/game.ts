@@ -33,6 +33,8 @@ export const EMOJI: Record<Choice, string> = {
   scissors: '✌️',
 };
 
+const CHOICE_LIST: Choice[] = ['rock', 'paper', 'scissors'];
+
 export const LABEL: Record<Choice, string> = {
   rock: '✊ Rock',
   paper: '✋ Paper',
@@ -608,8 +610,24 @@ export async function loadConfigAuthorized(
     kv.get<{ tier: string; expiry: number }>(`donator:${userId}`, 'json'),
     isBetaUser(kv, userId, env.BOT_OWNER_ID),
   ]);
-  const authorized = beta || (!!donator && donator.tier !== 'free' && Date.now() <= donator.expiry);
-  return authorized ? config : null;
+  const notExpired = !!donator && Date.now() <= donator.expiry;
+  const authorized = beta || (notExpired && donator!.tier !== 'free');
+  if (!authorized) return null;
+
+  // Basic tier only gets the plain-text emoji perk (TIER_PERKS.basic) — animated custom_emoji_id
+  // is Premium-only. Enforce that here, at read time, not just when the value is first set:
+  // a stored value can predate a downgrade (Premium -> Basic keeps the old animated id in KV,
+  // there's no cleanup on expiry/downgrade) or slip through a gate gap in a specific input path
+  // (e.g. setting the emoji by forwarding a custom-emoji sticker vs. typing it). Either way, a
+  // Basic-tier reveal that's still a raw numeric id gets downgraded back to the plain default so
+  // rendering always matches what the current tier is actually entitled to.
+  const canAnimated = beta || (notExpired && donator!.tier === 'premium');
+  if (!canAnimated) {
+    for (const c of CHOICE_LIST) {
+      if (/^\d{10,}$/.test(config.reveal[c])) config.reveal[c] = EMOJI[c];
+    }
+  }
+  return config;
 }
 
 function expiryTimeStr(createdAt: number, ttlMs = 600_000): string {

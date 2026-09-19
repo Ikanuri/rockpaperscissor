@@ -4,6 +4,20 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.0 — 19 September 2026
+
+### 🔧 Perbaikan
+
+**💎 Emoji Custom Donator Lebih Konsisten**
+
+Ditemukan celah: emoji custom animasi (perk khusus tier Premium) kadang bisa "nyangkut" tetap tampil meski donatornya sudah turun tier atau seharusnya belum berhak (lewat cara set emoji tertentu). Sekarang tampilan emoji selalu dicek ulang sesuai tier donator yang aktif saat itu — kalau bukan Premium (atau beta/owner), otomatis kembali ke emoji biasa.
+
+**🎨 Perapian Kode Tampilan Pesan**
+
+Mesin di balik layar untuk pesan rapi (rich message) diseder­hanakan — sekarang mengandalkan langsung parsing bawaan Telegram, bukan buatan sendiri, supaya lebih tahan terhadap format baru ke depannya. Tidak ada perubahan tampilan yang terlihat pemain.
+
+---
+
 ## v2.2.1 — 18 September 2026
 
 ### 🔧 Perbaikan

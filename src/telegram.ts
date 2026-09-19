@@ -70,172 +70,46 @@ export function editInlineMessage(
   }, maxRetryWait);
 }
 
-interface RichMessageButton {
-  text: string;
-  style?: 'primary' | 'success' | 'danger';
-  callback_data?: string;
-  url?: string;
-  switch_inline_query_current_chat?: string;
+// Rich messages accept exactly one of blocks/html/markdown (InputRichMessage). Earlier versions
+// of this file hand-built a `blocks` tree from our HTML strings with a bespoke parser — that
+// parser was the source of a real bug (unknown tags rendering literally, e.g. `<tg-emoji ...>`
+// showing raw) and duplicated logic Telegram's own API already provides: the `html` field accepts
+// the exact same classic-HTML-mode tag set our strings are already written in (confirmed against
+// Bot API 10.1-10.3's "Rich HTML style" docs), including <hr/> natively. So we just pass our HTML
+// straight through, and render buttons as inline <tg-button-row>/<tg-button> tags appended to it
+// instead of a separate structured buttons block.
+function escAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-type RichText =
-  | string
-  | RichText[]
-  | { type: 'bold' | 'italic' | 'underline' | 'strikethrough' | 'spoiler' | 'code'; text: RichText }
-  | { type: 'url'; text: RichText; url: string }
-  | { type: 'custom_emoji'; custom_emoji_id: string; alternative_text: string };
-
-type RichBlock =
-  | { type: 'paragraph'; text: RichText }
-  | { type: 'expandable_blockquote'; text: RichText }
-  | { type: 'blockquote'; blocks: RichBlock[] }
-  | { type: 'pre'; text: RichText; language?: string }
-  | { type: 'divider' }
-  | { type: 'buttons'; buttons: RichMessageButton[] };
-
-// escHtml() only ever escapes &, <, > — reverse exactly that (nothing more) for plain-text leaves.
-function unescapeBasicHtml(s: string): string {
-  return s.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+function escButtonText(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Generic parser for classic-HTML-mode content, matching exactly the tag set Telegram's own
-// parse_mode: 'HTML' supports (see entitiesToHtml() in message.ts, which is the only producer of
-// this markup — owner-authored footer text converted from their native Telegram formatting, plus
-// the bot's own hardcoded <b>/<tg-emoji>/<blockquote> strings). Handles arbitrary nesting (e.g.
-// <b>bold <i>and italic</i></b>), unlike a single-pattern regex scan.
-interface TextNode { kind: 'text'; text: string }
-interface TagNode { kind: 'tag'; tag: string; attrs: Record<string, string | true>; children: ParsedNode[] }
-type ParsedNode = TextNode | TagNode;
-
-const TAG_RE = /<\/([a-zA-Z][a-zA-Z0-9-]*)\s*>|<([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[a-zA-Z-]+(?:="[^"]*")?)*)\s*\/?>/g;
-const ATTR_RE = /([a-zA-Z-]+)(?:="([^"]*)")?/g;
-
-function parseNodes(html: string): ParsedNode[] {
-  const root: ParsedNode[] = [];
-  const stack: ParsedNode[][] = [root];
-  let lastIndex = 0;
-  for (const m of html.matchAll(TAG_RE)) {
-    if (m.index! > lastIndex) stack[stack.length - 1].push({ kind: 'text', text: html.slice(lastIndex, m.index) });
-    const [, closeTag, openTag, attrStr] = m;
-    if (closeTag) {
-      if (stack.length > 1) stack.pop();
-    } else if (openTag) {
-      const attrs: Record<string, string | true> = {};
-      for (const am of (attrStr ?? '').matchAll(ATTR_RE)) attrs[am[1]] = am[2] !== undefined ? am[2] : true;
-      const node: TagNode = { kind: 'tag', tag: openTag.toLowerCase(), attrs, children: [] };
-      stack[stack.length - 1].push(node);
-      // hr is a void element (no closing tag, e.g. <hr> or <hr/>) — never wait for </hr>
-      if (node.tag !== 'hr') stack.push(node.children);
-    }
-    lastIndex = m.index! + m[0].length;
-  }
-  if (lastIndex < html.length) stack[stack.length - 1].push({ kind: 'text', text: html.slice(lastIndex) });
-  return root;
-}
-
-function nodesToRichText(nodes: ParsedNode[]): RichText {
-  const parts = nodes.map(nodeToRichText).filter(p => !(typeof p === 'string' && p === ''));
-  if (parts.length === 0) return '';
-  return parts.length === 1 ? parts[0] : parts;
-}
-
-function nodeToRichText(node: ParsedNode): RichText {
-  if (node.kind === 'text') return unescapeBasicHtml(node.text);
-  switch (node.tag) {
-    case 'b': case 'strong': return { type: 'bold', text: nodesToRichText(node.children) };
-    case 'i': case 'em': return { type: 'italic', text: nodesToRichText(node.children) };
-    case 'u': case 'ins': return { type: 'underline', text: nodesToRichText(node.children) };
-    case 's': case 'strike': case 'del': return { type: 'strikethrough', text: nodesToRichText(node.children) };
-    case 'tg-spoiler': return { type: 'spoiler', text: nodesToRichText(node.children) };
-    case 'code': return { type: 'code', text: nodesToRichText(node.children) };
-    case 'a': {
-      const href = typeof node.attrs.href === 'string' ? node.attrs.href : '';
-      return href ? { type: 'url', text: nodesToRichText(node.children), url: href } : nodesToRichText(node.children);
-    }
-    case 'tg-emoji': {
-      const id = typeof node.attrs['emoji-id'] === 'string' ? node.attrs['emoji-id'] : '';
-      const alt = node.children.map(c => c.kind === 'text' ? unescapeBasicHtml(c.text) : '').join('');
-      return id ? { type: 'custom_emoji', custom_emoji_id: id, alternative_text: alt } : alt;
-    }
-    default: return nodesToRichText(node.children);
-  }
-}
-
-function nodesToBlocks(nodes: ParsedNode[]): RichBlock[] {
-  const blocks: RichBlock[] = [];
-  let paragraph: ParsedNode[] = [];
-  const flush = () => {
-    if (paragraph.length > 0) {
-      blocks.push({ type: 'paragraph', text: nodesToRichText(paragraph) });
-      paragraph = [];
-    }
-  };
-
-  for (const node of nodes) {
-    if (node.kind === 'text') {
-      const lines = node.text.split('\n');
-      lines.forEach((line, i) => {
-        if (i > 0) flush();
-        if (line) paragraph.push({ kind: 'text', text: line });
-      });
-    } else if (node.tag === 'blockquote') {
-      flush();
-      if (node.attrs.expandable) {
-        blocks.push({ type: 'expandable_blockquote', text: nodesToRichText(node.children) });
-      } else {
-        blocks.push({ type: 'blockquote', blocks: nodesToBlocks(node.children) });
+// InlineKeyboardButton fields map 1:1 onto <tg-button> attributes (confirmed against the Bot API
+// spec's RichMessageButton) — callback_data still fires a normal callback_query, so
+// handleCallbackQuery needs no changes.
+function keyboardToButtonHtml(kb: InlineKeyboardMarkup): string {
+  return kb.inline_keyboard.map(row => {
+    const buttons = row.map(btn => {
+      const attrs = [btn.style && `style="${escAttr(btn.style)}"`];
+      if (btn.callback_data) attrs.push(`type="callback_data" data="${escAttr(btn.callback_data)}"`);
+      else if (btn.url) attrs.push(`type="url" url="${escAttr(btn.url)}"`);
+      else if (btn.switch_inline_query_current_chat !== undefined) {
+        attrs.push(`type="switch_inline_query_current_chat" query="${escAttr(btn.switch_inline_query_current_chat)}"`);
       }
-    } else if (node.tag === 'pre') {
-      flush();
-      let content = node.children;
-      let language: string | undefined;
-      if (content.length === 1 && content[0].kind === 'tag' && content[0].tag === 'code') {
-        const codeNode = content[0];
-        const cls = typeof codeNode.attrs.class === 'string' ? codeNode.attrs.class : '';
-        const langMatch = /language-(\S+)/.exec(cls);
-        if (langMatch) language = langMatch[1];
-        content = codeNode.children;
-      }
-      blocks.push({ type: 'pre', text: nodesToRichText(content), ...(language && { language }) });
-    } else if (node.tag === 'hr') {
-      flush();
-      blocks.push({ type: 'divider' });
-    } else {
-      paragraph.push(node);
-    }
-  }
-  flush();
-  return blocks;
-}
-
-function htmlToBlocks(html: string): RichBlock[] {
-  return nodesToBlocks(parseNodes(html));
-}
-
-// InlineKeyboardButton fields map 1:1 onto RichMessageButton (confirmed against the Bot API
-// spec) — callback_data still fires a normal callback_query, so handleCallbackQuery needs no
-// changes. One InputRichBlockButtons block == one button row.
-function keyboardToButtonBlocks(kb: InlineKeyboardMarkup): RichBlock[] {
-  return kb.inline_keyboard.map(row => ({
-    type: 'buttons',
-    buttons: row.map(btn => ({
-      text: btn.text,
-      ...(btn.style && { style: btn.style }),
-      ...(btn.callback_data && { callback_data: btn.callback_data }),
-      ...(btn.url && { url: btn.url }),
-      ...(btn.switch_inline_query_current_chat !== undefined && { switch_inline_query_current_chat: btn.switch_inline_query_current_chat }),
-    })),
-  }));
+      return `<tg-button ${attrs.filter(Boolean).join(' ')}>${escButtonText(btn.text)}</tg-button>`;
+    }).join('');
+    return `<tg-button-row>${buttons}</tg-button-row>`;
+  }).join('');
 }
 
 // Bot API 10.1+ rich message rendering on inline messages, used bot-wide for every game mode.
-// Text and buttons both render through InputRichMessage.blocks: text via the general recursive
-// HTML parser above (parseNodes/nodesToRichText/nodesToBlocks — full classic-HTML-mode tag set,
-// arbitrary nesting), buttons as InputRichBlockButtons (RichMessageButton fields map 1:1 onto
-// InlineKeyboardButton, callback_data still fires a normal callback_query). Falls back to plain
-// editInlineMessage (identical html + the original InlineKeyboardMarkup) if the API rejects
-// rich_message for any reason, so an imperfect guess at formatting nuances never breaks the
-// message or its buttons.
+// Text renders via InputRichMessage.html (Telegram parses the same classic-HTML-mode tags our
+// strings already use), buttons via <tg-button-row>/<tg-button> tags appended to that html. Falls
+// back to plain editInlineMessage (identical html + the original InlineKeyboardMarkup) if the API
+// rejects rich_message for any reason, so an imperfect guess at formatting nuances never breaks
+// the message or its buttons.
 export async function editInlineMessageRich(
   token: string,
   inlineMessageId: string,
@@ -255,8 +129,8 @@ function stripHrForClassic(html: string): string {
   return html.replace(/<hr\s*\/?>/g, '\n──────────');
 }
 
-// Shared by every rich-message variant: builds the blocks payload, posts it, and falls back to
-// the caller's plain (non-rich) equivalent if the API rejects it for any reason.
+// Shared by every rich-message variant: builds the html+buttons payload, posts it, and falls back
+// to the caller's plain (non-rich) equivalent if the API rejects it for any reason.
 //
 // <tg-emoji> (donator custom emoji) skips the rich attempt by default, going straight to the
 // classic parse_mode: 'HTML' path. Confirmed broken in at least one real case: a viewer with real
@@ -281,12 +155,12 @@ async function richRequest(
     await fallback(stripHrForClassic(html));
     return;
   }
-  const blocks = [...htmlToBlocks(html), ...(replyMarkup ? keyboardToButtonBlocks(replyMarkup) : [])];
+  const fullHtml = html + (replyMarkup ? keyboardToButtonHtml(replyMarkup) : '');
   try {
     const res = await fetch(`${API}${token}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...target, rich_message: { blocks } }),
+      body: JSON.stringify({ ...target, rich_message: { html: fullHtml } }),
     });
     const data = await res.json<{ ok: boolean; description?: string }>();
     if (res.ok && data.ok) return;
