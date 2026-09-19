@@ -4,6 +4,16 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.2 — 19 September 2026
+
+### 🔬 Sedang Diuji
+
+**💎 Konfirmasi Ulang Animasi Emoji Custom**
+
+Setelah update kemarin, emoji custom animasi terbukti jalan normal lagi. Sekarang sedang dikonfirmasi ulang khusus di layar hasil 1v1 untuk memastikan penyebabnya benar-benar seperti dugaan, sebelum diputuskan permanen. Tidak ada perubahan yang terasa untuk pemain di luar itu.
+
+---
+
 ## v2.3.1 — 19 September 2026
 
 ### 🔧 Perbaikan

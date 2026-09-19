@@ -5,6 +5,12 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.2] — 2026-09-19
+
+### Changed
+- **Confirmed via live owner testing on beta**: after v2.3.1's revert, the previously-static custom emoji animated correctly through classic `parse_mode: 'HTML'`. Strong causal evidence that `rich_message.html` itself suppresses custom emoji animation — this rules out the Fragment/owner-Premium permission theory and viewer/device-side theories, since neither changes between the rich and classic send paths for the same account watching the same message.
+- `game.ts`: re-enabled `forceRich=true` for the 1v1 result screen only (`finishGame`'s two `editInlineMessageRich` calls), as an A/B/A re-test requested by the owner to double-confirm the causal link before settling on a permanent approach. Team and LMS result texts are untouched (still classic-only, never tested for animation) — if this re-test reproduces the static bug, treat "never use rich_message for text containing `<tg-emoji>`" as confirmed and revert this again permanently.
+
 ## [2.3.1] — 2026-09-19
 
 ### Fixed
