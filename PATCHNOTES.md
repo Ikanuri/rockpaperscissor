@@ -4,6 +4,14 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.7 — 1 Oktober 2026
+
+### 🔬 Alat Diagnostik (khusus beta, sementara)
+
+Perekaman log teknis sementara di bot beta untuk melacak masalah tampilan. Tidak berlaku di bot utama dan tidak mengubah permainan.
+
+---
+
 ## v2.3.6 — 1 Oktober 2026
 
 ### 🔬 Alat Diagnostik (khusus beta)

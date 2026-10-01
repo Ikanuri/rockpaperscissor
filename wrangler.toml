@@ -77,3 +77,9 @@ binding = "GAME_SESSIONS"
 # Then paste the output id below
 id = "0475907e01f74cb5bc215856bd1753a6"
 preview_id = "0475907e01f74cb5bc215856bd1753a6"
+
+# DEBUG SEMENTARA: KV khusus log debug (TTL 1 jam per entri), hanya di beta
+[[env.beta.kv_namespaces]]
+binding = "DEBUG_KV"
+id = "164aa51ea5174b769ea02dd0aa1394f1"
+preview_id = "164aa51ea5174b769ea02dd0aa1394f1"

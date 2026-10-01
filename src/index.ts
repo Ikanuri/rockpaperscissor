@@ -5,6 +5,7 @@ import { handleMessage } from './handlers/message';
 import { handlePreCheckout, handleStripeWebhook } from './handlers/payment';
 import { hasFeature } from './feature';
 import { enableErrorDebug, reportError, sendMessage } from './telegram';
+import { dbg, enableDebug, handleDebugRequest } from './debug'; // DEBUG SEMENTARA
 import { getDayIndex, getReleaseMs, escHtml } from './game';
 
 async function handleDailyChallenge(env: Env): Promise<void> {
@@ -38,6 +39,11 @@ export default {
       return handleStripeWebhook(request, env);
     }
 
+    // DEBUG SEMENTARA: endpoint baca log, dijaga DEBUG_SECRET (salah/kosong -> 404)
+    if (request.method === 'GET' && url.pathname.startsWith('/debug/')) {
+      return handleDebugRequest(request, env);
+    }
+
     if (request.method !== 'POST') return new Response('OK');
 
     if (env.WEBHOOK_SECRET) {
@@ -46,9 +52,22 @@ export default {
     }
 
     if (hasFeature(env, 'debug_errors')) enableErrorDebug(env.BOT_OWNER_ID);
+    enableDebug(env); // DEBUG SEMENTARA
 
     try {
       const update = await request.json<TelegramUpdate>();
+
+      // DEBUG SEMENTARA: ringkasan update masuk (tanpa isi chat biasa)
+      await dbg('in', {
+        kind: update.inline_query ? 'inline_query' : update.chosen_inline_result ? 'chosen_inline_result'
+          : update.callback_query ? 'callback_query' : update.message ? 'message' : 'other',
+        from: (update.inline_query ?? update.chosen_inline_result ?? update.callback_query ?? update.message)?.from?.id,
+        query: update.inline_query?.query ?? update.chosen_inline_result?.query,
+        result_id: update.chosen_inline_result?.result_id,
+        has_inline_message_id: !!(update.chosen_inline_result?.inline_message_id ?? update.callback_query?.inline_message_id),
+        data: update.callback_query?.data,
+        command: update.message?.text?.startsWith('/') ? update.message.text.slice(0, 60) : undefined,
+      });
 
       if (update.inline_query) {
         await handleInlineQuery(update.inline_query, env);

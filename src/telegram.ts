@@ -1,5 +1,7 @@
 import type { InlineKeyboardMarkup, InlineResult } from './types';
 
+import { dbg, debugOn } from './debug'; // DEBUG SEMENTARA
+
 const API = 'https://api.telegram.org/bot';
 
 function sleep(ms: number): Promise<void> {
@@ -47,6 +49,16 @@ async function call(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    if (debugOn()) { // DEBUG SEMENTARA: rekam setiap panggilan keluar + respons Telegram
+      const b = body as Record<string, unknown>;
+      await dbg('tg', {
+        kind: 'classic', method, status: res.status,
+        target: b.inline_message_id ? `inline…${String(b.inline_message_id).slice(-6)}` : `chat ${b.chat_id}`,
+        parse_mode: b.parse_mode, has_markup: !!b.reply_markup,
+        text: typeof b.text === 'string' ? b.text.slice(0, 500) : undefined,
+        response: (await res.clone().text()).slice(0, 600),
+      });
+    }
     if (res.status === 429) {
       const data = await res.json<{ parameters?: { retry_after?: number } }>();
       const wait = Math.min((data.parameters?.retry_after ?? 5) * 1000, maxRetryWait);
@@ -180,6 +192,7 @@ async function richRequest(
   fallback: (classicHtml: string) => Promise<void>
 ): Promise<void> {
   if (html.includes('<tg-emoji')) {
+    await dbg('tg', { kind: 'rich-skipped-tg-emoji', method, html: html.slice(0, 500) }); // DEBUG SEMENTARA
     await fallback(stripHrForClassic(html));
     return;
   }
@@ -191,6 +204,7 @@ async function richRequest(
       body: JSON.stringify({ ...target, rich_message: { html: fullHtml } }),
     });
     const data = await res.json<{ ok: boolean; description?: string }>();
+    await dbg('tg', { kind: 'rich-attempt', method, status: res.status, html: fullHtml.slice(0, 500), response: JSON.stringify(data).slice(0, 600) }); // DEBUG SEMENTARA
     if (res.ok && data.ok) return;
     console.error(`[tg:${method}Rich] rejected, falling back to plain text/buttons:`, JSON.stringify(data));
     await reportError(token, `tg:${method}Rich rejected → classic fallback`, JSON.stringify(data));

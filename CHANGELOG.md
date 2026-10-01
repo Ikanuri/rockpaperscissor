@@ -5,6 +5,11 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.7] — 2026-10-01
+
+### Added
+- TEMPORARY debug tooling (everything marked `DEBUG SEMENTARA`, to be removed in a separate commit once the investigation ends): `src/debug.ts` records inbound-update summaries (`debug:in:*`) and every outgoing Telegram call plus its raw response (`debug:tg:*`, kinds `classic` / `rich-attempt` / `rich-skipped-tg-emoji`) into a dedicated `DEBUG_KV` namespace (`rps-debug-kv`, 1h TTL per entry, bot tokens and Authorization headers redacted before storage). `GET /debug/<name>` returns them as JSON and answers 404 unless the `X-Debug-Token` header (or `?token=`) matches the `DEBUG_SECRET` Worker secret; the beta deploy workflow pushes that secret from GitHub Secrets when present. Beta only — the binding does not exist on production, so the code is inert there
+
 ## [2.3.6] — 2026-10-01
 
 ### Added
