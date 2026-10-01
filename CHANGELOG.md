@@ -5,6 +5,11 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.10] — 2026-10-01
+
+### Changed
+- `richRequest()` (`telegram.ts`): the `<tg-emoji>` → classic rule now applies to **inline** targets only (`inline_message_id`). Messages sent or edited directly in a chat (`sendMessageRich`/`editMessageRich` — DMs, groups) keep `rich_message` even when they contain custom emoji. Verified by the owner with `/emojitest` in a real group: all five rich encodings (R1–R5) showed and animated the real emoji, same as the classic control — in addition to the earlier DM result. Inline results with custom emoji stay classic (rich shows only the fallback glyph there). Channels are untested and not used by the bot; the Bot API docs don't list them for custom emoji
+
 ## [2.3.9] — 2026-10-01
 
 ### Added

@@ -185,14 +185,14 @@ function stripHrForClassic(html: string): string {
 // Shared by every rich-message variant: builds the html+buttons payload, posts it, and falls back
 // to the caller's plain (non-rich) equivalent if the API rejects it for any reason.
 //
-// Any html containing <tg-emoji> (donator custom emoji) skips rich and goes straight to classic
-// parse_mode: 'HTML'. Root cause confirmed by the owner's /emojitest (inline variants I1-I4 vs I5):
-// in an INLINE message, rich_message renders a custom emoji as its plain fallback glyph only —
-// even with nothing else in the message — while classic HTML shows and animates the real emoji.
-// This matches the Bot API docs: custom emoji entities are only allowed in messages the bot sends
-// directly to private/group/supergroup chats (with an owner-Premium account), and inline messages
-// aren't in that list. (A rich message sent directly to a DM did animate, so rich itself is fine
-// there; groups are untested, so chat messages stay classic too until someone verifies them.)
+// Inline messages that contain <tg-emoji> (donator custom emoji) skip rich and go straight to
+// classic parse_mode: 'HTML'. Root cause confirmed by the owner's /emojitest (inline variants I1-I4
+// vs I5, plus the rich_emoji_result game comparison): in an INLINE message, rich_message renders a
+// custom emoji as its plain fallback glyph only — even with nothing else in the message — while
+// classic HTML shows and animates the real emoji. This matches the Bot API docs: custom emoji
+// entities are only allowed in messages the bot sends directly to private/group/supergroup chats,
+// and inline messages aren't in that list. Rich messages sent directly to a DM or a group were
+// verified to show AND animate the real emoji (all encodings), so non-inline targets stay rich.
 async function richRequest(
   token: string,
   method: string,
@@ -202,7 +202,7 @@ async function richRequest(
   fallback: (classicHtml: string) => Promise<void>
 ): Promise<void> {
   const isInlineTarget = 'inline_message_id' in target;
-  if (html.includes('<tg-emoji') && !(richEmojiTest && isInlineTarget)) {
+  if (html.includes('<tg-emoji') && isInlineTarget && !richEmojiTest) {
     await dbg('tg', { kind: 'rich-skipped-tg-emoji', method, html: html.slice(0, 500) }); // DEBUG SEMENTARA
     await fallback(stripHrForClassic(html));
     return;

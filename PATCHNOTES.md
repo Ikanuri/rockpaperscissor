@@ -4,6 +4,16 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.10 — 1 Oktober 2026
+
+### 🔧 Perbaikan
+
+**💎 Emoji Custom di Pesan Grup/DM Kini Tetap Rapi**
+
+Pesan bot yang dikirim langsung ke grup atau DM (pengumuman, hasil Team di grup, dll) sekarang tetap tampil dengan format rapi walau berisi emoji custom animasi — dan emojinya tetap bergerak. Bubble game inline tetap memakai jalur klasik supaya emoji custom tetap bergerak.
+
+---
+
 ## v2.3.9 — 1 Oktober 2026
 
 ### 🔬 Alat Diagnostik (khusus owner)
