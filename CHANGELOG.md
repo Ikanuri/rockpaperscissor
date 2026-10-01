@@ -5,6 +5,12 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.5] — 2026-10-01
+
+### Fixed
+- Custom emoji (`<tg-emoji>`) in game result bubbles rendered as a static fallback glyph instead of the real animated emoji. Root cause confirmed with the `/emojitest` DM and inline tests: in an *inline* message, `rich_message` shows a custom emoji only as its plain fallback glyph (even for a bare one-line message — buttons, `<hr/>` and blockquote are not involved), while classic `parse_mode: 'HTML'` shows and animates the real emoji. Matches the Bot API docs, which only permit custom emoji entities in messages sent directly to private/group/supergroup chats. (A rich message sent directly to a DM did animate, so rich itself is not at fault.)
+- `telegram.ts`: removed the `forceRich` parameter from `editInlineMessageRich`/`editMessageRich`/`sendMessageRich`/`richRequest`; any html containing `<tg-emoji` now always takes the classic path. `game.ts`: `finishGame` no longer forces rich on the 1v1 result. Production (`main`, v2.2.1) still forces rich on 1v1/LMS/Team result screens and has this bug until this release is merged
+
 ## [2.3.4] — 2026-10-01
 
 ### Added

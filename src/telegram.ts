@@ -114,12 +114,10 @@ export async function editInlineMessageRich(
   token: string,
   inlineMessageId: string,
   html: string,
-  replyMarkup?: InlineKeyboardMarkup,
-  forceRich = false
+  replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
   await richRequest(token, 'editMessageText', { inline_message_id: inlineMessageId }, html, replyMarkup,
-    classicHtml => editInlineMessage(token, inlineMessageId, classicHtml, replyMarkup),
-    forceRich);
+    classicHtml => editInlineMessage(token, inlineMessageId, classicHtml, replyMarkup));
 }
 
 // <hr> (InputRichBlockDivider) isn't a tag classic parse_mode: 'HTML' understands — Telegram
@@ -132,26 +130,23 @@ function stripHrForClassic(html: string): string {
 // Shared by every rich-message variant: builds the html+buttons payload, posts it, and falls back
 // to the caller's plain (non-rich) equivalent if the API rejects it for any reason.
 //
-// <tg-emoji> (donator custom emoji) skips the rich attempt by default, going straight to the
-// classic parse_mode: 'HTML' path. Confirmed broken in at least one real case: a viewer with real
-// Telegram Premium couldn't see an opponent's custom emoji inside a game result (inline message)
-// that rendered fine before this bot's Rich Message rollout. A separate inline-message test (in a
-// private chat) rendered correctly, so the exact trigger isn't pinned down — it is NOT simply
-// "inline vs. regular chat message" (both the working and broken case were inline) and NOT simply
-// viewer Telegram Premium status (the broken case had it, the unrelated working case didn't).
-// forceRich=true (currently only the 1v1 result screen, at the user's explicit request to re-test
-// rich rendering there) bypasses this safety net for that one call site — if custom emoji goes
-// missing there again, that confirms the regression and forceRich should come back out.
+// Any html containing <tg-emoji> (donator custom emoji) skips rich and goes straight to classic
+// parse_mode: 'HTML'. Root cause confirmed by the owner's /emojitest (inline variants I1-I4 vs I5):
+// in an INLINE message, rich_message renders a custom emoji as its plain fallback glyph only —
+// even with nothing else in the message — while classic HTML shows and animates the real emoji.
+// This matches the Bot API docs: custom emoji entities are only allowed in messages the bot sends
+// directly to private/group/supergroup chats (with an owner-Premium account), and inline messages
+// aren't in that list. (A rich message sent directly to a DM did animate, so rich itself is fine
+// there; groups are untested, so chat messages stay classic too until someone verifies them.)
 async function richRequest(
   token: string,
   method: string,
   target: Record<string, unknown>,
   html: string,
   replyMarkup: InlineKeyboardMarkup | undefined,
-  fallback: (classicHtml: string) => Promise<void>,
-  forceRich = false
+  fallback: (classicHtml: string) => Promise<void>
 ): Promise<void> {
-  if (!forceRich && html.includes('<tg-emoji')) {
+  if (html.includes('<tg-emoji')) {
     await fallback(stripHrForClassic(html));
     return;
   }
@@ -179,12 +174,10 @@ export async function editMessageRich(
   chatId: number,
   messageId: number,
   html: string,
-  replyMarkup?: InlineKeyboardMarkup,
-  forceRich = false
+  replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
   await richRequest(token, 'editMessageText', { chat_id: chatId, message_id: messageId }, html, replyMarkup,
-    classicHtml => editMessage(token, chatId, messageId, classicHtml, replyMarkup),
-    forceRich);
+    classicHtml => editMessage(token, chatId, messageId, classicHtml, replyMarkup));
 }
 
 // Sends a brand-new rich message (Bot API 10.3's sendRichMessage) instead of editing an existing
@@ -194,12 +187,10 @@ export async function sendMessageRich(
   token: string,
   chatId: number,
   html: string,
-  replyMarkup?: InlineKeyboardMarkup,
-  forceRich = false
+  replyMarkup?: InlineKeyboardMarkup
 ): Promise<void> {
   await richRequest(token, 'sendRichMessage', { chat_id: chatId }, html, replyMarkup,
-    classicHtml => sendMessage(token, chatId, classicHtml, replyMarkup),
-    forceRich);
+    classicHtml => sendMessage(token, chatId, classicHtml, replyMarkup));
 }
 
 export function sendMessage(

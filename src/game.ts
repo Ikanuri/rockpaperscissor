@@ -1315,8 +1315,8 @@ async function finishGame(
   const text = withFooter(resultText(matchOutcome, done, env, history, hostConfig, opponentConfig, winnerStreak), footer);
 
   await Promise.all([
-    editInlineMessageRich(token, session.hostInlineMessageId, text, keyboard, true),
-    editInlineMessageRich(token, session.opponentInlineMessageId!, text, keyboard, true),
+    editInlineMessageRich(token, session.hostInlineMessageId, text, keyboard),
+    editInlineMessageRich(token, session.opponentInlineMessageId!, text, keyboard),
   ]);
 
   if (session.tournamentId && session.tournamentMatchId) {

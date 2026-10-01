@@ -4,6 +4,16 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.5 — 1 Oktober 2026
+
+### 🔧 Perbaikan
+
+**💎 Emoji Custom Donator Animasi Lagi di Hasil Game**
+
+Akar masalah emoji custom yang tampil diam (bukan animasi) di layar hasil sudah ketemu dan diperbaiki: Telegram hanya mau menampilkan emoji custom aslinya lewat jalur pengiriman klasik untuk pesan game. Sekarang semua pesan yang berisi emoji custom otomatis memakai jalur itu. Garis pembatas footer di pesan semacam itu tampil sebagai garis teks biasa.
+
+---
+
 ## v2.3.4 — 1 Oktober 2026
 
 ### 🔬 Alat Diagnostik (khusus owner)
