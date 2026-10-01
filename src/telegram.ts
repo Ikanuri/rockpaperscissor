@@ -469,3 +469,23 @@ export function unpinChatMessage(
 ): Promise<void> {
   return call(token, 'unpinChatMessage', { chat_id: chatId, message_id: messageId });
 }
+
+// Raw Bot API call that returns Telegram's full JSON response instead of swallowing it —
+// used by the owner-only /emojitest diagnostic so the actual API verdict (and how Telegram
+// parsed a rich message) can be read back, not just eyeballed.
+export async function callRaw(
+  token: string,
+  method: string,
+  body: Record<string, unknown>
+): Promise<{ ok: boolean; description?: string; result?: Record<string, unknown> }> {
+  try {
+    const res = await fetch(`${API}${token}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, description: String(e) };
+  }
+}

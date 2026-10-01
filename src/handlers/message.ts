@@ -1,5 +1,5 @@
 import type { Choice, Env, GameSession, LeaderboardEntry, LmsSession, OpenChallenge, PendingConfig, TeamDiceWaitState, TeamSession, TelegramMessage, TournamentSession, UserStats } from '../types';
-import { editInlineMessageRich, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendMessageRich, sendPoll, setMyCommands } from '../telegram';
+import { callRaw, editInlineMessageRich, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendMessageRich, sendPoll, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
 import {
   loadConfig,
@@ -663,6 +663,42 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
         '/setglobal thumb [rock|paper|scissors] [url|gif|sticker]'
       );
     }
+    return;
+  }
+
+  if (cmd === '/emojitest') {
+    const cfg = await loadConfig(kv, msg.from.id, env);
+    const idArg = parts[1];
+    const id = idArg && /^\d{10,}$/.test(idArg) ? idArg
+      : CHOICES.map(c => cfg.reveal[c]).find(v => /^\d{10,}$/.test(v));
+    if (!id) {
+      await reply(token, msg.chat.id, '❌ Tidak ada custom emoji id. Pakai: /emojitest [id] — atau set /setemoji dulu.');
+      return;
+    }
+    const chat = msg.chat.id;
+    const rich = (label: string, richMessage: Record<string, unknown>) =>
+      ({ label, method: 'sendRichMessage', body: { chat_id: chat, rich_message: richMessage } });
+    const E = (label: string, inner: string) => `<b>${label}</b>\n${inner} teks ${inner} teks ${inner}`;
+    const variants = [
+      rich('R1 html <tg-emoji> alt ✊ (yang dipakai bot sekarang)', { html: E('R1 html tg-emoji alt ✊', `<tg-emoji emoji-id="${id}">✊</tg-emoji>`) }),
+      rich('R2 html <tg-emoji> alt spasi (contoh di docs)', { html: E('R2 html tg-emoji alt spasi', `<tg-emoji emoji-id="${id}"> </tg-emoji>`) }),
+      rich('R3 html <img src=tg://emoji>', { html: E('R3 html img tg://emoji', `<img src="tg://emoji?id=${id}" alt="✊"/>`) }),
+      rich('R4 markdown ![✊](tg://emoji)', { markdown: `**R4 markdown image tg://emoji**\n![✊](tg://emoji?id=${id}) teks ![✊](tg://emoji?id=${id}) teks ![✊](tg://emoji?id=${id})` }),
+      rich('R5 blocks custom_emoji', { blocks: [{ type: 'paragraph', text: [{ type: 'bold', text: 'R5 blocks custom_emoji ' }, { type: 'custom_emoji', custom_emoji_id: id, alternative_text: '✊' }, ' teks ', { type: 'custom_emoji', custom_emoji_id: id, alternative_text: '✊' }] }] }),
+      { label: 'C6 classic parse_mode HTML (pembanding, harusnya animasi)', method: 'sendMessage',
+        body: { chat_id: chat, parse_mode: 'HTML', text: E('C6 classic HTML', `<tg-emoji emoji-id="${id}">✊</tg-emoji>`) } },
+    ];
+    const lines: string[] = [`id=${id}`];
+    for (const v of variants) {
+      const r = await callRaw(token, v.method, v.body);
+      const parsed = r.ok
+        ? JSON.stringify((r.result as Record<string, unknown>)?.rich_message ?? (r.result as Record<string, unknown>)?.entities ?? null).slice(0, 420)
+        : '';
+      console.log(`[emojitest] ${v.label} ok=${r.ok} desc=${r.description ?? ''} parsed=${parsed}`);
+      lines.push(`${r.ok ? '✅' : '❌'} ${v.label}${r.ok ? '' : `\n   ${r.description}`}${parsed ? `\n   parsed: ${parsed}` : ''}`);
+    }
+    await reply(token, msg.chat.id,
+      `🧪 <b>/emojitest selesai</b> — bandingkan 6 pesan di atas: mana yang animasi?\n<pre>${escHtml(lines.join('\n')).slice(0, 3500)}</pre>`);
     return;
   }
 

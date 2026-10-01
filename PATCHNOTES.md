@@ -4,6 +4,14 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.3 — 1 Oktober 2026
+
+### 🔬 Alat Diagnostik (khusus owner)
+
+Ditambah perintah uji internal untuk mencari cara menampilkan emoji custom animasi di pesan rapi (rich). Tidak ada perubahan yang terasa untuk pemain.
+
+---
+
 ## v2.3.2 — 19 September 2026
 
 ### 🔬 Sedang Diuji

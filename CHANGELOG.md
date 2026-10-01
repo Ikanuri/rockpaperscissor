@@ -5,6 +5,11 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.3] — 2026-10-01
+
+### Added
+- Owner-only `/emojitest [custom_emoji_id]` diagnostic (`message.ts`) for the open "custom emoji is static inside rich_message" case. Sends the same custom emoji to the owner's DM in 6 encodings — rich `html` `<tg-emoji>` (alt ✊ and alt space, as in the docs example), rich `html` `<img src="tg://emoji?id=…">`, rich `markdown` `![✊](tg://emoji?id=…)`, rich `blocks` `custom_emoji`, plus a classic `parse_mode: 'HTML'` control — then replies with a summary of each variant's API verdict and how Telegram parsed it (the `rich_message`/`entities` echoed in the returned `Message`), and logs each result as `[emojitest]` for `wrangler tail`. `telegram.ts`: new `callRaw()` returns the full Bot API JSON instead of swallowing it. No game behavior changed
+
 ## [2.3.2] — 2026-09-19
 
 ### Changed
