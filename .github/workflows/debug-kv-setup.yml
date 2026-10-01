@@ -1,31 +1,32 @@
-# DEBUG SEMENTARA — workflow sekali pakai untuk membuat KV namespace debug. Hapus branch ini setelah ID dicatat.
-name: Debug KV setup (TEMPORARY)
+# SEKALI PAKAI — menghapus sisa debug di Cloudflare (namespace KV + secret DEBUG_SECRET beta). Branch ini dihapus sesudahnya.
+name: Debug cleanup (TEMPORARY)
 
 on:
   push:
     branches: [debug-kv-setup]
 
 jobs:
-  create:
+  cleanup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Create DEBUG_KV namespace (idempotent)
+      - name: Delete rps-debug-kv namespace
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          EXISTING=$(curl -s "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces?per_page=100" \
+          NSID=$(curl -s "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces?per_page=100" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" | jq -r '.result[]? | select(.title=="rps-debug-kv") | .id')
-          if [ -n "$EXISTING" ]; then
-            echo "DEBUG_KV_ID=$EXISTING (already existed)"
-          else
-            RESULT=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces" \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" \
-              --data '{"title":"rps-debug-kv"}')
-            echo "$RESULT" | jq '{success, errors, id: .result.id}'
-            echo "DEBUG_KV_ID=$(echo "$RESULT" | jq -r '.result.id')"
-          fi
+          if [ -z "$NSID" ]; then echo "namespace rps-debug-kv tidak ditemukan (sudah terhapus?)"; exit 0; fi
+          echo "menghapus namespace id=$NSID"
+          curl -s -X DELETE "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${NSID}" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" | jq '{success, errors}'
+      - name: Delete DEBUG_SECRET from beta Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@4 secret delete DEBUG_SECRET --name rps-bot-beta --force 2>&1 || echo "(secret tidak ada / sudah terhapus — dianggap beres)"
