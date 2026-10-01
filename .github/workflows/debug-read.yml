@@ -1,0 +1,29 @@
+# DEBUG SEMENTARA — membaca /debug/<nama> dari Worker di sisi GitHub (DEBUG_SECRET tidak pernah keluar dari GitHub).
+# Cara pakai: ubah isi debug-request.txt (format: "<beta|prod> <nama>"), commit, push ke branch ini.
+name: Debug read (TEMPORARY)
+
+on:
+  push:
+    branches: [debug-read]
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch /debug endpoint
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEBUG_SECRET: ${{ secrets.DEBUG_SECRET }}
+        run: |
+          read -r ENVNAME NAME < debug-request.txt
+          if [ -z "$DEBUG_SECRET" ]; then echo "DEBUG_SECRET belum ada di GitHub Secrets"; exit 1; fi
+          SUBDOMAIN=$(curl -s "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" | jq -r '.result.subdomain')
+          if [ "$ENVNAME" = "prod" ]; then WORKER=rps-bot; else WORKER=rps-bot-beta; fi
+          echo "== GET https://${WORKER}.<subdomain>.workers.dev/debug/${NAME} =="
+          CODE=$(curl -s -o /tmp/out.json -w '%{http_code}' -H "X-Debug-Token: ${DEBUG_SECRET}" \
+            "https://${WORKER}.${SUBDOMAIN}.workers.dev/debug/${NAME}")
+          echo "HTTP ${CODE}"
+          cat /tmp/out.json
