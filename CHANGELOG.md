@@ -5,6 +5,11 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.11] — 2026-10-01
+
+### Removed
+- All temporary debug tooling from v2.3.6–v2.3.8, marked `DEBUG SEMENTARA`: `src/debug.ts` and its `dbg()` calls, the `GET /debug/<name>` endpoint, the `DEBUG_KV` binding and `DEBUG_SECRET` env types, the beta `debug_errors` (DM errors to owner) and `rich_emoji_result` (rich inline emoji results + DM copies) feature flags with their `telegram.ts`/`index.ts` hooks, and the "Derive and push DEBUG_SECRET" step in `deploy-beta.yml`. Done by restoring `index.ts`/`types.ts`/`wrangler.toml`/`deploy-beta.yml`/`telegram.ts` to their v2.3.5 state and re-applying only the v2.3.10 inline-only `<tg-emoji>` rule. The throwaway branches `debug-kv-setup` and `debug-read`, the `rps-debug-kv` namespace, and the beta `DEBUG_SECRET` Worker secret are deleted outside the repo. Kept: the owner-only `/emojitest` tools (DM, group, and inline `@bot emojitest`) and `callRaw()`, which do not affect game behavior
+
 ## [2.3.10] — 2026-10-01
 
 ### Changed

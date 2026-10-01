@@ -243,8 +243,6 @@ export interface Env {
   CUSTOM_EMOJI_SCISSORS: string;
   FEATURE_FLAGS: string;
   WEBHOOK_SECRET?: string;
-  DEBUG_KV?: KVNamespace;     // DEBUG SEMENTARA
-  DEBUG_SECRET?: string;      // DEBUG SEMENTARA
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
 }

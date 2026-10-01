@@ -4,6 +4,14 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.11 — 1 Oktober 2026
+
+### 🧹 Rapi-rapi
+
+Alat pelacak sementara di bot beta sudah dilepas setelah masalah emoji custom selesai diselidiki. Tidak ada perubahan yang terasa untuk pemain.
+
+---
+
 ## v2.3.10 — 1 Oktober 2026
 
 ### 🔧 Perbaikan

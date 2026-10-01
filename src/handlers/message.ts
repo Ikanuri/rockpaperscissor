@@ -95,8 +95,8 @@ function reply(token: string, chatId: number, text: string) {
   return sendMessage(token, chatId, text);
 }
 
-// DEBUG SEMENTARA-adjacent owner tool: also runnable inside a group (see handleGroupMessage) so
-// rich-with-custom-emoji can be verified in a real group chat, not just a DM.
+// Owner tool: also runnable inside a group (see handleGroupMessage) so rich-with-custom-emoji can
+// be verified in a real group chat, not just a DM.
 async function runEmojiTest(token: string, env: Env, chat: number, ownerUserId: number, idArg: string | undefined): Promise<void> {
   const kv = env.GAME_SESSIONS;
   const cfg = await loadConfig(kv, ownerUserId, env);

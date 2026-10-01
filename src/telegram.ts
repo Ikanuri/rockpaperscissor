@@ -1,50 +1,9 @@
 import type { InlineKeyboardMarkup, InlineResult } from './types';
 
-import { dbg, debugOn } from './debug'; // DEBUG SEMENTARA
-
 const API = 'https://api.telegram.org/bot';
 
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
-}
-
-// Temporary diagnostics (feature flag `debug_errors`, enabled on beta only): every Bot API
-// failure and webhook exception is also DM'd to the owner as plain text, so the real error is
-// visible in chat without `wrangler tail`. Deduped per message for 30s and capped per isolate so
-// a retry loop can't flood the owner. Off (debugOwnerId === null) unless enableErrorDebug() ran.
-let debugOwnerId: number | null = null;
-let debugSent = 0;
-const debugSeen = new Map<string, number>();
-
-// DEBUG SEMENTARA (flag `rich_emoji_result`, beta only): lets inline results that contain <tg-emoji>
-// go through rich_message again, and also sends the identical payload as a direct rich DM to the
-// owner, so the same real game result can be compared inline-vs-direct and Telegram's parse of the
-// direct copy can be read back from the API response. Remove with the other debug tooling.
-let richEmojiTest = false;
-let lastDmCopy = '';
-export function enableRichEmojiTest(): void {
-  richEmojiTest = true;
-}
-
-export function enableErrorDebug(ownerId: string): void {
-  const n = parseInt(ownerId);
-  debugOwnerId = isNaN(n) ? null : n;
-}
-
-export async function reportError(token: string, where: string, detail: string): Promise<void> {
-  if (debugOwnerId === null || debugSent >= 40 || detail.includes('message is not modified')) return;
-  const key = `${where}|${detail.slice(0, 80)}`;
-  const now = Date.now();
-  if (now - (debugSeen.get(key) ?? 0) < 30_000) return;
-  debugSeen.set(key, now);
-  debugSent++;
-  try {
-    await fetch(`${API}${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: debugOwnerId, text: `🐞 ${where}\n${detail.slice(0, 900)}` }),
-    });
-  } catch { /* diagnostics must never break the request */ }
 }
 
 async function call(
@@ -59,16 +18,6 @@ async function call(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (debugOn()) { // DEBUG SEMENTARA: rekam setiap panggilan keluar + respons Telegram
-      const b = body as Record<string, unknown>;
-      await dbg('tg', {
-        kind: 'classic', method, status: res.status,
-        target: b.inline_message_id ? `inline…${String(b.inline_message_id).slice(-6)}` : `chat ${b.chat_id}`,
-        parse_mode: b.parse_mode, has_markup: !!b.reply_markup,
-        text: typeof b.text === 'string' ? b.text.slice(0, 500) : undefined,
-        response: (await res.clone().text()).slice(0, 600),
-      });
-    }
     if (res.status === 429) {
       const data = await res.json<{ parameters?: { retry_after?: number } }>();
       const wait = Math.min((data.parameters?.retry_after ?? 5) * 1000, maxRetryWait);
@@ -76,11 +25,7 @@ async function call(
       await sleep(wait);
       continue;
     }
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error(`[tg:${method}]`, errText);
-      await reportError(token, `tg:${method}`, errText);
-    }
+    if (!res.ok) console.error(`[tg:${method}]`, await res.text());
     return;
   }
 }
@@ -187,12 +132,13 @@ function stripHrForClassic(html: string): string {
 //
 // Inline messages that contain <tg-emoji> (donator custom emoji) skip rich and go straight to
 // classic parse_mode: 'HTML'. Root cause confirmed by the owner's /emojitest (inline variants I1-I4
-// vs I5, plus the rich_emoji_result game comparison): in an INLINE message, rich_message renders a
-// custom emoji as its plain fallback glyph only — even with nothing else in the message — while
-// classic HTML shows and animates the real emoji. This matches the Bot API docs: custom emoji
-// entities are only allowed in messages the bot sends directly to private/group/supergroup chats,
-// and inline messages aren't in that list. Rich messages sent directly to a DM or a group were
-// verified to show AND animate the real emoji (all encodings), so non-inline targets stay rich.
+// vs I5, plus a real game result sent both inline and as a direct DM): in an INLINE message,
+// rich_message renders a custom emoji as its plain fallback glyph only — even with nothing else in
+// the message — while classic HTML shows and animates the real emoji. This matches the Bot API
+// docs: custom emoji entities are only allowed in messages the bot sends directly to
+// private/group/supergroup chats, and inline messages aren't in that list. Rich messages sent
+// directly to a DM or a group were verified to show AND animate the real emoji (all encodings),
+// so non-inline targets stay rich.
 async function richRequest(
   token: string,
   method: string,
@@ -201,9 +147,7 @@ async function richRequest(
   replyMarkup: InlineKeyboardMarkup | undefined,
   fallback: (classicHtml: string) => Promise<void>
 ): Promise<void> {
-  const isInlineTarget = 'inline_message_id' in target;
-  if (html.includes('<tg-emoji') && isInlineTarget && !richEmojiTest) {
-    await dbg('tg', { kind: 'rich-skipped-tg-emoji', method, html: html.slice(0, 500) }); // DEBUG SEMENTARA
+  if (html.includes('<tg-emoji') && 'inline_message_id' in target) {
     await fallback(stripHrForClassic(html));
     return;
   }
@@ -215,21 +159,10 @@ async function richRequest(
       body: JSON.stringify({ ...target, rich_message: { html: fullHtml } }),
     });
     const data = await res.json<{ ok: boolean; description?: string }>();
-    await dbg('tg', { kind: 'rich-attempt', method, status: res.status, html: fullHtml.slice(0, 500), response: JSON.stringify(data).slice(0, 600) }); // DEBUG SEMENTARA
-    if (richEmojiTest && isInlineTarget && debugOwnerId !== null && html.includes('<tg-emoji') && html !== lastDmCopy) { // DEBUG SEMENTARA
-      lastDmCopy = html;
-      const copy = await callRaw(token, 'sendRichMessage', {
-        chat_id: debugOwnerId,
-        rich_message: { html: `<b>🧪 salinan DM (dikirim langsung, bukan inline)</b>\n${html}` },
-      });
-      await dbg('tg', { kind: 'rich-dm-copy', ok: copy.ok, description: copy.description, parsed: JSON.stringify((copy.result as Record<string, unknown> | undefined)?.rich_message ?? null).slice(0, 900) });
-    }
     if (res.ok && data.ok) return;
     console.error(`[tg:${method}Rich] rejected, falling back to plain text/buttons:`, JSON.stringify(data));
-    await reportError(token, `tg:${method}Rich rejected → classic fallback`, JSON.stringify(data));
   } catch (e) {
     console.error(`[tg:${method}Rich] error, falling back to plain text/buttons:`, e);
-    await reportError(token, `tg:${method}Rich threw → classic fallback`, String(e));
   }
   await fallback(stripHrForClassic(html));
 }
