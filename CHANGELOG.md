@@ -5,6 +5,11 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.4] — 2026-10-01
+
+### Added
+- Owner-only inline companion to `/emojitest` (`inline.ts`): `@bot emojitest` returns 5 article results (I1 rich html emoji only, I2 rich html + `<tg-button>`, I3 rich html + `<hr/>` + expandable blockquote footer, I4 rich blocks `custom_emoji`, I5 classic HTML control). On `chosen_inline_result` the bot edits that inline message via `inline_message_id` — the exact delivery path of game result screens — so the animation question can be answered for inline messages, not just DMs. Prompted by the 2.3.3 DM test: all six variants (rich html/img/markdown/blocks and classic) animated when sent as new messages to a private chat, which disproves "rich_message suppresses custom emoji animation" for that path and leaves inline-message edits, buttons, `<hr/>`, and blockquote as the remaining suspects
+
 ## [2.3.3] — 2026-10-01
 
 ### Added

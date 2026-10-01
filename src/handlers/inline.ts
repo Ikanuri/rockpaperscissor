@@ -18,7 +18,8 @@ import type {
   UserStats,
   VsStats,
 } from '../types';
-import { answerInlineQuery, editInlineMessageRich, getChatMember, sendMessage } from '../telegram';
+import { answerInlineQuery, callRaw, editInlineMessageRich, getChatMember, sendMessage } from '../telegram';
+import { loadConfig } from '../config';
 import {
   EMOJI,
   determineWinner,
@@ -283,6 +284,18 @@ export async function handleInlineQuery(query: InlineQuery, env: Env): Promise<v
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
   const { from } = query;
+
+  if (q === 'EMOJITEST' && String(from.id) === env.BOT_OWNER_ID) {
+    await answerInlineQuery(token, query.id, EMOJITEST_VARIANTS.map(v => ({
+      type: 'article' as const,
+      id: `et_${v.key}`,
+      title: `${v.key}: ${v.title}`,
+      description: 'Kirim ke chat, lalu lihat apakah emoji bergerak',
+      input_message_content: { message_text: `⏳ ${v.key} ...` },
+      reply_markup: { inline_keyboard: [[{ text: '🔘 tombol awal', callback_data: 'noop' }]] },
+    })));
+    return;
+  }
 
   // Force-start gate: user must DM /start before playing inline
   const userInfo = await kv.get(`user:info:${from.id}`);
@@ -848,6 +861,11 @@ export async function handleChosenInlineResult(
   const q = result.query.trim().toUpperCase();
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
+
+  if (q === 'EMOJITEST' && String(result.from.id) === env.BOT_OWNER_ID) {
+    await runInlineEmojiTest(result, env);
+    return;
+  }
 
   if (q === 'CLEARHOST') {
     const listKey = `hostgames:${result.from.id}`;
@@ -1672,4 +1690,41 @@ export async function handleChosenInlineResult(
     waitingKeyboard(gameId)
   );
   ctx.waitUntil(maybeAnnounceGame(token, kv, session, env.BOT_USERNAME));
+}
+
+
+// ── Owner-only /emojitest companion: reproduces the game's real delivery path (an inline
+// message edited via inline_message_id) so "does custom emoji animate inside rich_message?"
+// can be answered for inline messages too, not just direct DMs. Query: @bot emojitest ──
+const EMOJITEST_VARIANTS: Array<{ key: string; title: string }> = [
+  { key: 'I1', title: 'rich html, emoji saja' },
+  { key: 'I2', title: 'rich html + tombol <tg-button>' },
+  { key: 'I3', title: 'rich html + <hr/> + blockquote footer' },
+  { key: 'I4', title: 'rich blocks custom_emoji' },
+  { key: 'I5', title: 'classic HTML (pembanding, animasi)' },
+];
+
+async function runInlineEmojiTest(result: ChosenInlineResult, env: Env): Promise<void> {
+  const key = result.result_id.replace(/^et_/, '');
+  const cfg = await loadConfig(env.GAME_SESSIONS, result.from.id, env);
+  const id = (['rock', 'paper', 'scissors'] as const).map(c => cfg.reveal[c]).find(v => /^\d{10,}$/.test(v));
+  if (!id || !result.inline_message_id) return;
+  const em = `<tg-emoji emoji-id="${id}">✊</tg-emoji>`;
+  const line = `<b>${key}</b> ${em} teks ${em} teks ${em}`;
+  const target = { inline_message_id: result.inline_message_id };
+  const btn = '<tg-button-row><tg-button type="callback_data" data="noop">🔘 tombol rich</tg-button></tg-button-row>';
+  const method = 'editMessageText';
+  let body: Record<string, unknown>;
+  if (key === 'I1') body = { ...target, rich_message: { html: line } };
+  else if (key === 'I2') body = { ...target, rich_message: { html: line + btn } };
+  else if (key === 'I3') body = { ...target, rich_message: { html: `${line}\n<hr/>\n<blockquote expandable>footer contoh footer contoh footer contoh</blockquote>` } };
+  else if (key === 'I4') {
+    const ce = { type: 'custom_emoji', custom_emoji_id: id, alternative_text: '✊' };
+    body = { ...target, rich_message: { blocks: [{ type: 'paragraph', text: [{ type: 'bold', text: `${key} ` }, ce, ' teks ', ce, ' teks ', ce] }] } };
+  } else body = { ...target, text: line, parse_mode: 'HTML' };
+  const r = await callRaw(env.BOT_TOKEN, method, body);
+  console.log(`[emojitest-inline] ${key} ok=${r.ok} desc=${r.description ?? ''}`);
+  if (!r.ok) {
+    await sendMessage(env.BOT_TOKEN, result.from.id, `❌ emojitest-inline ${key}: ${r.description}`);
+  }
 }

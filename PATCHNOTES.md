@@ -4,6 +4,14 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.4 — 1 Oktober 2026
+
+### 🔬 Alat Diagnostik (khusus owner)
+
+Perluasan alat uji internal untuk emoji custom animasi, kini meniru jalur pesan game yang sebenarnya. Tidak ada perubahan yang terasa untuk pemain.
+
+---
+
 ## v2.3.3 — 1 Oktober 2026
 
 ### 🔬 Alat Diagnostik (khusus owner)
