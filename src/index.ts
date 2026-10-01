@@ -4,7 +4,7 @@ import { handleCallbackQuery } from './handlers/callback';
 import { handleMessage } from './handlers/message';
 import { handlePreCheckout, handleStripeWebhook } from './handlers/payment';
 import { hasFeature } from './feature';
-import { enableErrorDebug, reportError, sendMessage } from './telegram';
+import { enableErrorDebug, enableRichEmojiTest, reportError, sendMessage } from './telegram';
 import { dbg, enableDebug, handleDebugRequest } from './debug'; // DEBUG SEMENTARA
 import { getDayIndex, getReleaseMs, escHtml } from './game';
 
@@ -53,6 +53,7 @@ export default {
 
     if (hasFeature(env, 'debug_errors')) enableErrorDebug(env.BOT_OWNER_ID);
     enableDebug(env); // DEBUG SEMENTARA
+    if (hasFeature(env, 'rich_emoji_result')) enableRichEmojiTest(); // DEBUG SEMENTARA
 
     try {
       const update = await request.json<TelegramUpdate>();

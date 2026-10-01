@@ -16,6 +16,16 @@ let debugOwnerId: number | null = null;
 let debugSent = 0;
 const debugSeen = new Map<string, number>();
 
+// DEBUG SEMENTARA (flag `rich_emoji_result`, beta only): lets inline results that contain <tg-emoji>
+// go through rich_message again, and also sends the identical payload as a direct rich DM to the
+// owner, so the same real game result can be compared inline-vs-direct and Telegram's parse of the
+// direct copy can be read back from the API response. Remove with the other debug tooling.
+let richEmojiTest = false;
+let lastDmCopy = '';
+export function enableRichEmojiTest(): void {
+  richEmojiTest = true;
+}
+
 export function enableErrorDebug(ownerId: string): void {
   const n = parseInt(ownerId);
   debugOwnerId = isNaN(n) ? null : n;
@@ -191,7 +201,8 @@ async function richRequest(
   replyMarkup: InlineKeyboardMarkup | undefined,
   fallback: (classicHtml: string) => Promise<void>
 ): Promise<void> {
-  if (html.includes('<tg-emoji')) {
+  const isInlineTarget = 'inline_message_id' in target;
+  if (html.includes('<tg-emoji') && !(richEmojiTest && isInlineTarget)) {
     await dbg('tg', { kind: 'rich-skipped-tg-emoji', method, html: html.slice(0, 500) }); // DEBUG SEMENTARA
     await fallback(stripHrForClassic(html));
     return;
@@ -205,6 +216,14 @@ async function richRequest(
     });
     const data = await res.json<{ ok: boolean; description?: string }>();
     await dbg('tg', { kind: 'rich-attempt', method, status: res.status, html: fullHtml.slice(0, 500), response: JSON.stringify(data).slice(0, 600) }); // DEBUG SEMENTARA
+    if (richEmojiTest && isInlineTarget && debugOwnerId !== null && html.includes('<tg-emoji') && html !== lastDmCopy) { // DEBUG SEMENTARA
+      lastDmCopy = html;
+      const copy = await callRaw(token, 'sendRichMessage', {
+        chat_id: debugOwnerId,
+        rich_message: { html: `<b>🧪 salinan DM (dikirim langsung, bukan inline)</b>\n${html}` },
+      });
+      await dbg('tg', { kind: 'rich-dm-copy', ok: copy.ok, description: copy.description, parsed: JSON.stringify((copy.result as Record<string, unknown> | undefined)?.rich_message ?? null).slice(0, 900) });
+    }
     if (res.ok && data.ok) return;
     console.error(`[tg:${method}Rich] rejected, falling back to plain text/buttons:`, JSON.stringify(data));
     await reportError(token, `tg:${method}Rich rejected → classic fallback`, JSON.stringify(data));

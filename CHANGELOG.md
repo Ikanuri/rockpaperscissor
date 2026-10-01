@@ -5,6 +5,11 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.8] — 2026-10-01
+
+### Added
+- TEMPORARY diagnostic flag `rich_emoji_result` (beta `FEATURE_FLAGS` only, marked `DEBUG SEMENTARA`): inline results containing `<tg-emoji>` go through `rich_message` again, and the identical html is also sent as a direct `sendRichMessage` DM to the owner (`debug:tg` kind `rich-dm-copy`, including Telegram's parse of it echoed back in the API response). Lets one real game result be compared inline-vs-direct. Production is unaffected (flag absent), and the always-classic rule for `<tg-emoji>` stays in force everywhere the flag is off
+
 ## [2.3.7] — 2026-10-01
 
 ### Added
