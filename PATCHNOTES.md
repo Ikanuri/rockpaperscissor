@@ -4,6 +4,14 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.6 — 1 Oktober 2026
+
+### 🔬 Alat Diagnostik (khusus beta)
+
+Di bot beta, error teknis sekarang dikirim langsung ke owner supaya cepat dilacak. Tidak berlaku di bot utama.
+
+---
+
 ## v2.3.5 — 1 Oktober 2026
 
 ### 🔧 Perbaikan

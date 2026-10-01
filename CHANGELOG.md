@@ -5,6 +5,11 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.6] — 2026-10-01
+
+### Added
+- Temporary `debug_errors` feature flag (enabled in the beta `FEATURE_FLAGS` only): when on, every Bot API failure (`call()`), every rich→classic fallback (`richRequest()`), and every webhook exception (`index.ts`) is also DM'd to the owner as plain text via `reportError()` (`telegram.ts`), so errors are visible in chat without `wrangler tail`. Deduped per message for 30s, capped at 40 per isolate, ignores "message is not modified". Remove the flag from `wrangler.toml` to turn it off — production never had it
+
 ## [2.3.5] — 2026-10-01
 
 ### Fixed

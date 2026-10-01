@@ -66,7 +66,7 @@ CUSTOM_EMOJI_ROCK = ""
 CUSTOM_EMOJI_PAPER = ""
 CUSTOM_EMOJI_SCISSORS = ""
 # All beta features enabled
-FEATURE_FLAGS = "donator,gif_thumb,leaderboard,beta_config,group_mode,beta_gate"
+FEATURE_FLAGS = "donator,gif_thumb,leaderboard,beta_config,group_mode,beta_gate,debug_errors"
 
 [env.beta.triggers]
 crons = ["0 0 * * *"]

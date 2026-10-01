@@ -6,6 +6,35 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// Temporary diagnostics (feature flag `debug_errors`, enabled on beta only): every Bot API
+// failure and webhook exception is also DM'd to the owner as plain text, so the real error is
+// visible in chat without `wrangler tail`. Deduped per message for 30s and capped per isolate so
+// a retry loop can't flood the owner. Off (debugOwnerId === null) unless enableErrorDebug() ran.
+let debugOwnerId: number | null = null;
+let debugSent = 0;
+const debugSeen = new Map<string, number>();
+
+export function enableErrorDebug(ownerId: string): void {
+  const n = parseInt(ownerId);
+  debugOwnerId = isNaN(n) ? null : n;
+}
+
+export async function reportError(token: string, where: string, detail: string): Promise<void> {
+  if (debugOwnerId === null || debugSent >= 40 || detail.includes('message is not modified')) return;
+  const key = `${where}|${detail.slice(0, 80)}`;
+  const now = Date.now();
+  if (now - (debugSeen.get(key) ?? 0) < 30_000) return;
+  debugSeen.set(key, now);
+  debugSent++;
+  try {
+    await fetch(`${API}${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: debugOwnerId, text: `🐞 ${where}\n${detail.slice(0, 900)}` }),
+    });
+  } catch { /* diagnostics must never break the request */ }
+}
+
 async function call(
   token: string,
   method: string,
@@ -25,7 +54,11 @@ async function call(
       await sleep(wait);
       continue;
     }
-    if (!res.ok) console.error(`[tg:${method}]`, await res.text());
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`[tg:${method}]`, errText);
+      await reportError(token, `tg:${method}`, errText);
+    }
     return;
   }
 }
@@ -160,8 +193,10 @@ async function richRequest(
     const data = await res.json<{ ok: boolean; description?: string }>();
     if (res.ok && data.ok) return;
     console.error(`[tg:${method}Rich] rejected, falling back to plain text/buttons:`, JSON.stringify(data));
+    await reportError(token, `tg:${method}Rich rejected → classic fallback`, JSON.stringify(data));
   } catch (e) {
     console.error(`[tg:${method}Rich] error, falling back to plain text/buttons:`, e);
+    await reportError(token, `tg:${method}Rich threw → classic fallback`, String(e));
   }
   await fallback(stripHrForClassic(html));
 }

@@ -4,7 +4,7 @@ import { handleCallbackQuery } from './handlers/callback';
 import { handleMessage } from './handlers/message';
 import { handlePreCheckout, handleStripeWebhook } from './handlers/payment';
 import { hasFeature } from './feature';
-import { sendMessage } from './telegram';
+import { enableErrorDebug, reportError, sendMessage } from './telegram';
 import { getDayIndex, getReleaseMs, escHtml } from './game';
 
 async function handleDailyChallenge(env: Env): Promise<void> {
@@ -45,6 +45,8 @@ export default {
       if (incoming !== env.WEBHOOK_SECRET) return new Response('Unauthorized', { status: 401 });
     }
 
+    if (hasFeature(env, 'debug_errors')) enableErrorDebug(env.BOT_OWNER_ID);
+
     try {
       const update = await request.json<TelegramUpdate>();
 
@@ -61,6 +63,7 @@ export default {
       }
     } catch (err) {
       console.error('Webhook error:', err);
+      await reportError(env.BOT_TOKEN, 'Webhook error', err instanceof Error ? (err.stack ?? err.message) : String(err));
     }
 
     // Always return 200 — Telegram retries on non-200
