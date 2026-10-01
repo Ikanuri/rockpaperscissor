@@ -4,6 +4,14 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.9 — 1 Oktober 2026
+
+### 🔬 Alat Diagnostik (khusus owner)
+
+Perintah uji internal kini bisa dijalankan juga di grup. Tidak ada perubahan yang terasa untuk pemain.
+
+---
+
 ## v2.3.8 — 1 Oktober 2026
 
 ### 🔬 Alat Diagnostik (khusus beta, sementara)

@@ -5,6 +5,11 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.9] — 2026-10-01
+
+### Added
+- Owner-only `/emojitest` now also works inside a group (`handleGroupMessage`), so rich + custom emoji can be verified in a real group chat (DM was already proven to animate; groups were untested). The test body moved to a shared `runEmojiTest()` in `message.ts`. Groundwork for narrowing the `<tg-emoji>` → classic rule in `richRequest()` to inline targets only
+
 ## [2.3.8] — 2026-10-01
 
 ### Added
