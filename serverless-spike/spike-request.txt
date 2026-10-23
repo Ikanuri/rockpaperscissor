@@ -1,4 +1,2 @@
-# Phase 6: game slice. Deploy, then simulate the full 1v1 flow with fake users.
-deploy
-status
-probe game
+# Verify what the server holds after the (cosmetic) CLI crash.
+inspect
