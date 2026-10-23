@@ -1,2 +1,4 @@
-# Verify what the server holds after the (cosmetic) CLI crash.
-inspect
+# Phase 7: the real bot (TypeScript sources via the adapter layer) on the platform. Build, deploy, smoke.
+deploy beta
+probe ping kvstats
+cmd /start

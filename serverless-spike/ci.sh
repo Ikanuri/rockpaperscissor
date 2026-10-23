@@ -48,11 +48,19 @@ while IFS= read -r line || [ -n "$line" ]; do
       webhook_info
       ;;
     deploy)
+      envname="${1:-beta}"
+      echo "---- build (${envname})"
+      ( cd .. && node scripts/build-platform.mjs --env "$envname" --out serverless-spike/tgcloud ) 2>&1 | tail -n 20
+      echo "---- push"
       $TG push --force 2>&1 | mask | tail -n 40
       echo "---- migrate"
       $TG migrate --safe 2>&1 | tail -n 40
       echo "---- webhook after deploy"
       $TG webhook 2>&1 | mask
+      ;;
+    cmd)
+      echo "---- $*"
+      run_msg "$*"
       ;;
     inspect)
       APPID="${TGCLOUD_TOKEN%%:*}"

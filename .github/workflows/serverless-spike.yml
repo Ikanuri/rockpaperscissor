@@ -23,5 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install build dependencies
+        run: npm ci
       - name: Run spike requests
         run: bash serverless-spike/ci.sh

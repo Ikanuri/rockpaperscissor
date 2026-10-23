@@ -1,3 +1,5 @@
 node_modules/
 .tgcloud/
 *.out
+# build output (scripts/build-platform.mjs regenerates it in CI)
+tgcloud/
