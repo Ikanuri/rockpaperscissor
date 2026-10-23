@@ -4,6 +4,14 @@ Catatan update untuk pemain. Versi teknis lengkap ada di `CHANGELOG.md`.
 
 ---
 
+## v2.3.12 — 23 Oktober 2026
+
+### 🔧 Lebih kebal kalau banyak orang pencet bareng
+
+Kalau beberapa pemain menekan tombol di saat yang hampir sama (join lobby, kunci pilihan, keluar), sekarang tidak ada yang "hilang" atau tertimpa. Tampilan dan aturan main tidak berubah.
+
+---
+
 ## v2.3.11 — 1 Oktober 2026
 
 ### 🧹 Rapi-rapi
