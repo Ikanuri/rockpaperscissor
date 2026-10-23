@@ -109,6 +109,30 @@ Pelajaran investigasi: glyph yang muncul di layar BUKAN bukti emoji ter-resolve 
 
 **Input format natural dari owner** (`/setfooter`, `/credits`): `entitiesToHtml()` di `message.ts` mengonversi `message.text` + `message.entities` (metadata format yang Telegram kirim otomatis saat user bold/italic/quote lewat UI, BUKAN tag yang diketik manual) jadi string HTML yang sama persis dipakai parser di atas — jadi owner tidak pernah perlu tahu soal tag HTML sama sekali.
 
+## Telegram Serverless (evaluasi Oktober 2026)
+
+Platform Telegram untuk menjalankan kode bot (`core.telegram.org/bots/serverless`, CLI `@tgcloud/cli` 0.2.0). **Status: evaluasi selesai, irisan game 1v1 terbukti jalan di `@gubakebetabot`; keputusan migrasi penuh BELUM diambil dan produksi tetap di Cloudflare.**
+
+**Kondisi beta sekarang (disengaja):** webhook `@gubakebetabot` menunjuk ke platform, jadi Worker beta (`rps-bot-beta`) tidak menerima update. Untuk mengembalikannya: di branch `serverless-spike` isi `serverless-spike/spike-request.txt` dengan satu baris `restore` lalu push — workflow memanggil `setWebhook` ke Worker beta dan mencetak `getWebhookInfo` (aksi ini belum pernah dijalankan, verifikasi hasilnya). Switch Serverless di @BotFather bisa jadi perlu dimatikan juga.
+
+**Kode dan alatnya:** branch `serverless-spike` (JANGAN digabung ke beta/main), folder `serverless-spike/tgcloud/` (JS murni: `schema.js`, `lib/{game,tg,probe}.js`, `handlers/{message,inline_query,chosen_inline_result,callback_query}.js`), workflow `.github/workflows/serverless-spike.yml` + `serverless-spike/ci.sh` yang membaca `serverless-spike/spike-request.txt` (aksi: `status`, `deploy`, `inspect`, `probe <nama[=arg]> ... `, `hit N`, `restore`). Token CLI ada di GitHub Secret `TGCLOUD_TOKEN_BETA`; CLI di-pin 0.2.0; hasil dibaca lewat `mcp__github__get_job_logs`. `push --force` wajib di CI (runner tanpa state); CLI sesekali crash kosmetik setelah deploy (server sudah menerima — verifikasi dengan aksi `inspect`). `tgcloud run <modul> '<json5>'` menjalankan kode LOKAL di platform tanpa deploy (dipakai untuk semua probe, termasuk simulasi `sl_game`). Branch `debug-kv-setup`/`debug-read` tidak bisa dihapus dari sandbox (HTTP 403 dari proxy git).
+
+**Fakta terukur** (semua dari log CI, bukan dugaan):
+- Tidak ada `setTimeout`/`setInterval`/`queueMicrotask`/`structuredClone`/`URL`/`URLSearchParams`/`atob`/`btoa`/`Buffer`/`process`/`performance`; ada `TextEncoder/Decoder`, `crypto.subtle`+`randomUUID`, `Intl`, `WebAssembly`, `BigInt`. `ctx` hanya berisi `update` (tidak ada `waitUntil`). `FormData`, `InputFile` dari `sdk`.
+- `Date.now()` BEKU saat kerja CPU murni dan hanya maju lewat I/O → busy-wait tidak pernah selesai dan dibunuh `CPU timer exceeded` (~3 s). Batas CPU 3 s tapi longgar (100 juta iterasi ≈ 200 ms). Batas waktu dinding **30 s** (29 s lolos, 31 s HTTP 500; diukur lewat `tgcloud run`).
+- Kerja setelah handler kembali TIDAK dijalankan → semua efek harus di-`await` sebelum return.
+- Handler berjalan serentak tanpa serialisasi. DB: SQLite, satu pernyataan per panggilan, TANPA transaksi/`PRAGMA` (`not authorized`), tanpa `db.batch`; `INSERT … ON CONFLICT … RETURNING` dan `UPDATE … RETURNING` jalan; `n = n + 1` atomik (12/12 vs baca-tulis biasa 1/12); `INSERT … ON CONFLICT DO NOTHING RETURNING` = mutex (tepat 1 pemenang dari 12); `CREATE TRIGGER` diizinkan. Nilai 1 MB lolos, 5 MB ditolak (`Max serialized size reached`). Latensi: baca ~2 ms, tulis ~15 ms, Bot API ~25 ms.
+- `fetch` ke host umum jalan (example.com, GitHub, httpbin, `api.telegram.org`); hanya `cloud.telegram.org` diblokir. Satu `fetch` ke endpoint lambat bisa dipakai menunggu (5339 ms untuk `delay/5`).
+- **Cara menunggu yang dipakai (3 s)**: rantai `db.get(sql\`SELECT 1\`)` sampai `Date.now()` lewat — 3000 ms = ±1830 kueri, 5000 ms = ±3056, tanpa kena batas CPU. Alternatif: rantai `api.getMe()` (±313 panggilan per 5 s).
+- Emoji custom: aturan SAMA seperti Cloudflare — inline classic bergerak, inline rich (dengan/tanpa tombol) diam, DM/grup rich bergerak. State "emoji tunggal" lewat classic menampilkan animasi penuh; owner mengonfirmasi reveal lebih akurat daripada versi Cloudflare.
+- Tidak ada cron/handler terjadwal, tidak ada rute HTTP masuk (webhook Stripe mustahil; Stars + `pre_checkout_query` bisa dengan handler `pre_checkout_query`), tidak ada TTL otomatis, tidak ada mekanisme secret/env yang didokumentasikan, tidak ada ekspor/backup DB di CLI, `console` hanya terlihat via `tgcloud run`.
+
+**Belum diketahui (tidak ada di dokumentasi, tidak terukur dari sandbox):** harga/kuota, apakah update dikirim ulang bila handler gagal, apakah batas 30 s sama di jalur webhook, batas total ukuran DB, observabilitas produksi.
+
+**Pola porting yang terbukti** (lihat `serverless-spike/tgcloud/lib/game.js`): setiap perubahan state = SATU pernyataan atomik (`UPDATE … WHERE status='waiting' … RETURNING` untuk join/cancel/finish, upsert `n = n + 1` untuk statistik); semua efek di-await; kedaluwarsa manual lewat kolom `*_ms`; jeda via rantai `SELECT 1`; edit inline classic bila html berisi `<tg-emoji>`, selain itu rich; kolom JS camelCase ↔ SQL snake_case otomatis.
+
+**Yang sudah diport (irisan 1v1):** mulai (`@bot`), join (`@bot KODE`), Random, reveal emoji tunggal + 3 s, hasil, Cancel, ℹ️, `/stats`, `/setemoji`. **Belum:** BO3/5/7, rematch, open games, LMS, Team, turnamen, donator/tier, leaderboard, footer/credits, achievement, migrasi data KV produksi.
+
 ## Environment Ini (Claude Code on the web)
 
 Sesi berjalan di container remote — akses jaringan keluar (WebFetch ke domain eksternal) kadang dibatasi egress proxy environment (`EGRESS_BLOCKED`), tapi ini bisa berubah antar sesi (kadang jalan, kadang tidak) — coba dulu sebelum asumsi diblokir.
