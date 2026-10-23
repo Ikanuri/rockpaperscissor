@@ -1,4 +1,2 @@
-# Phase 3: verify what the server holds after the CLI crash, pin the wall-clock limit, drop the test trigger.
-deploy
-inspect
-probe cleanup wall2=25 wall2=29 wall2=31 wall2=35 log
+# Phase 4: can ONE slow fetch serve as the reveal delay (no polling)?
+probe fetch=https://httpbin.org/delay/5
