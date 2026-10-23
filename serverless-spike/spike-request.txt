@@ -1,0 +1,6 @@
+# one action per line (see ci.sh). Phase 1: baseline, deploy, probes, concurrency.
+status
+deploy
+status
+probe env sleep perf db race rich
+hit 12

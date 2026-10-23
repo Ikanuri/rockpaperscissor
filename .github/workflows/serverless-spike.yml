@@ -1,0 +1,27 @@
+# TEMPORARY - Telegram Serverless feasibility spike. Runs only on branch serverless-spike; never merge to beta/main.
+name: Serverless spike (TEMPORARY)
+
+on:
+  push:
+    branches: [serverless-spike]
+
+concurrency:
+  group: serverless-spike
+  cancel-in-progress: false
+
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TGCLOUD_TOKEN: ${{ secrets.TGCLOUD_TOKEN_BETA }}
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN_BETA }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run spike requests
+        run: bash serverless-spike/ci.sh
