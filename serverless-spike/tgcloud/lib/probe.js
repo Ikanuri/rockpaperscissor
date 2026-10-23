@@ -20,16 +20,22 @@ export async function say(chat_id, text) {
   }
 }
 
-// Wall-clock pause. Reports which mechanism was available: setTimeout is
-// undocumented, so the fallback busy-waits (burning CPU) and says so.
-export async function pause(ms) {
+// Wall-clock pause. Phase 1 showed there are NO timers (setTimeout is undefined) and that
+// Date.now() only advances across I/O, so a busy-wait never ends and trips the 3 s CPU timer.
+// Without timers the only way to wait is to chain cheap Bot API round trips.
+export async function pause(ms, maxIter = 400) {
   if (typeof setTimeout === 'function') {
     await new Promise((resolve) => setTimeout(resolve, ms));
-    return 'setTimeout';
+    return { mechanism: 'setTimeout', iterations: 0 };
   }
-  const end = Date.now() + ms;
-  while (Date.now() < end) { /* busy wait */ }
-  return 'busy-wait';
+  const start = Date.now();
+  let i = 0;
+  try {
+    while (Date.now() - start < ms && i < maxIter) { await api.getMe(); i++; }
+  } catch (e) {
+    return { mechanism: 'io:getMe', iterations: i, error: String((e && e.description) || e) };
+  }
+  return { mechanism: 'io:getMe', iterations: i, capped: i >= maxIter };
 }
 
 // Runs fn and reports the Bot API verdict instead of throwing.

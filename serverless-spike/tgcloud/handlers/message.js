@@ -31,46 +31,118 @@ const commands = {
       ctx_keys: Object.keys(ctx || {}),
       ctx_waitUntil: typeof (ctx && ctx.waitUntil),
       db_transaction: typeof db.transaction,
+      db_batch: typeof db.batch,
       timezone: tz,
       global_property_count: Object.getOwnPropertyNames(g).length,
     };
   },
 
-  // Does a 5 s (or given ms) wait work? Our game reveal phase needs 3-5 s.
+  // Does a 5 s (or given ms) wait work? Without timers it is built from Bot API round trips.
   async sl_sleep(arg) {
     const ms = Math.min(parseInt(arg, 10) || 5000, 60000);
     const t0 = Date.now();
-    const mechanism = await pause(ms);
-    return { requested_ms: ms, actual_ms: Date.now() - t0, mechanism };
+    const how = await pause(ms, 2000);
+    return { requested_ms: ms, actual_ms: Date.now() - t0, ...how };
   },
 
-  // Wall-clock limit: escalating waits, progress logged to the DB before each step.
+  // Wall-clock limit: escalating I/O-based waits, progress logged to the DB before each step.
   async sl_wall() {
     const done = [];
-    for (const s of [5, 10, 20, 30, 60]) {
-      await log('wall:start', { s });
+    for (const sec of [2, 5, 10, 20, 30]) {
+      await log('wall:start', { sec });
       const t0 = Date.now();
-      const mechanism = await pause(s * 1000);
+      const how = await pause(sec * 1000, 3000);
       const actual_ms = Date.now() - t0;
-      await log('wall:done', { s, actual_ms, mechanism });
-      done.push({ s, actual_ms, mechanism });
+      await log('wall:done', { sec, actual_ms, ...how });
+      done.push({ sec, actual_ms, ...how });
     }
     return { completed: done };
   },
 
-  // CPU limit: escalating busy loops, progress logged to the DB before each step.
-  async sl_cpu() {
-    const done = [];
-    for (const ms of [100, 500, 1000, 2000, 5000, 10000]) {
-      await log('cpu:start', { ms });
+  // CPU cost calibration: `n` iterations of pure CPU work (no clock reads, since the clock is frozen
+  // during CPU work). The CLI prints the server-side elapsed time, or the CPU-timer kill.
+  async sl_cpu(arg) {
+    const n = Math.min(parseInt(arg, 10) || 1000000, 2000000000);
+    await log('cpu:start', { n });
+    let x = 0;
+    for (let i = 0; i < n; i++) { x += Math.sqrt(i + 1); }
+    await log('cpu:done', { n });
+    return { iterations: n, checksum: Math.round(x) % 1000 };
+  },
+
+  // Is the clock frozen during CPU work and advanced by I/O?
+  async sl_clock() {
+    const t0 = Date.now();
+    let x = 0;
+    for (let i = 0; i < 3000000; i++) { x += Math.sqrt(i + 1); }
+    const after_cpu = Date.now();
+    await db.select().from(probeCounter).all();
+    const after_io = Date.now();
+    return { cpu_loop_delta_ms: after_cpu - t0, io_delta_ms: after_io - after_cpu, checksum: Math.round(x) % 1000 };
+  },
+
+  // Can outbound fetch reach anything? Telegram's own host failed in phase 1.
+  async sl_fetch(arg) {
+    const urls = arg ? arg.split(/\s+/) : [
+      'https://example.com/', 'http://example.com/', 'https://api.github.com/zen',
+      'https://raw.githubusercontent.com/Ikanuri/rockpaperscissor/main/package.json',
+      'https://httpbin.org/get', 'https://api.telegram.org/', 'https://cloud.telegram.org/capabilities',
+    ];
+    const out = {};
+    for (const u of urls) {
       const t0 = Date.now();
-      let x = 0;
-      while (Date.now() - t0 < ms) { x += Math.sqrt(x + 1); }
-      const actual_ms = Date.now() - t0;
-      await log('cpu:done', { ms, actual_ms });
-      done.push({ ms, actual_ms });
+      try {
+        const r = await fetch(u);
+        const body = await r.text();
+        out[u] = { status: r.status, ms: Date.now() - t0, bytes: body.length };
+      } catch (e) {
+        out[u] = { ms: Date.now() - t0, error: String((e && e.message) || e) };
+      }
     }
-    return { completed: done };
+    return out;
+  },
+
+  // Does work continue after the handler returns? (stand-in for ctx.waitUntil, used 47x today)
+  async sl_bg() {
+    const marker = 'bg-' + Math.random().toString(36).slice(2, 8);
+    (async () => {
+      try {
+        for (let i = 0; i < 5; i++) await db.select().from(probeCounter).all();
+        await pause(300, 40);
+        await log('bg:done', { marker });
+      } catch (e) {
+        await log('bg:error', { marker, error: String(e) });
+      }
+    })();
+    await log('bg:started', { marker });
+    return { marker, note: 'look for bg:done with this marker in sl_log' };
+  },
+
+  // Single-statement claim: exactly one concurrent caller must win.
+  async sl_claim() {
+    const rows = await db.insert(probeCounter).values({ name: 'claim', n: 1 })
+      .onConflictDoNothing({ target: probeCounter.name }).returning().run();
+    const won = rows.length > 0;
+    await log('claim', { won });
+    return { won };
+  },
+
+  // More DB capabilities: db.batch, multi-statement strings, UPDATE ... RETURNING.
+  async sl_db2() {
+    const out = { typeof_db_batch: typeof db.batch };
+    const t = async (label, fn) => {
+      try { out[label] = await fn(); } catch (e) { out[label] = { error: String((e && e.description) || (e && e.message) || e) }; }
+    };
+    await t('multi_statement_string', async () => {
+      await db.run("INSERT OR REPLACE INTO probe_counter (name, n) VALUES ('m1', 1); INSERT OR REPLACE INTO probe_counter (name, n) VALUES ('m2', 2)");
+      return db.all(sql`SELECT name FROM probe_counter WHERE name IN ('m1', 'm2')`);
+    });
+    await t('update_returning', async () => {
+      await db.run("INSERT OR REPLACE INTO probe_counter (name, n) VALUES ('u1', 5)");
+      return db.update(probeCounter).set({ n: sql`${probeCounter.n} + 1` }).where(eq(probeCounter.name, 'u1')).returning().run();
+    });
+    await t('create_trigger', async () => db.run('CREATE TRIGGER IF NOT EXISTS probe_trg AFTER INSERT ON probe_log BEGIN SELECT 1; END'));
+    return out;
   },
 
   // Concurrency inside ONE invocation: 30 parallel read-modify-writes vs atomic increments.
@@ -95,7 +167,7 @@ const commands = {
     const t0 = Date.now();
     const row = await db.select().from(probeCounter).where(eq(probeCounter.name, 'h_nonatomic')).get();
     const cur = row ? row.n : 0;
-    await pause(400);
+    await pause(400, 60);
     await db.insert(probeCounter).values({ name: 'h_nonatomic', n: cur + 1 })
       .onConflictDoUpdate({ target: probeCounter.name, set: { n: cur + 1 } }).run();
     await db.insert(probeCounter).values({ name: 'h_atomic', n: 1 })
@@ -115,9 +187,13 @@ const commands = {
     let cur = 0;
     let max = 0;
     for (const e of events) { cur += e[1]; if (cur > max) max = cur; }
+    const claims = await db.select().from(probeLog).where(eq(probeLog.name, 'claim')).all();
+    const claim_winners = claims.filter((c) => JSON.parse(c.data).won).length;
     const counters = {};
     for (const r of rows) counters[r.name] = r.n;
     return {
+      claim_attempts: claims.length,
+      claim_winners,
       invocations: iv.length,
       counters,
       lost_updates: (counters.h_atomic || 0) - (counters.h_nonatomic || 0),

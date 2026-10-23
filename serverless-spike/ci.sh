@@ -56,14 +56,23 @@ while IFS= read -r line || [ -n "$line" ]; do
       ;;
     probe)
       for p in "$@"; do
-        echo "---- /sl_$p"
-        run_msg "/sl_$p"
+        case "$p" in
+          wait=*) echo "---- wait ${p#wait=}s"; sleep "${p#wait=}"; continue ;;
+        esac
+        name="${p%%=*}"
+        arg=""
+        if [ "$p" != "$name" ]; then arg="${p#*=}"; fi
+        echo "---- /sl_${name} ${arg}"
+        run_msg "/sl_${name} ${arg}"
       done
       ;;
     hit)
       n="${1:-12}"
       run_msg "/sl_reset" >/dev/null
-      for i in $(seq 1 "$n"); do ( run_msg "/sl_hit" > "hit_$i.out" ) & done
+      for i in $(seq 1 "$n"); do
+        ( run_msg "/sl_hit" > "hit_$i.out" ) &
+        ( run_msg "/sl_claim" > "claim_$i.out" ) &
+      done
       wait
       echo "---- /sl_counts"
       run_msg "/sl_counts"

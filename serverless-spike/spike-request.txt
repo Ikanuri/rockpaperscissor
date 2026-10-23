@@ -1,6 +1,6 @@
-# one action per line (see ci.sh). Phase 1: baseline, deploy, probes, concurrency.
-status
+# Phase 2: no timers / frozen clock follow-ups, fetch reach, background work, claims, wall limit.
 deploy
-status
-probe env sleep perf db race rich
+probe clock sleep fetch db2 cpu=1000000 cpu=20000000 cpu=100000000
+probe bg wait=4 log
 hit 12
+probe wall log
