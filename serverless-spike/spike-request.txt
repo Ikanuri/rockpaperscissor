@@ -1,2 +1,2 @@
-# Phase 4: can ONE slow fetch serve as the reveal delay (no polling)?
-probe fetch=https://httpbin.org/delay/5
+# Phase 5: wait built from DB queries only.
+probe dbwait=3000 dbwait=3000 dbwait=5000

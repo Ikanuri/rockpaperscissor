@@ -70,6 +70,15 @@ const commands = {
     return { sec, actual_ms, ...how };
   },
 
+  // Wait built from DB round trips only (no Bot API calls, nothing leaves the platform).
+  async sl_dbwait(arg) {
+    const ms = Math.min(parseInt(arg, 10) || 3000, 25000);
+    const t0 = Date.now();
+    let i = 0;
+    while (Date.now() - t0 < ms && i < 200000) { await db.get(sql`SELECT 1 AS x`); i++; }
+    return { requested_ms: ms, actual_ms: Date.now() - t0, queries: i };
+  },
+
   async sl_cleanup() {
     await db.run('DROP TRIGGER IF EXISTS probe_trg');
     return { dropped_trigger: true };
