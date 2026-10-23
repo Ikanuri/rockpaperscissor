@@ -1,19 +1,39 @@
-// SPIKE (TEMPORARY) — owner-only inline results that mirror the game's delivery path.
-import { api } from 'sdk';
-import { OWNER_ID, log } from '../lib/probe.js';
+// Inline queries: "@bot" starts a game, "@bot <CODE>" joins one.
+import { api, db } from 'sdk';
+import { eq } from 'sdk/db';
+import { games } from '../schema.js';
+import { CHOICES, LABEL } from '../lib/game.js';
+
+const PLACEHOLDER = { inline_keyboard: [[{ text: '⏳', callback_data: 'loading' }]] };
+
+function choiceResults(initText) {
+  const items = CHOICES.map((c) => ({
+    type: 'article', id: c, title: LABEL[c], input_message_content: { message_text: initText }, reply_markup: PLACEHOLDER,
+  }));
+  items.unshift({
+    type: 'article', id: 'random', title: '🎲 Random', description: 'Let fate decide',
+    input_message_content: { message_text: initText }, reply_markup: PLACEHOLDER,
+  });
+  return items;
+}
 
 export default async function (q) {
-  if (!q.from || q.from.id !== OWNER_ID) return;
-  const t0 = Date.now();
-  const markup = { inline_keyboard: [[{ text: '🔘 tap', callback_data: 'sl:tap' }]] };
-  const results = ['sl_classic', 'sl_rich', 'sl_rich_btn'].map((id) => ({
-    type: 'article',
-    id,
-    title: id,
-    description: 'platform inline spike',
-    input_message_content: { message_text: '⏳ ' + id },
-    reply_markup: markup,
-  }));
+  const text = (q.query || '').trim().toUpperCase();
+  let results = null;
+  if (text === '') {
+    results = choiceResults('🎮 Game');
+  } else if (/^[A-Z0-9]{6}$/.test(text)) {
+    const g = await db.select().from(games).where(eq(games.id, text)).get();
+    if (g && g.status === 'waiting' && g.hostId !== q.from.id) {
+      results = choiceResults(`⚔️ Join ${g.hostName}`);
+    } else {
+      results = [{
+        type: 'article', id: 'unavailable', title: 'Game tidak tersedia',
+        description: 'Sudah dimulai, dibatalkan, atau milikmu sendiri',
+        input_message_content: { message_text: 'Game tidak tersedia.' },
+      }];
+    }
+  }
+  if (!results) return;
   await api.answerInlineQuery({ inline_query_id: q.id, results, cache_time: 0 });
-  await log('inline_query', { ms: Date.now() - t0, query: q.query });
 }

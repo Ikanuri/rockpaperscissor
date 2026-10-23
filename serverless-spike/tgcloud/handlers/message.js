@@ -2,7 +2,8 @@
 // Run live ("/sl_env" in the bot's DM) or via `tgcloud run` with { quiet: true } (no DM reply).
 import { db, api, fetch } from 'sdk';
 import { eq, asc, desc, inArray, sql } from 'sdk/db';
-import { probeLog, probeCounter } from '../schema.js';
+import { probeLog, probeCounter, games, stats } from '../schema.js';
+import { CHOICES, EMOJI, setEmoji, startGame, joinGame } from '../lib/game.js';
 import { OWNER_ID, log, say, pause, attempt } from '../lib/probe.js';
 
 const DEFAULT_EMOJI_ID = '5231084692660300175';
@@ -77,6 +78,23 @@ const commands = {
     let i = 0;
     while (Date.now() - t0 < ms && i < 200000) { await db.get(sql`SELECT 1 AS x`); i++; }
     return { requested_ms: ms, actual_ms: Date.now() - t0, queries: i };
+  },
+
+  // Full 1v1 flow with fake users and fake inline ids (Telegram edits fail harmlessly): checks the DB
+  // logic, the single-winner join, the 3 s wait and the stats upserts end to end.
+  async sl_game() {
+    const t0 = Date.now();
+    const a = { id: 900001, first_name: 'SimA' };
+    const b = { id: 900002, first_name: 'SimB' };
+    const c = { id: 900003, first_name: 'SimC' };
+    const started = await startGame(a, 'rock', 'sim-inline-a');
+    const joined = await joinGame(b, started.gameId, 'paper', 'sim-inline-b');
+    const late = await joinGame(c, started.gameId, 'rock', 'sim-inline-c');
+    const row = await db.select().from(games).where(eq(games.id, started.gameId)).get();
+    const st = await db.select().from(stats).where(inArray(stats.userId, [900001, 900002, 900003])).all();
+    await db.run('DELETE FROM games WHERE host_id >= 900001 AND host_id <= 900003');
+    await db.run('DELETE FROM stats WHERE user_id >= 900001 AND user_id <= 900003');
+    return { started, joined, late_joiner_rejected: late.joined === false, final_status: row && row.status, stats: st, total_ms: Date.now() - t0 };
   },
 
   async sl_cleanup() {
@@ -329,29 +347,53 @@ const commands = {
   },
 };
 
+const userCommands = {
+  async start(arg, message) {
+    await say(message.chat.id,
+      'Halo! Ketik @' + 'gubakebetabot di chat mana pun untuk mulai main Gunting Batu Kertas (uji platform Serverless).\n' +
+      '/stats - statistikmu\n/setemoji <rock|paper|scissors> <emoji atau custom emoji> - atur emoji reveal');
+  },
+
+  async stats(arg, message) {
+    const r = await db.select().from(stats).where(eq(stats.userId, message.from.id)).get();
+    await say(message.chat.id, r
+      ? `Statistik ${r.name}\nMenang ${r.wins} - Kalah ${r.losses} - Seri ${r.draws} (total ${r.total})`
+      : 'Belum ada game selesai.');
+  },
+
+  async setemoji(arg, message) {
+    const parts = (arg || '').trim().split(/\s+/);
+    const choice = (parts[0] || '').toLowerCase();
+    if (!CHOICES.includes(choice)) {
+      await say(message.chat.id, 'Pakai: /setemoji <rock|paper|scissors> <emoji>\nContoh: /setemoji rock 5231084692660300175');
+      return;
+    }
+    const ce = (message.entities || []).find((e) => e.type === 'custom_emoji');
+    const value = ce ? ce.custom_emoji_id : (parts[1] || '').trim();
+    if (!value) { await say(message.chat.id, 'Sertakan emoji atau custom_emoji_id-nya.'); return; }
+    await setEmoji(message.from.id, choice, value);
+    await say(message.chat.id, `Emoji ${EMOJI[choice]} ${choice} diset ke: ${value}`);
+  },
+};
+
 export default async function (message, ctx) {
   const text = (message.text || '').trim();
+  if (!text.startsWith('/')) return;
   const fromId = message.from && message.from.id;
-
-  if (fromId !== OWNER_ID) {
-    if (message.chat && message.chat.type === 'private' && text.startsWith('/')) {
-      await api.sendMessage({
-        chat_id: message.chat.id,
-        text: 'Bot beta sedang dipakai untuk uji coba platform baru. Coba lagi nanti.',
-      });
-    }
-    return;
-  }
-
   const parts = text.split(/\s+/);
   const name = parts[0].replace(/^\//, '').replace(/@.*$/, '');
-  const fn = commands[name];
-  if (!fn) return;
+  const arg = parts.slice(1).join(' ');
+  const isPrivate = message.chat && message.chat.type === 'private';
+
+  if (fromId !== OWNER_ID || !commands[name]) {
+    if (isPrivate && userCommands[name]) await userCommands[name](arg, message);
+    return;
+  }
 
   const t0 = Date.now();
   let result;
   try {
-    result = await fn(parts.slice(1).join(' '), message, ctx);
+    result = await commands[name](arg, message, ctx);
   } catch (e) {
     result = { error: String((e && e.stack) || e) };
   }

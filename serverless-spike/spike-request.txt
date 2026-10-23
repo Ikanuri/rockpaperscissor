@@ -1,2 +1,4 @@
-# Phase 5: wait built from DB queries only.
-probe dbwait=3000 dbwait=3000 dbwait=5000
+# Phase 6: game slice. Deploy, then simulate the full 1v1 flow with fake users.
+deploy
+status
+probe game
