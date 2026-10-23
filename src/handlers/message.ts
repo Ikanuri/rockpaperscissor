@@ -1,3 +1,4 @@
+import { editIdList, mutateJson } from '../kvutil';
 import type { Choice, Env, GameSession, LeaderboardEntry, LmsSession, OpenChallenge, PendingConfig, TeamDiceWaitState, TeamSession, TelegramMessage, TournamentSession, UserStats } from '../types';
 import { callRaw, editInlineMessageRich, getChatInfo, sendChatAction, sendDice, sendMessage, sendMessageForId, sendMessageRich, sendPoll, setMyCommands } from '../telegram';
 import { hasFeature, isBetaUser } from '../feature';
@@ -375,11 +376,11 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       }
     }
     if (openGameIdsToRemove.size > 0) {
-      const openList = (await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [];
-      const cleaned = openList.filter(c => !openGameIdsToRemove.has(c.gameId));
-      if (cleaned.length !== openList.length) {
-        await kv.put('open:list', JSON.stringify(cleaned), { expirationTtl: 600 });
-      }
+      await mutateJson<OpenChallenge[], void>(kv, 'open:list', 600, cur => {
+        const openList = cur ?? [];
+        const cleaned = openList.filter(c => !openGameIdsToRemove.has(c.gameId));
+        return cleaned.length !== openList.length ? { next: cleaned, result: undefined } : { result: undefined };
+      });
     }
     await Promise.all([
       kv.delete(listKey),
@@ -611,10 +612,10 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     }
     const trialMs = 7 * 24 * 3600 * 1000;
     await activateTier(kv, msg.from.id, 'premium', 'stars', trialMs);
-    const idList = await kv.get<number[]>('donators:ids', 'json') ?? [];
+    const trialUserId = msg.from.id;
     await Promise.all([
-      kv.put(`freetrial:${msg.from.id}`, '1'),
-      ...(idList.includes(msg.from.id) ? [] : [kv.put('donators:ids', JSON.stringify([...idList, msg.from.id]))]),
+      kv.put(`freetrial:${trialUserId}`, '1'),
+      editIdList(kv, 'donators:ids', l => (l.includes(trialUserId) ? l : [...l, trialUserId])),
     ]);
     const expiry = new Date(Date.now() + trialMs + 7 * 3600 * 1000); // WIB
     const expiryStr = expiry.toISOString().slice(0, 10);
@@ -753,12 +754,8 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     const targetId = parseInt(parts[1]);
     if (isNaN(targetId)) { await reply(token, msg.chat.id, '❌ Invalid user ID.'); return; }
     try {
-      const list = await kv.get<number[]>('beta:approved', 'json') ?? [];
-      const alreadyIn = list.includes(targetId);
-      if (!alreadyIn) {
-        list.push(targetId);
-        await kv.put('beta:approved', JSON.stringify(list));
-      }
+      const { list, changed } = await editIdList(kv, 'beta:approved', l => (l.includes(targetId) ? l : [...l, targetId]));
+      const alreadyIn = !changed;
       const note = alreadyIn ? ' (already in list)' : '';
       await reply(token, msg.chat.id,
         `✅ ${targetId} added to beta list${note}.\n` +
@@ -774,8 +771,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     const targetId = parseInt(parts[1]);
     if (isNaN(targetId)) { await reply(token, msg.chat.id, '❌ Invalid user ID.'); return; }
     try {
-      const list = (await kv.get<number[]>('beta:approved', 'json') ?? []).filter(id => id !== targetId);
-      await kv.put('beta:approved', JSON.stringify(list));
+      const { list } = await editIdList(kv, 'beta:approved', l => l.filter(id => id !== targetId));
       await reply(token, msg.chat.id,
         `✅ ${targetId} removed from beta list.\n` +
         `📋 Current list (${list.length}): ${list.join(', ') || '(empty)'}`
@@ -841,10 +837,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
       return;
     }
     await activateTier(kv, targetId, tier, 'stars');
-    const adIdList = await kv.get<number[]>('donators:ids', 'json') ?? [];
-    if (!adIdList.includes(targetId)) {
-      await kv.put('donators:ids', JSON.stringify([...adIdList, targetId]));
-    }
+    await editIdList(kv, 'donators:ids', l => (l.includes(targetId) ? l : [...l, targetId]));
     await reply(token, msg.chat.id, `✅ <b>${TIER_PERKS[tier].label}</b> activated for ${targetId} (30 days).`);
     return;
   }
@@ -853,8 +846,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     const userIds = parts.slice(1).map(s => parseInt(s)).filter(n => !isNaN(n));
     if (userIds.length === 0) { await reply(token, msg.chat.id, '❌ Invalid user ID(s).'); return; }
     await Promise.all(userIds.map(uid => kv.delete(`donator:${uid}`)));
-    const idList = (await kv.get<number[]>('donators:ids', 'json') ?? []).filter(id => !userIds.includes(id));
-    await kv.put('donators:ids', JSON.stringify(idList));
+    await editIdList(kv, 'donators:ids', l => l.filter(id => !userIds.includes(id)));
     await reply(token, msg.chat.id, `✅ Donator record removed for ${userIds.length} user(s): ${userIds.join(', ')}`);
     return;
   }
@@ -917,9 +909,7 @@ export async function handleMessage(msg: TelegramMessage, env: Env, ctx: Executi
     await Promise.all(userIds.map(uid => activateTier(kv, uid, activeTier, 'stars', durationMs)));
 
     // Maintain donators:ids list
-    const idList = await kv.get<number[]>('donators:ids', 'json') ?? [];
-    for (const uid of userIds) { if (!idList.includes(uid)) idList.push(uid); }
-    await kv.put('donators:ids', JSON.stringify(idList));
+    await editIdList(kv, 'donators:ids', l => [...l, ...userIds.filter(uid => !l.includes(uid))]);
 
     const expiryMs = Date.now() + durationMs;
     const expiryUtc = new Date(expiryMs);

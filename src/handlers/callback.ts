@@ -25,6 +25,7 @@ import {
   tournamentSignupText,
 } from '../game';
 import { hasFeature } from '../feature';
+import { mutateJson } from '../kvutil';
 import { handleDonateCallback } from './payment';
 import { guideContent, guideMainMenu } from './message';
 
@@ -133,35 +134,39 @@ async function handlePick(
   choice: Choice
 ): Promise<void> {
   const token = env.BOT_TOKEN;
-  const session = await env.GAME_SESSIONS.get<GameSession>(`game:${gameId}`, 'json');
 
-  if (!session || session.status !== 'playing') {
+  type PickOutcome =
+    | { kind: 'inactive' | 'foreign' | 'locked' }
+    | { kind: 'ok'; session: GameSession; updated: GameSession };
+  const outcome = await mutateJson<GameSession, PickOutcome>(env.GAME_SESSIONS, `game:${gameId}`, 300, session => {
+    if (!session || session.status !== 'playing') return { result: { kind: 'inactive' } };
+    if (query.from.id !== session.hostUserId && query.from.id !== session.opponentUserId) {
+      return { result: { kind: 'foreign' } };
+    }
+    const isHost = query.from.id === session.hostUserId;
+    if (isHost ? session.hostChoice : session.opponentChoice) return { result: { kind: 'locked' } };
+    const updated: GameSession = {
+      ...session,
+      ...(isHost ? { hostChoice: choice } : { opponentChoice: choice }),
+    };
+    return { next: updated, result: { kind: 'ok', session, updated } };
+  });
+
+  if (outcome.kind === 'inactive') {
     await answerCallbackQuery(token, query.id, '❌ Game is not active.', true);
     return;
   }
-
-  if (query.from.id !== session.hostUserId && query.from.id !== session.opponentUserId) {
+  if (outcome.kind === 'foreign') {
     await answerCallbackQuery(token, query.id, '❌ This is not your game!', true);
     return;
   }
-
-  const isHost = query.from.id === session.hostUserId;
-
-  if (isHost && session.hostChoice) {
+  if (outcome.kind === 'locked') {
     await answerCallbackQuery(token, query.id, '✅ Already locked in! Waiting for opponent.', true);
     return;
   }
-  if (!isHost && session.opponentChoice) {
-    await answerCallbackQuery(token, query.id, '✅ Already locked in! Waiting for opponent.', true);
-    return;
-  }
+  if (outcome.kind !== 'ok') return;
+  const { session, updated } = outcome;
 
-  const updated: GameSession = {
-    ...session,
-    ...(isHost ? { hostChoice: choice } : { opponentChoice: choice }),
-  };
-
-  await env.GAME_SESSIONS.put(`game:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
   await answerCallbackQuery(token, query.id, '🔒 Choice locked!');
 
   if (updated.hostChoice && updated.opponentChoice) {
@@ -185,31 +190,39 @@ async function handleLmsPick(
 ): Promise<void> {
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
-  const session = await kv.get<LmsSession>(`lms:${gameId}`, 'json');
+  type LmsPickOutcome =
+    | { kind: 'done' | 'eliminated' | 'locked' }
+    | { kind: 'ok'; session: LmsSession; updatedSession: LmsSession };
+  const outcome = await mutateJson<LmsSession, LmsPickOutcome>(kv, `lms:${gameId}`, 300, session => {
+    if (!session || session.status === 'done') return { result: { kind: 'done' } };
+    const player = session.players.find(p => p.userId === query.from.id);
+    if (!player || !player.active) return { result: { kind: 'eliminated' } };
+    if (player.choice !== null) return { result: { kind: 'locked' } };
+    const updatedSession: LmsSession = {
+      ...session,
+      players: session.players.map(p => (p.userId === query.from.id ? { ...p, choice } : p)),
+    };
+    return { next: updatedSession, result: { kind: 'ok', session, updatedSession } };
+  });
 
-  if (!session || session.status === 'done') {
+  if (outcome.kind === 'done') {
     await answerCallbackQuery(token, query.id, '❌ Game sudah selesai.', true);
     return;
   }
-
-  const player = session.players.find(p => p.userId === query.from.id);
-  if (!player || !player.active) {
+  if (outcome.kind === 'eliminated') {
     await answerCallbackQuery(token, query.id, '❌ Kamu sudah eliminasi.', true);
     return;
   }
-  if (player.choice !== null) {
+  if (outcome.kind === 'locked') {
     await answerCallbackQuery(token, query.id, '✅ Sudah pilih! Tunggu yang lain.', true);
     return;
   }
-
-  const updatedPlayers = session.players.map(p =>
-    p.userId === query.from.id ? { ...p, choice } : p
-  );
-  const updatedSession: LmsSession = { ...session, players: updatedPlayers };
+  if (outcome.kind !== 'ok') return;
+  const { session, updatedSession } = outcome;
+  const updatedPlayers = updatedSession.players;
   const activePlayers = updatedPlayers.filter(p => p.active);
   const allPicked = activePlayers.every(p => p.choice !== null);
 
-  await kv.put(`lms:${gameId}`, JSON.stringify(updatedSession), { expirationTtl: 300 });
   await answerCallbackQuery(token, query.id, `🔒 ${EMOJI[choice]} dikunci!`);
 
   if (allPicked) {
@@ -239,30 +252,40 @@ async function handleTeamPick(
 ): Promise<void> {
   const token = env.BOT_TOKEN;
   const kv = env.GAME_SESSIONS;
-  const session = await kv.get<TeamSession>(`team:${gameId}`, 'json');
+  type TeamPickOutcome =
+    | { kind: 'inactive' | 'foreign' | 'locked' }
+    | { kind: 'ok'; session: TeamSession; updated: TeamSession };
+  const outcome = await mutateJson<TeamSession, TeamPickOutcome>(kv, `team:${gameId}`, 300, session => {
+    if (!session || session.status !== 'playing') return { result: { kind: 'inactive' } };
+    const player = [...session.teamA, ...session.teamB].find(p => p.userId === query.from.id);
+    if (!player) return { result: { kind: 'foreign' } };
+    if (player.choice !== null) return { result: { kind: 'locked' } };
+    const updated: TeamSession = {
+      ...session,
+      teamA: session.teamA.map(p => (p.userId === query.from.id ? { ...p, choice } : p)),
+      teamB: session.teamB.map(p => (p.userId === query.from.id ? { ...p, choice } : p)),
+    };
+    return { next: updated, result: { kind: 'ok', session, updated } };
+  });
 
-  if (!session || session.status !== 'playing') {
+  if (outcome.kind === 'inactive') {
     await answerCallbackQuery(token, query.id, '❌ Game tidak aktif.', true);
     return;
   }
-
-  const allPlayers = [...session.teamA, ...session.teamB];
-  const player = allPlayers.find(p => p.userId === query.from.id);
-  if (!player) {
+  if (outcome.kind === 'foreign') {
     await answerCallbackQuery(token, query.id, '❌ Bukan game kamu!', true);
     return;
   }
-  if (player.choice !== null) {
+  if (outcome.kind === 'locked') {
     await answerCallbackQuery(token, query.id, '✅ Sudah pilih! Tunggu yang lain.', true);
     return;
   }
-
-  const updatedA = session.teamA.map(p => p.userId === query.from.id ? { ...p, choice } : p);
-  const updatedB = session.teamB.map(p => p.userId === query.from.id ? { ...p, choice } : p);
-  const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
+  if (outcome.kind !== 'ok') return;
+  const { session, updated } = outcome;
+  const updatedA = updated.teamA;
+  const updatedB = updated.teamB;
   const allPicked = [...updatedA, ...updatedB].every(p => p.choice !== null);
 
-  await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
   await answerCallbackQuery(token, query.id, `🔒 ${EMOJI[choice]} dikunci!`);
 
   if (allPicked) {
@@ -323,9 +346,16 @@ async function handleLmsSmite(
   }
 
   if (session.status === 'waiting') {
-    const updatedPlayers = session.players.filter(p => p.userId !== targetUserId);
-    const updated: LmsSession = { ...session, players: updatedPlayers };
-    await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
+    const updated = await mutateJson<LmsSession, LmsSession | null>(kv, `lms:${gameId}`, 600, cur => {
+      if (!cur || cur.status !== 'waiting' || !cur.players.some(p => p.userId === targetUserId)) return { result: null };
+      const next: LmsSession = { ...cur, players: cur.players.filter(p => p.userId !== targetUserId) };
+      return { next, result: next };
+    });
+    if (!updated) {
+      await answerCallbackQuery(token, query.id, '❌ Pemain tidak ditemukan.', true);
+      return;
+    }
+    const updatedPlayers = updated.players;
     await answerCallbackQuery(token, query.id, `⚡ ${target.name} dikeluarkan!`);
     await editInlineMessageRich(token, target.inlineMessageId, '⚡ Kamu dikeluarkan dari lobby oleh host.');
     const canForce = updatedPlayers.length >= 2;
@@ -341,11 +371,20 @@ async function handleLmsSmite(
       await answerCallbackQuery(token, query.id, '❌ Pemain sudah eliminasi.', true);
       return;
     }
-    const updatedPlayers = session.players.map(p =>
-      p.userId === targetUserId ? { ...p, active: false } : p
-    );
-    const updated: LmsSession = { ...session, players: updatedPlayers };
-    await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
+    const eliminated = await mutateJson<LmsSession, boolean>(kv, `lms:${gameId}`, 300, cur => {
+      if (!cur || cur.status === 'done') return { result: false };
+      const t = cur.players.find(p => p.userId === targetUserId);
+      if (!t || !t.active) return { result: false };
+      const next: LmsSession = {
+        ...cur,
+        players: cur.players.map(p => (p.userId === targetUserId ? { ...p, active: false } : p)),
+      };
+      return { next, result: true };
+    });
+    if (!eliminated) {
+      await answerCallbackQuery(token, query.id, '❌ Pemain sudah eliminasi.', true);
+      return;
+    }
     await answerCallbackQuery(token, query.id, `⚡ ${target.name} dieliminasi!`);
     await editInlineMessageRich(token, target.inlineMessageId, '⚡ Kamu dieliminasi oleh host.');
 
@@ -417,9 +456,16 @@ async function handleLmsFlee(
       await Promise.allSettled(session.players.map(p => editInlineMessageRich(token, p.inlineMessageId, '🏳️ Host membatalkan game.')));
       await answerCallbackQuery(token, query.id, '🏳️ Game dibatalkan.');
     } else {
-      const updatedPlayers = session.players.filter(p => p.userId !== query.from.id);
-      const updated: LmsSession = { ...session, players: updatedPlayers };
-      await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
+      const updated = await mutateJson<LmsSession, LmsSession | null>(kv, `lms:${gameId}`, 600, cur => {
+        if (!cur || cur.status !== 'waiting' || !cur.players.some(p => p.userId === query.from.id)) return { result: null };
+        const next: LmsSession = { ...cur, players: cur.players.filter(p => p.userId !== query.from.id) };
+        return { next, result: next };
+      });
+      if (!updated) {
+        await answerCallbackQuery(token, query.id, '❌ Game sudah selesai.', true);
+        return;
+      }
+      const updatedPlayers = updated.players;
       await answerCallbackQuery(token, query.id, '🏳️ Kamu keluar dari lobby.');
       await editInlineMessageRich(token, player.inlineMessageId, '🏳️ Kamu meninggalkan lobby.');
       const canForce = updatedPlayers.length >= 2;
@@ -438,11 +484,20 @@ async function handleLmsFlee(
     await answerCallbackQuery(token, query.id, '❌ Kamu sudah eliminasi.', true);
     return;
   }
-  const updatedPlayers = session.players.map(p =>
-    p.userId === query.from.id ? { ...p, active: false } : p
-  );
-  const updated: LmsSession = { ...session, players: updatedPlayers };
-  await kv.put(`lms:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
+  const left = await mutateJson<LmsSession, boolean>(kv, `lms:${gameId}`, 300, cur => {
+    if (!cur || cur.status === 'done') return { result: false };
+    const me = cur.players.find(p => p.userId === query.from.id);
+    if (!me || !me.active) return { result: false };
+    const next: LmsSession = {
+      ...cur,
+      players: cur.players.map(p => (p.userId === query.from.id ? { ...p, active: false } : p)),
+    };
+    return { next, result: true };
+  });
+  if (!left) {
+    await answerCallbackQuery(token, query.id, '❌ Kamu sudah eliminasi.', true);
+    return;
+  }
   await answerCallbackQuery(token, query.id, '🏳️ Kamu meninggalkan game.');
   await editInlineMessageRich(token, player.inlineMessageId, '🏳️ Kamu meninggalkan game.');
 
@@ -509,14 +564,30 @@ async function handleTeamSmite(
     return;
   }
 
-  const updatedA = session.teamA.filter(p => p.userId !== targetUserId);
-  const updatedB = session.teamB.filter(p => p.userId !== targetUserId);
+  // Apply the removal on the freshest stored session (atomic where the KV supports it)
+  const applied = await mutateJson<TeamSession, TeamSession | null>(
+    kv, `team:${gameId}`, n => (n.status === 'waiting' ? 600 : 300),
+    cur => {
+      if (!cur || cur.status === 'done') return { result: null };
+      if (![...cur.teamA, ...cur.teamB].some(p => p.userId === targetUserId)) return { result: null };
+      const a = cur.teamA.filter(p => p.userId !== targetUserId);
+      const b = cur.teamB.filter(p => p.userId !== targetUserId);
+      const emptied = cur.status === 'playing' && (a.length === 0 || b.length === 0);
+      const next: TeamSession = { ...cur, teamA: a, teamB: b, ...(emptied ? { status: 'done' as const } : {}) };
+      return { next, result: next };
+    }
+  );
+  if (!applied) {
+    await answerCallbackQuery(token, query.id, '❌ Pemain tidak ditemukan.', true);
+    return;
+  }
+  const updated = applied;
+  const updatedA = updated.teamA;
+  const updatedB = updated.teamB;
   await answerCallbackQuery(token, query.id, `⚡ ${target.name} disingkirkan!`);
   await editInlineMessageRich(token, target.inlineMessageId, '⚡ Kamu disingkirkan dari game oleh host.');
 
-  if (session.status === 'waiting') {
-    const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
-    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
+  if (updated.status === 'waiting') {
     const slotsA = session.teamSize - updatedA.length;
     const slotsB = session.teamSize - updatedB.length;
     const allRemaining = [...updatedA, ...updatedB];
@@ -528,19 +599,15 @@ async function handleTeamSmite(
         p.userId === session.hostUserId ? teamWaitingKeyboard(gameId, slotsA, slotsB, hasOthers, canForce) : teamMemberWaitingKeyboard(gameId))
     ));
   } else {
-    if (updatedA.length === 0 || updatedB.length === 0) {
+    if (updated.status === 'done') {
       const winnerTeam = updatedA.length > 0 ? 'A' : 'B';
       const finalText = `🏳️ <b>Tim ${winnerTeam === 'A' ? 'B' : 'A'} meninggalkan game. Tim ${winnerTeam} menang!</b>`;
       const allRemaining = [...updatedA, ...updatedB];
-      const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB, status: 'done' };
-      await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
       await Promise.allSettled(allRemaining.map(p => editInlineMessageRich(token, p.inlineMessageId, finalText)));
       return;
     }
-    const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
     const allRemaining = [...updatedA, ...updatedB];
     const allPicked = allRemaining.every(p => p.choice !== null);
-    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
     if (allPicked) {
       ctx.waitUntil(runTeamRound(token, kv, updated, env, ctx));
     } else {
@@ -610,20 +677,39 @@ async function handleTeamFlee(
     return;
   }
 
-  const updatedA = session.teamA.filter(p => p.userId !== query.from.id);
-  const updatedB = session.teamB.filter(p => p.userId !== query.from.id);
+  const hostLeavesLobby = session.status === 'waiting' && query.from.id === session.hostUserId;
+  // Apply the departure on the freshest stored session (atomic where the KV supports it)
+  const applied = await mutateJson<TeamSession, TeamSession | null>(
+    kv, `team:${gameId}`, n => (n.status === 'waiting' ? 600 : 300),
+    cur => {
+      if (!cur || cur.status === 'done') return { result: null };
+      if (![...cur.teamA, ...cur.teamB].some(p => p.userId === query.from.id)) return { result: null };
+      const a = cur.teamA.filter(p => p.userId !== query.from.id);
+      const b = cur.teamB.filter(p => p.userId !== query.from.id);
+      if (hostLeavesLobby) return { result: { ...cur, teamA: a, teamB: b } }; // lobby gets deleted below
+      const emptied = cur.status === 'playing' && (a.length === 0 || b.length === 0);
+      const next: TeamSession = { ...cur, teamA: a, teamB: b, ...(emptied ? { status: 'done' as const } : {}) };
+      return { next, result: next };
+    }
+  );
+  if (!applied) {
+    await answerCallbackQuery(token, query.id, '❌ Game sudah selesai.', true);
+    return;
+  }
+  const updated = applied;
+  const updatedA = updated.teamA;
+  const updatedB = updated.teamB;
   await answerCallbackQuery(token, query.id, '🏳️ Kamu meninggalkan game.');
   await editInlineMessageRich(token, player.inlineMessageId, '🏳️ Kamu meninggalkan game.');
 
-  if (session.status === 'waiting') {
-    const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
-    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 600 });
-    if (query.from.id === session.hostUserId) {
-      await kv.delete(`team:${gameId}`);
-      const others = [...updatedA, ...updatedB];
-      await Promise.allSettled(others.map(p => editInlineMessageRich(token, p.inlineMessageId, '🏳️ Host membatalkan team game.')));
-      return;
-    }
+  if (hostLeavesLobby) {
+    await kv.delete(`team:${gameId}`);
+    const others = [...updatedA, ...updatedB];
+    await Promise.allSettled(others.map(p => editInlineMessageRich(token, p.inlineMessageId, '🏳️ Host membatalkan team game.')));
+    return;
+  }
+
+  if (updated.status === 'waiting') {
     const slotsA = session.teamSize - updatedA.length;
     const slotsB = session.teamSize - updatedB.length;
     const allRemaining = [...updatedA, ...updatedB];
@@ -637,19 +723,15 @@ async function handleTeamFlee(
     return;
   }
 
-  if (updatedA.length === 0 || updatedB.length === 0) {
+  if (updated.status === 'done') {
     const winnerTeam = updatedA.length > 0 ? 'A' : 'B';
     const finalText = `🏳️ <b>Tim ${winnerTeam === 'A' ? 'B' : 'A'} meninggalkan game. Tim ${winnerTeam} menang!</b>`;
     const allRemaining = [...updatedA, ...updatedB];
-    const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB, status: 'done' };
-    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
     await Promise.allSettled(allRemaining.map(p => editInlineMessageRich(token, p.inlineMessageId, finalText)));
     return;
   }
-  const updated: TeamSession = { ...session, teamA: updatedA, teamB: updatedB };
   const allRemaining = [...updatedA, ...updatedB];
   const allPicked = allRemaining.every(p => p.choice !== null);
-  await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: 300 });
   if (allPicked) {
     ctx.waitUntil(runTeamRound(token, kv, updated, env, ctx));
   } else {

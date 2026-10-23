@@ -18,6 +18,7 @@ import type {
   UserStats,
   VsStats,
 } from '../types';
+import { mutateJson } from '../kvutil';
 import { answerInlineQuery, callRaw, editInlineMessageRich, getChatMember, sendMessage } from '../telegram';
 import { loadConfig } from '../config';
 import {
@@ -1019,24 +1020,36 @@ export async function handleChosenInlineResult(
           await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[lmsPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
           return;
         }
-        // Re-read right before mutating to shrink the race window (concurrent picks)
-        const freshLmsPick = (await kv.get<LmsSession>(`lms:${q}`, 'json')) ?? lmsJoin;
-        const freshPickPlayer = freshLmsPick.players.find(p => p.userId === result.from.id);
-        if (!freshPickPlayer || !freshPickPlayer.active) {
+        type LmsPickResult =
+          | { kind: 'eliminated' }
+          | { kind: 'locked'; choice: Choice }
+          | { kind: 'ok'; fresh: LmsSession; next: LmsSession };
+        const lmsPickResult = await mutateJson<LmsSession, LmsPickResult>(kv, `lms:${q}`, 300, cur => {
+          const fresh = cur ?? lmsJoin;
+          const me = fresh.players.find(p => p.userId === result.from.id);
+          if (!me || !me.active) return { result: { kind: 'eliminated' } };
+          if (me.choice !== null) return { result: { kind: 'locked', choice: me.choice } };
+          const next: LmsSession = {
+            ...fresh,
+            players: fresh.players.map(p =>
+              p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
+            ),
+          };
+          return { next, result: { kind: 'ok', fresh, next } };
+        });
+        if (lmsPickResult.kind === 'eliminated') {
           await editInlineMessageRich(token, result.inline_message_id, '❌ Kamu sudah eliminasi dari game ini.');
           return;
         }
-        if (freshPickPlayer.choice !== null) {
-          await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[freshPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+        if (lmsPickResult.kind === 'locked') {
+          await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[lmsPickResult.choice]} sudah dikunci. Menunggu pemain lain...`);
           return;
         }
-        const lmsPickUpdated = freshLmsPick.players.map(p =>
-          p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
-        );
-        const lmsPickSession: LmsSession = { ...freshLmsPick, players: lmsPickUpdated };
+        const freshLmsPick = lmsPickResult.fresh;
+        const lmsPickSession = lmsPickResult.next;
+        const lmsPickUpdated = lmsPickSession.players;
         const lmsActive = lmsPickUpdated.filter(p => p.active);
         const lmsAllPicked = lmsActive.every(p => p.choice !== null);
-        await kv.put(`lms:${q}`, JSON.stringify(lmsPickSession), { expirationTtl: 300 });
         if (lmsAllPicked) {
           ctx.waitUntil(runLmsRound(token, kv, lmsPickSession, ctx, env));
         } else {
@@ -1064,20 +1077,10 @@ export async function handleChosenInlineResult(
         await editInlineMessageRich(token, result.inline_message_id, '❌ LMS game is full.');
         return;
       }
-      // Re-read right before mutating to shrink the race window (concurrent joins)
-      const freshLmsJoin = (await kv.get<LmsSession>(`lms:${q}`, 'json')) ?? lmsJoin;
-      if (freshLmsJoin.status !== 'waiting') {
-        await editInlineMessageRich(token, result.inline_message_id, '❌ LMS game tidak ditemukan.');
-        return;
-      }
-      if (freshLmsJoin.players.some(p => p.userId === result.from.id)) {
-        await editInlineMessageRich(token, result.inline_message_id, lmsWaitingText(freshLmsJoin));
-        return;
-      }
-      if (freshLmsJoin.players.length >= freshLmsJoin.maxPlayers) {
-        await editInlineMessageRich(token, result.inline_message_id, '❌ LMS game is full.');
-        return;
-      }
+      type LmsJoinResult =
+        | { kind: 'gone' | 'full' }
+        | { kind: 'already'; session: LmsSession }
+        | { kind: 'ok'; fresh: LmsSession; next: LmsSession };
       const newLmsPlayer: LmsPlayer = {
         userId: result.from.id,
         name: formatUser(result.from),
@@ -1085,10 +1088,34 @@ export async function handleChosenInlineResult(
         inlineMessageId: result.inline_message_id,
         active: true,
       };
-      const updatedLmsPlayers = [...freshLmsJoin.players, newLmsPlayer];
-      const lmsIsFull = updatedLmsPlayers.length >= freshLmsJoin.maxPlayers;
-      const updatedLms: LmsSession = { ...freshLmsJoin, players: updatedLmsPlayers, status: lmsIsFull ? 'playing' : 'waiting' };
-      await kv.put(`lms:${q}`, JSON.stringify(updatedLms), { expirationTtl: lmsIsFull ? 300 : 600 });
+      const lmsJoinResult = await mutateJson<LmsSession, LmsJoinResult>(
+        kv, `lms:${q}`, n => (n.status === 'playing' ? 300 : 600),
+        cur => {
+          const fresh = cur ?? lmsJoin;
+          if (fresh.status !== 'waiting') return { result: { kind: 'gone' } };
+          if (fresh.players.some(p => p.userId === result.from.id)) return { result: { kind: 'already', session: fresh } };
+          if (fresh.players.length >= fresh.maxPlayers) return { result: { kind: 'full' } };
+          const players = [...fresh.players, newLmsPlayer];
+          const next: LmsSession = { ...fresh, players, status: players.length >= fresh.maxPlayers ? 'playing' : 'waiting' };
+          return { next, result: { kind: 'ok', fresh, next } };
+        }
+      );
+      if (lmsJoinResult.kind === 'gone') {
+        await editInlineMessageRich(token, result.inline_message_id, '❌ LMS game tidak ditemukan.');
+        return;
+      }
+      if (lmsJoinResult.kind === 'already') {
+        await editInlineMessageRich(token, result.inline_message_id, lmsWaitingText(lmsJoinResult.session));
+        return;
+      }
+      if (lmsJoinResult.kind === 'full') {
+        await editInlineMessageRich(token, result.inline_message_id, '❌ LMS game is full.');
+        return;
+      }
+      if (lmsJoinResult.kind !== 'ok') return;
+      const updatedLms = lmsJoinResult.next;
+      const updatedLmsPlayers = updatedLms.players;
+      const lmsIsFull = updatedLms.status === 'playing';
       if (lmsIsFull) {
         // Free rate limit slot — game is now active, same pattern as 1v1 opponent-join
         const lmsRateKey = `ratelimit:${lmsJoin.hostUserId}`;
@@ -1123,29 +1150,38 @@ export async function handleChosenInlineResult(
         await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[teamPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
         return;
       }
-      // Re-read right before mutating to shrink the race window (concurrent teammate picks)
-      const freshTeamJoin = (await kv.get<TeamSession>(`team:${q}`, 'json')) ?? teamJoin;
-      const freshTeamPickPlayer = [...freshTeamJoin.teamA, ...freshTeamJoin.teamB].find(p => p.userId === result.from.id);
-      if (!freshTeamPickPlayer) {
+      type TeamPickResult =
+        | { kind: 'foreign' }
+        | { kind: 'locked'; choice: Choice }
+        | { kind: 'ok'; fresh: TeamSession; next: TeamSession; oldMsgId: string };
+      const teamPickResult = await mutateJson<TeamSession, TeamPickResult>(kv, `team:${q}`, 300, cur => {
+        const fresh = cur ?? teamJoin;
+        const me = [...fresh.teamA, ...fresh.teamB].find(p => p.userId === result.from.id);
+        if (!me) return { result: { kind: 'foreign' } };
+        if (me.choice !== null) return { result: { kind: 'locked', choice: me.choice } };
+        const next: TeamSession = {
+          ...fresh,
+          teamA: fresh.teamA.map(p => (p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p)),
+          teamB: fresh.teamB.map(p => (p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p)),
+        };
+        return { next, result: { kind: 'ok', fresh, next, oldMsgId: me.inlineMessageId } };
+      });
+      if (teamPickResult.kind === 'foreign') {
         await editInlineMessageRich(token, result.inline_message_id, '❌ Kamu bukan peserta game ini.');
         return;
       }
-      if (freshTeamPickPlayer.choice !== null) {
-        await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[freshTeamPickPlayer.choice]} sudah dikunci. Menunggu pemain lain...`);
+      if (teamPickResult.kind === 'locked') {
+        await editInlineMessageRich(token, result.inline_message_id, `✅ ${EMOJI[teamPickResult.choice]} sudah dikunci. Menunggu pemain lain...`);
         return;
       }
-      const oldMsgId = freshTeamPickPlayer.inlineMessageId;
-      const teamPickA = freshTeamJoin.teamA.map(p =>
-        p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
-      );
-      const teamPickB = freshTeamJoin.teamB.map(p =>
-        p.userId === result.from.id ? { ...p, choice, inlineMessageId: result.inline_message_id! } : p
-      );
+      const freshTeamJoin = teamPickResult.fresh;
+      const teamPickSession = teamPickResult.next;
+      const oldMsgId = teamPickResult.oldMsgId;
+      const teamPickA = teamPickSession.teamA;
+      const teamPickB = teamPickSession.teamB;
       const teamPickAll = [...teamPickA, ...teamPickB];
       const teamPickAllPicked = teamPickAll.every(p => p.choice !== null);
       const teamPickCount = teamPickAll.filter(p => p.choice !== null).length;
-      const teamPickSession: TeamSession = { ...freshTeamJoin, teamA: teamPickA, teamB: teamPickB };
-      await kv.put(`team:${q}`, JSON.stringify(teamPickSession), { expirationTtl: 300 });
       if (oldMsgId !== result.inline_message_id) {
         await editInlineMessageRich(token, oldMsgId, `🔒 ${EMOJI[choice]} dikunci! ⏳ ${teamPickCount}/${teamPickAll.length} sudah pilih...`);
       }
@@ -1222,27 +1258,44 @@ export async function handleChosenInlineResult(
       await editInlineMessageRich(token, result.inline_message_id, teamWaitingText(teamSess));
       return;
     }
-    // Re-read right before mutating to shrink the race window (concurrent team joins; getChatMember above widens it)
-    const freshTeamSess = (await kv.get<TeamSession>(`team:${gameId}`, 'json')) ?? teamSess;
-    if (freshTeamSess.status !== 'waiting') {
+    type TeamJoinResult =
+      | { kind: 'gone' | 'full' }
+      | { kind: 'already'; session: TeamSession }
+      | { kind: 'ok'; next: TeamSession };
+    const newPlayer: TeamPlayer = { userId: result.from.id, name: formatUser(result.from), choice, inlineMessageId: result.inline_message_id };
+    const teamJoinResult = await mutateJson<TeamSession, TeamJoinResult>(
+      kv, `team:${gameId}`, n => (n.status === 'playing' ? 300 : 600),
+      cur => {
+        const fresh = cur ?? teamSess;
+        if (fresh.status !== 'waiting') return { result: { kind: 'gone' } };
+        if ([...fresh.teamA, ...fresh.teamB].some(p => p.userId === result.from.id)) {
+          return { result: { kind: 'already', session: fresh } };
+        }
+        const a = teamLabel === 'A' ? [...fresh.teamA, newPlayer] : fresh.teamA;
+        const b = teamLabel === 'B' ? [...fresh.teamB, newPlayer] : fresh.teamB;
+        if (a.length > fresh.teamSize || b.length > fresh.teamSize) return { result: { kind: 'full' } };
+        const full = a.length === fresh.teamSize && b.length === fresh.teamSize;
+        const next: TeamSession = { ...fresh, teamA: a, teamB: b, status: full ? 'playing' : 'waiting' };
+        return { next, result: { kind: 'ok', next } };
+      }
+    );
+    if (teamJoinResult.kind === 'gone') {
       await editInlineMessageRich(token, result.inline_message_id, '❌ Team game tidak ditemukan.');
       return;
     }
-    if ([...freshTeamSess.teamA, ...freshTeamSess.teamB].some(p => p.userId === result.from.id)) {
-      await editInlineMessageRich(token, result.inline_message_id, teamWaitingText(freshTeamSess));
+    if (teamJoinResult.kind === 'already') {
+      await editInlineMessageRich(token, result.inline_message_id, teamWaitingText(teamJoinResult.session));
       return;
     }
-    const newPlayer: TeamPlayer = { userId: result.from.id, name: formatUser(result.from), choice, inlineMessageId: result.inline_message_id };
-    const updatedA = teamLabel === 'A' ? [...freshTeamSess.teamA, newPlayer] : freshTeamSess.teamA;
-    const updatedB = teamLabel === 'B' ? [...freshTeamSess.teamB, newPlayer] : freshTeamSess.teamB;
-    if ((teamLabel === 'A' && updatedA.length > freshTeamSess.teamSize) ||
-        (teamLabel === 'B' && updatedB.length > freshTeamSess.teamSize)) {
+    if (teamJoinResult.kind === 'full') {
       await editInlineMessageRich(token, result.inline_message_id, `❌ Tim ${teamLabel} sudah penuh.`);
       return;
     }
-    const isFull = updatedA.length === freshTeamSess.teamSize && updatedB.length === freshTeamSess.teamSize;
-    const updated: TeamSession = { ...freshTeamSess, teamA: updatedA, teamB: updatedB, status: isFull ? 'playing' : 'waiting' };
-    await kv.put(`team:${gameId}`, JSON.stringify(updated), { expirationTtl: isFull ? 300 : 600 });
+    if (teamJoinResult.kind !== 'ok') return;
+    const updated = teamJoinResult.next;
+    const updatedA = updated.teamA;
+    const updatedB = updated.teamB;
+    const isFull = updated.status === 'playing';
     if (isFull) {
       // Free host's rate limit slot — game is now active
       const teamRateKey = `ratelimit:${teamSess.hostUserId}`;
@@ -1272,10 +1325,7 @@ export async function handleChosenInlineResult(
     }
     // Create new open challenge
     const openGameId = generateId();
-    const [hostBadgeOpen, rawOpenListPre] = await Promise.all([
-      fetchBadge(kv, result.from.id),
-      kv.get<OpenChallenge[]>('open:list', 'json'),
-    ]);
+    const hostBadgeOpen = await fetchBadge(kv, result.from.id);
     const openSession: GameSession = {
       gameId: openGameId,
       hostUserId: result.from.id,
@@ -1297,7 +1347,6 @@ export async function handleChosenInlineResult(
       hostBadge: hostBadgeOpen || undefined,
     };
     const newOpenEntry: OpenChallenge = { gameId: openGameId, hostName: formatUser(result.from), hostUserId: result.from.id, createdAt: Date.now() };
-    const updatedOpenList = [...(rawOpenListPre ?? []).filter(c => Date.now() - c.createdAt < 9 * 60 * 1000), newOpenEntry];
     const rateKeyOp = `ratelimit:${result.from.id}`;
     const countOp = parseInt(await kv.get(rateKeyOp) ?? '0');
     if (countOp >= 3) {
@@ -1306,7 +1355,10 @@ export async function handleChosenInlineResult(
     }
     await Promise.all([
       kv.put(`game:${openGameId}`, JSON.stringify(openSession), { expirationTtl: 600 }),
-      kv.put('open:list', JSON.stringify(updatedOpenList), { expirationTtl: 600 }),
+      mutateJson<OpenChallenge[], void>(kv, 'open:list', 600, cur => ({
+        next: [...(cur ?? []).filter(c => Date.now() - c.createdAt < 9 * 60 * 1000), newOpenEntry],
+        result: undefined,
+      })),
       trackHostedGame(kv, result.from.id, openGameId),
       kv.put(rateKeyOp, String(countOp + 1), { expirationTtl: 600 }),
     ]);
@@ -1555,11 +1607,11 @@ export async function handleChosenInlineResult(
 
     // Remove from open:list if this was an open challenge
     if (session.isOpen) {
-      const openList = (await kv.get<OpenChallenge[]>('open:list', 'json')) ?? [];
-      const filteredList = openList.filter(c => c.gameId !== q);
-      if (filteredList.length !== openList.length) {
-        ctx.waitUntil(kv.put('open:list', JSON.stringify(filteredList), { expirationTtl: 600 }));
-      }
+      ctx.waitUntil(mutateJson<OpenChallenge[], void>(kv, 'open:list', 600, cur => {
+        const openList = cur ?? [];
+        const filteredList = openList.filter(c => c.gameId !== q);
+        return filteredList.length !== openList.length ? { next: filteredList, result: undefined } : { result: undefined };
+      }));
     }
 
     const rateKey = `ratelimit:${session.hostUserId}`;

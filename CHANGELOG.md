@@ -5,6 +5,12 @@ Follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [2.3.12] — 2026-10-23
+
+### Changed
+- New `src/kvutil.ts`: `mutateJson(kv, key, ttl, fn)` and `editIdList(kv, key, edit)` — read-modify-write helpers for shared JSON state. When the KV namespace exposes `cas()` (the Telegram Serverless adapter's SQLite-backed store, where handlers truly run concurrently) the mutation is atomic and retried on conflict, so `fn` must be pure; on Cloudflare KV (no compare-and-swap) it degrades to the previous read-immediately-before-write pattern, so behaviour there is unchanged.
+- Moved onto the helpers: 1v1 pick (`handlePick`), LMS and Team picks (callback and by-code inline), LMS and Team join (inline), LMS/Team flee and smite (`callback.ts`), the shared lists `donators:ids` and `beta:approved` (`/adddonator`, `/removedonator`, `/freetrial`, `/activatetier`, `/betaadd`, `/betaremove`) and `open:list` (add, remove on cancel, bulk cleanup). A player's pick/join/leave can no longer overwrite a concurrent one on the platform, and the "last pick starts the round" decision is made by exactly one request.
+
 ## [2.3.11] — 2026-10-01
 
 ### Removed
