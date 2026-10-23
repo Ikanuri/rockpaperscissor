@@ -1,2 +1,2 @@
-# idle: no action (phase 8 rehearsal finished, VERIFY OK in run #9)
-status
+deploy beta
+probe kvstats

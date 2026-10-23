@@ -37,7 +37,7 @@ export class SqlKV {
   async cas<T = any>(
     key: string,
     mutate: (current: T | null) => T | null | undefined,
-    opts?: PutOpts
+    opts?: PutOpts | ((next: T) => PutOpts | undefined)
   ): Promise<{ value: T | null; changed: boolean }> {
     for (let attempt = 0; attempt < 8; attempt++) {
       const now = Date.now();
@@ -48,7 +48,7 @@ export class SqlKV {
       const next = mutate(current);
       if (next === undefined) return { value: current, changed: false };
       const payload = JSON.stringify(next);
-      const exp = expiryOf(opts);
+      const exp = expiryOf(typeof opts === 'function' ? opts(next as T) : opts);
       if (row) {
         const r = await db.run(
           sql`UPDATE kv SET value = ${payload}, expires_at_ms = ${exp}, version = version + 1 WHERE "key" = ${key} AND version = ${row.version}`
