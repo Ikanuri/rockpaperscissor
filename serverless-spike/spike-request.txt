@@ -1,7 +1,2 @@
-# Phase 8: migration rehearsal with BETA data (rps-beta-kv -> platform kv table).
-deploy beta
-kv export beta
-kv wipe
-kv import
-kv verify
-probe kvstats
+# idle: no action (phase 8 rehearsal finished, VERIFY OK in run #9)
+status
