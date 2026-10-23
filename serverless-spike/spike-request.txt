@@ -1,6 +1,4 @@
-# Phase 2: no timers / frozen clock follow-ups, fetch reach, background work, claims, wall limit.
+# Phase 3: verify what the server holds after the CLI crash, pin the wall-clock limit, drop the test trigger.
 deploy
-probe clock sleep fetch db2 cpu=1000000 cpu=20000000 cpu=100000000
-probe bg wait=4 log
-hit 12
-probe wall log
+inspect
+probe cleanup wall2=25 wall2=29 wall2=31 wall2=35 log

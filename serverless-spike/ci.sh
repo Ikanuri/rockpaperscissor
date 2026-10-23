@@ -54,6 +54,14 @@ while IFS= read -r line || [ -n "$line" ]; do
       echo "---- webhook after deploy"
       $TG webhook 2>&1 | mask
       ;;
+    inspect)
+      APPID="${TGCLOUD_TOKEN%%:*}"
+      curl -s -H "Authorization: Bearer ${TGCLOUD_TOKEN}" "https://cloud.telegram.org/${APPID}/manage/get" | jq '{
+        top_keys: keys,
+        revision: (.result.revision // .revision),
+        modules: (((.result.canonical_modules // .canonical_modules) // {}) | to_entries
+          | map({name: .key, type: (.value | type), length: (if (.value | type) == "string" then (.value | length) else null end)})) }'
+      ;;
     probe)
       for p in "$@"; do
         case "$p" in

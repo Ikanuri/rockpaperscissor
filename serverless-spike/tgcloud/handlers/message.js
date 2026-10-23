@@ -59,6 +59,22 @@ const commands = {
     return { completed: done };
   },
 
+  // One I/O-based wait of N seconds: pins the wall-clock limit down one value at a time.
+  async sl_wall2(arg) {
+    const sec = Math.min(parseInt(arg, 10) || 25, 60);
+    await log('wall2:start', { sec });
+    const t0 = Date.now();
+    const how = await pause(sec * 1000, 6000);
+    const actual_ms = Date.now() - t0;
+    await log('wall2:done', { sec, actual_ms, ...how });
+    return { sec, actual_ms, ...how };
+  },
+
+  async sl_cleanup() {
+    await db.run('DROP TRIGGER IF EXISTS probe_trg');
+    return { dropped_trigger: true };
+  },
+
   // CPU cost calibration: `n` iterations of pure CPU work (no clock reads, since the clock is frozen
   // during CPU work). The CLI prints the server-side elapsed time, or the CPU-timer kill.
   async sl_cpu(arg) {
