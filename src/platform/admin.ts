@@ -25,8 +25,9 @@ async function importEntries(entries: Entry[]): Promise<number> {
 }
 
 // Key family = text before the first ':' (or the whole key). Must match the export-side rule.
-async function stats() {
-  const now = Date.now();
+async function stats(stable = false) {
+  // `stable` skips keys about to expire (<15 min), so a snapshot compares exactly against an export.
+  const now = Date.now() + (stable ? 900_000 : 0);
   const families = await db.all(sql`
     SELECT CASE WHEN instr("key", ':') > 0 THEN substr("key", 1, instr("key", ':') - 1) ELSE "key" END AS fam,
            COUNT(*) AS n, SUM(length(CAST(value AS BLOB))) AS bytes
@@ -49,7 +50,7 @@ export async function adminCommand(message: any, env: Env): Promise<unknown> {
     case '/sl_ping':
       return { ok: true, bot: env.BOT_USERNAME, flags: env.FEATURE_FLAGS, kv: (await stats()).total };
     case '/sl_kvstats':
-      return stats();
+      return stats(arg === 'stable');
     case '/sl_import': {
       const entries = Array.isArray(message.entries) ? (message.entries as Entry[]) : [];
       const imported = await importEntries(entries);

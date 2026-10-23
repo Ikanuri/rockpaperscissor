@@ -1,4 +1,7 @@
-# Phase 7: the real bot (TypeScript sources via the adapter layer) on the platform. Build, deploy, smoke.
+# Phase 8: migration rehearsal with BETA data (rps-beta-kv -> platform kv table).
 deploy beta
-probe ping kvstats
-cmd /start
+kv export beta
+kv wipe
+kv import
+kv verify
+probe kvstats

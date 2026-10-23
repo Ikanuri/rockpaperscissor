@@ -3,3 +3,4 @@ node_modules/
 *.out
 # build output (scripts/build-platform.mjs regenerates it in CI)
 tgcloud/
+kv-export/

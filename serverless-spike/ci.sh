@@ -62,6 +62,19 @@ while IFS= read -r line || [ -n "$line" ]; do
       echo "---- $*"
       run_msg "$*"
       ;;
+    kv)
+      sub="${1:-}"; shift || true
+      case "$sub" in
+        export)
+          envname="${1:-beta}"
+          if [ "$envname" = "prod" ]; then NS="c8e5c7ebf6264fe9b450f6794d234d8e"; else NS="0475907e01f74cb5bc215856bd1753a6"; fi
+          ( cd .. && node scripts/kv-migrate.mjs export --namespace "$NS" --out serverless-spike/kv-export ) 2>&1 ;;
+        import) ( cd .. && node scripts/kv-migrate.mjs import --dir serverless-spike/kv-export ) 2>&1 ;;
+        verify) ( cd .. && node scripts/kv-migrate.mjs verify --dir serverless-spike/kv-export ) 2>&1 ;;
+        wipe) run_msg "/sl_kvwipe CONFIRM" ;;
+        *) echo "kv: aksi tidak dikenal: $sub" ;;
+      esac
+      ;;
     inspect)
       APPID="${TGCLOUD_TOKEN%%:*}"
       curl -s -H "Authorization: Bearer ${TGCLOUD_TOKEN}" "https://cloud.telegram.org/${APPID}/manage/get" | jq '{
