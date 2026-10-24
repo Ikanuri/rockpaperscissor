@@ -58,7 +58,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   echo "################ ACTION: $line"
   if [ "$TARGET" = prod ]; then
     case "$action:${1:-}" in
-      status:*|inspect:*|kv:export) ;;
+      status:*|inspect:*|whoami:*|kv:export) ;;
       *) echo "DITOLAK: mode prod hanya mengizinkan status, inspect, kv export (belum ada persetujuan cutover)."; continue ;;
     esac
   fi
@@ -95,6 +95,18 @@ while IFS= read -r line || [ -n "$line" ]; do
         wipe) run_msg "/sl_kvwipe CONFIRM" ;;
         *) echo "kv: aksi tidak dikenal: $sub" ;;
       esac
+      ;;
+    whoami)
+      # Read-only: which bots do the secrets point at? Prints usernames/ids and a same/different verdict, never tokens.
+      who() { curl -s "https://api.telegram.org/bot$1/getMe" | jq -c '{ok, id: .result.id, username: .result.username}'; }
+      hook() { curl -s "https://api.telegram.org/bot$1/getWebhookInfo" | jq -c '{host: ((.result.url // "") | sub("^https?://"; "") | split("/")[0]), pending: .result.pending_update_count, last_error: .result.last_error_message}'; }
+      echo "BOT_TOKEN_PROD:"; who "$BOT_TOKEN_PROD"; hook "$BOT_TOKEN_PROD"
+      if [ -n "${BOT_TOKEN_WORKER:-}" ]; then
+        echo "BOT_TOKEN (secret yang dipakai deploy.yml):"; who "$BOT_TOKEN_WORKER"; hook "$BOT_TOKEN_WORKER"
+        [ "${BOT_TOKEN_PROD%%:*}" = "${BOT_TOKEN_WORKER%%:*}" ] && echo "VERDICT: bot yang sama" || echo "VERDICT: BOT BERBEDA"
+      else
+        echo "BOT_TOKEN_WORKER kosong"
+      fi
       ;;
     inspect)
       APPID="${TGCLOUD_TOKEN%%:*}"

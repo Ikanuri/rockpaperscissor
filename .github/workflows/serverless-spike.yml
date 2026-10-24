@@ -18,6 +18,7 @@ jobs:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN_BETA }}
       TGCLOUD_TOKEN_PROD: ${{ secrets.TGCLOUD_TOKEN_PROD }}
       BOT_TOKEN_PROD: ${{ secrets.BOT_TOKEN_PROD }}
+      BOT_TOKEN_WORKER: ${{ secrets.BOT_TOKEN }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:

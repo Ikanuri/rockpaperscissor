@@ -1,3 +1,2 @@
-# recheck prod webhook state (read-only)
 target prod
-status
+whoami
