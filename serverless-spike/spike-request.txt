@@ -1,2 +1,3 @@
-deploy beta
-probe kvstats
+target prod
+status
+kv export prod

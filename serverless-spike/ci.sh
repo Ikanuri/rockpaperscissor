@@ -7,6 +7,20 @@ set -u
 cd "$(dirname "$0")"
 OWNER=582589514
 
+# `target prod` as a line in spike-request.txt switches this whole run to @GubakeBot's credentials.
+# In that mode only read-only actions are allowed (status, inspect, kv export) until cutover is approved.
+TARGET=beta
+if grep -qE '^target[[:space:]]+prod[[:space:]]*$' spike-request.txt; then
+  TARGET=prod
+  TGCLOUD_TOKEN="${TGCLOUD_TOKEN_PROD:-}"
+  BOT_TOKEN="${BOT_TOKEN_PROD:-}"
+  export TGCLOUD_TOKEN BOT_TOKEN
+  if [ -z "$TGCLOUD_TOKEN" ] || [ -z "$BOT_TOKEN" ]; then
+    echo "TGCLOUD_TOKEN_PROD / BOT_TOKEN_PROD belum ada di GitHub Secrets (atau kosong)."
+    exit 1
+  fi
+fi
+
 if [ -z "${TGCLOUD_TOKEN:-}" ]; then
   echo "TGCLOUD_TOKEN_BETA belum ada di GitHub Secrets (atau kosong) - tidak bisa lanjut."
   exit 1
@@ -39,8 +53,15 @@ while IFS= read -r line || [ -n "$line" ]; do
   # shellcheck disable=SC2086
   set -- $line
   action="$1"; shift
+  [ "$action" = target ] && continue
   echo
   echo "################ ACTION: $line"
+  if [ "$TARGET" = prod ]; then
+    case "$action:${1:-}" in
+      status:*|inspect:*|kv:export) ;;
+      *) echo "DITOLAK: mode prod hanya mengizinkan status, inspect, kv export (belum ada persetujuan cutover)."; continue ;;
+    esac
+  fi
   case "$action" in
     status)
       $TG status 2>&1 | tail -n 25
