@@ -1,2 +1,3 @@
+# cutover selesai (run #15). Jangan isi ulang dengan cutover: guard di ci.sh menolak database yang sudah berisi.
 target prod
-cutover
+status

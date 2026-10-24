@@ -112,6 +112,9 @@ while IFS= read -r line || [ -n "$line" ]; do
       # PRODUCTION CUTOVER (prod target only). Order matters: the platform must not receive updates until its
       # database holds the migrated data, so handlers are pushed only AFTER import + verify succeeded.
       [ "$TARGET" = prod ] || { echo "cutover hanya untuk target prod"; continue; }
+      # Never re-run over a live database: the import would overwrite everything written since cutover.
+      PRE=$(run_msg "/sl_ping" 2>&1 | grep -o 'kv:{n:[0-9]*' | grep -o '[0-9]*$' | tail -n1)
+      if [ -n "$PRE" ] && [ "$PRE" != 0 ]; then echo "ABORT: database platform sudah berisi $PRE key - cutover hanya untuk database kosong."; continue; fi
       echo "---- 1/7 build (prod)"
       ( cd .. && node scripts/build-platform.mjs --env prod --out serverless-spike/tgcloud ) 2>&1 | tail -n 3
       echo "---- 2/7 export KV production (read-only)"
