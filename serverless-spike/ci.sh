@@ -58,7 +58,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   echo "################ ACTION: $line"
   if [ "$TARGET" = prod ]; then
     case "$action:${1:-}" in
-      status:*|inspect:*|whoami:*|kv:export) ;;
+      status:*|inspect:*|whoami:*|kv:export|cutover:*) ;;
       *) echo "DITOLAK: mode prod hanya mengizinkan status, inspect, kv export (belum ada persetujuan cutover)."; continue ;;
     esac
   fi
@@ -107,6 +107,37 @@ while IFS= read -r line || [ -n "$line" ]; do
       else
         echo "BOT_TOKEN_WORKER kosong"
       fi
+      ;;
+    cutover)
+      # PRODUCTION CUTOVER (prod target only). Order matters: the platform must not receive updates until its
+      # database holds the migrated data, so handlers are pushed only AFTER import + verify succeeded.
+      [ "$TARGET" = prod ] || { echo "cutover hanya untuk target prod"; continue; }
+      echo "---- 1/7 build (prod)"
+      ( cd .. && node scripts/build-platform.mjs --env prod --out serverless-spike/tgcloud ) 2>&1 | tail -n 3
+      echo "---- 2/7 export KV production (read-only)"
+      EXP=$( cd .. && node scripts/kv-migrate.mjs export --namespace c8e5c7ebf6264fe9b450f6794d234d8e --out serverless-spike/kv-export 2>&1 ) || { echo "$EXP"; echo "ABORT: export gagal"; continue; }
+      echo "$EXP" | head -n 3
+      echo "$EXP" | grep -q ' 0 oversize' || { echo "ABORT: ada nilai oversize"; continue; }
+      echo "---- 3/7 push schema saja (tanpa handler, belum ada update yang masuk)"
+      mv tgcloud/handlers ./handlers_stash
+      $TG push --force 2>&1 | mask | tail -n 5
+      $TG migrate --safe 2>&1 | tail -n 5
+      mv ./handlers_stash tgcloud/handlers
+      echo "---- 4/7 import ke database platform"
+      ( cd .. && node scripts/kv-migrate.mjs import --dir serverless-spike/kv-export --allow-prod ) 2>&1 | tail -n 5
+      echo "---- 5/7 verifikasi"
+      VER=$( cd .. && node scripts/kv-migrate.mjs verify --dir serverless-spike/kv-export 2>&1 ); VRC=$?
+      echo "$VER" | tail -n 18
+      [ "$VRC" = 0 ] && echo "$VER" | grep -q 'VERIFY OK' || { echo "ABORT: verifikasi gagal, handler TIDAK di-deploy, webhook tidak disentuh"; continue; }
+      echo "---- 6/7 push handler lengkap + webhook"
+      $TG push --force 2>&1 | mask | tail -n 8
+      $TG migrate --safe 2>&1 | tail -n 3
+      if ! $TG webhook 2>&1 | grep -q 'in sync with your deployed handlers'; then $TG webhook sync 2>&1 | mask | tail -n 8; fi
+      $TG webhook 2>&1 | mask
+      echo "---- 7/7 smoke test"
+      run_msg "/sl_ping"
+      run_msg "/sl_kvstats"
+      webhook_info
       ;;
     inspect)
       APPID="${TGCLOUD_TOKEN%%:*}"
